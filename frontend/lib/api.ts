@@ -182,8 +182,9 @@ export const api = {
   /**
    * Get URL to download/stream the trained 3D Gaussian Splat PLY/SPZ model
    */
-  getReconstructionModelUrl(jobId: string): string {
-    return `${API_BASE}/api/reconstruction/jobs/${encodeURIComponent(jobId)}/model`
+  getReconstructionModelUrl(jobId: string, filename?: string): string {
+    const fn = filename ? `/${filename}` : '/scene.sog'
+    return `${API_BASE}/api/reconstruction/jobs/${encodeURIComponent(jobId)}/model${fn}`
   },
 
   /**
@@ -208,6 +209,81 @@ export const api = {
       throw new ApiError(`Mesh conversion failed: ${await res.text()}`, res.status)
     }
     return res.json()
+  },
+
+  /**
+   * Upload a local in-memory or File Gaussian Splat (.sog, .ply) and convert to solid polygon mesh (.glb)
+   * Tracks upload progress and reconstruction stages.
+   */
+  async convertLocalFileToMesh(
+    fileData: { buffer: ArrayBuffer; name: string } | File,
+    onProgress?: (stage: string, percent: number) => void
+  ): Promise<{ status: string; job_id: string; splat_url?: string; mesh_url: string; floor_infill_url?: string; manifest: MeshManifest; license?: string }> {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest()
+      const formData = new FormData()
+
+      let fileBlob: Blob
+      let fileName: string
+
+      if (fileData instanceof File) {
+        fileBlob = fileData
+        fileName = fileData.name
+      } else {
+        fileBlob = new Blob([fileData.buffer], { type: 'application/octet-stream' })
+        fileName = fileData.name || 'scene.sog'
+      }
+
+      formData.append('file', fileBlob, fileName)
+
+      onProgress?.('Uploading Gaussian Splat to conversion engine...', 15)
+
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) {
+          const uploadPct = Math.round((event.loaded / event.total) * 35)
+          onProgress?.('Uploading Gaussian Splat to conversion engine...', Math.max(10, uploadPct))
+        }
+      }
+
+      xhr.onloadstart = () => {
+        onProgress?.('Uploading Gaussian Splat to conversion engine...', 20)
+      }
+
+      xhr.upload.onload = () => {
+        onProgress?.('Decoding Gaussian Splat & estimating surface normals...', 50)
+        setTimeout(() => {
+          onProgress?.('Running Poisson surface reconstruction & mesh decimation...', 75)
+        }, 1500)
+      }
+
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            const data = JSON.parse(xhr.responseText)
+            onProgress?.('Watertight solid mesh ready!', 100)
+            resolve(data)
+          } catch (e: any) {
+            reject(new ApiError(`Invalid server response: ${e.message}`, xhr.status))
+          }
+        } else {
+          let errMsg = `Mesh conversion failed (${xhr.status})`
+          try {
+            const errData = JSON.parse(xhr.responseText)
+            if (errData.detail) errMsg = errData.detail
+          } catch {
+            if (xhr.responseText) errMsg = xhr.responseText
+          }
+          reject(new ApiError(errMsg, xhr.status))
+        }
+      }
+
+      xhr.onerror = () => {
+        reject(new ApiError('Network error during mesh conversion request.'))
+      }
+
+      xhr.open('POST', `${API_BASE}/api/reconstruction/convert-upload-to-mesh`)
+      xhr.send(formData)
+    })
   },
 
   /**

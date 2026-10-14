@@ -21,6 +21,7 @@ export function CameraController({
   moveSpeed = 3,
   lookSpeed = 0.8,
   isDraggingGizmo = false,
+  resetTrigger,
 }: {
   mode: CameraMode
   onModeChange: (mode: CameraMode) => void
@@ -29,6 +30,7 @@ export function CameraController({
   moveSpeed?: number
   lookSpeed?: number
   isDraggingGizmo?: boolean
+  resetTrigger?: number
 }) {
   const { camera, gl } = useThree()
   const orbitRef = useRef<any>(null)
@@ -37,6 +39,18 @@ export function CameraController({
   const keysRef = useRef<Set<string>>(new Set())
   const speedMultiplierRef = useRef(1)
   const directionRef = useRef(new THREE.Vector3())
+
+  // Handle external camera reset trigger
+  useEffect(() => {
+    if (resetTrigger) {
+      if (orbitRef.current) {
+        orbitRef.current.reset()
+      } else {
+        camera.position.set(0, 1.8, 4.5)
+        camera.lookAt(0, 0, 0)
+      }
+    }
+  }, [resetTrigger, camera])
 
   // Handle keyboard input for walk/fly modes
   useEffect(() => {

@@ -91,6 +91,7 @@ export interface MeshManifest {
   }
   total_vertices: number
   total_triangles: number
+  is_approximate_surface?: boolean
   objects: Array<{
     entity_id: string
     name: string

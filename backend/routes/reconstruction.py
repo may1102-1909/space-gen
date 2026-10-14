@@ -200,8 +200,8 @@ async def create_reconstruction_job(video: UploadFile = File(...), mode: str = "
 
 @router.post("/upload-model", status_code=201)
 async def upload_existing_model(model: UploadFile = File(...)):
-    """Upload an existing 3D Gaussian Splat (.ply, .spz, .splat, .ksplat) or mesh (.glb) to view immediately."""
-    allowed = {".ply", ".spz", ".splat", ".ksplat", ".glb", ".gltf", ".obj"}
+    """Upload an existing 3D Gaussian Splat (.sog, .ply, .spz, .splat, .ksplat) or mesh (.glb) to view immediately."""
+    allowed = {".sog", ".ply", ".spz", ".splat", ".ksplat", ".glb", ".gltf", ".obj"}
     suffix = Path(model.filename or "model.ply").suffix.lower()
     if suffix not in allowed:
         raise HTTPException(400, f"Unsupported 3D model format. Allowed: {', '.join(allowed)}")
@@ -247,7 +247,7 @@ async def upload_existing_model(model: UploadFile = File(...)):
 async def list_available_models():
     """List all available 3D Gaussian Splat and mesh models stored on disk."""
     models = []
-    supported_exts = {".splat", ".ply", ".spz", ".ksplat", ".glb", ".gltf", ".obj"}
+    supported_exts = {".sog", ".splat", ".ply", ".spz", ".ksplat", ".glb", ".gltf", ".obj"}
     if DATA_ROOT.exists():
         job_dirs = sorted([d for d in DATA_ROOT.iterdir() if d.is_dir()], key=lambda d: d.stat().st_mtime, reverse=True)
         for d in job_dirs:
@@ -256,8 +256,8 @@ async def list_available_models():
                 export_dir = d
 
             found_file = None
-            # Check preferred candidate names first (prefer lightweight streamable scene.splat)
-            for candidate_name in ["scene.splat", "splat.ply", "scene.spz", "scene.ksplat", "scene.glb", "scene.gltf", "scene.obj", "point_cloud.ply"]:
+            # Check preferred candidate names first (prefer lightweight streamable scene.splat or scene.sog)
+            for candidate_name in ["scene.sog", "scene.splat", "splat.ply", "scene.spz", "scene.ksplat", "scene.glb", "scene.gltf", "scene.obj", "point_cloud.ply"]:
                 target_file = export_dir / candidate_name
                 if target_file.exists():
                     found_file = target_file
@@ -291,13 +291,13 @@ async def get_latest_reconstruction_job():
         return job
     
     # Check DATA_ROOT for existing completed jobs
-    supported_exts = {".splat", ".ply", ".spz", ".ksplat", ".glb", ".gltf", ".obj"}
+    supported_exts = {".sog", ".splat", ".ply", ".spz", ".ksplat", ".glb", ".gltf", ".obj"}
     if DATA_ROOT.exists():
         job_dirs = sorted([d for d in DATA_ROOT.iterdir() if d.is_dir()], key=lambda d: d.stat().st_mtime, reverse=True)
         for d in job_dirs:
             for sdir in [d / "export", d]:
                 if sdir.exists():
-                    for candidate in ["scene.splat", "splat.ply", "scene_mesh.glb", "scene.spz", "scene.obj"]:
+                    for candidate in ["scene.sog", "scene.splat", "splat.ply", "scene_mesh.glb", "scene.spz", "scene.obj"]:
                         cf = sdir / candidate
                         if cf.exists() and cf.is_file():
                             return {
@@ -325,7 +325,7 @@ async def get_reconstruction_model(job_id: str, filename: str):
 
 
 def _resolve_and_serve_model(job_id: str, filename: Optional[str] = None):
-    """Serve the exported 3D Gaussian Splat (.ply, .spz, .splat) or mesh (.glb, .obj) for a reconstruction job."""
+    """Serve the exported 3D Gaussian Splat (.sog, .ply, .spz, .splat) or mesh (.glb, .obj) for a reconstruction job."""
     job_dir = DATA_ROOT / job_id
     if not job_dir.exists():
         fallback_dir = ROOT / "data" / "reconstruction" / job_id
@@ -342,15 +342,15 @@ def _resolve_and_serve_model(job_id: str, filename: Optional[str] = None):
             if target.exists() and target.is_file():
                 return _create_model_response(target)
 
-    # 2. Check standard candidate names (prefer fast streamable scene.splat)
+    # 2. Check standard candidate names (prefer fast streamable scene.splat or scene.sog)
     for sdir in search_dirs:
-        for candidate_name in ["scene.splat", "splat.ply", "scene.spz", "scene.ksplat", "scene.glb", "scene.gltf", "scene.obj", "point_cloud.ply"]:
+        for candidate_name in ["scene.sog", "scene.splat", "splat.ply", "scene.spz", "scene.ksplat", "scene.glb", "scene.gltf", "scene.obj", "point_cloud.ply"]:
             candidate = sdir / candidate_name
             if candidate.exists():
                 return _create_model_response(candidate)
 
     # 3. Check for any supported 3D file in export or job directory
-    supported_exts = {".ply", ".spz", ".ksplat", ".splat", ".glb", ".gltf", ".obj"}
+    supported_exts = {".sog", ".ply", ".spz", ".ksplat", ".splat", ".glb", ".gltf", ".obj"}
     for sdir in search_dirs:
         if sdir.exists():
             for f in sdir.iterdir():
@@ -365,6 +365,7 @@ def _create_model_response(file_path: Path) -> FileResponse:
     media_types = {
         ".glb": "model/gltf-binary",
         ".gltf": "model/gltf+json",
+        ".sog": "application/octet-stream",
         ".ply": "application/octet-stream",
         ".spz": "application/octet-stream",
         ".splat": "application/octet-stream",
@@ -408,9 +409,60 @@ async def get_reconstruction_job(job_id: str):
 CATALOG_DIR = ROOT / "data" / "furniture_catalog"
 
 
+@router.post("/convert-upload-to-mesh")
+async def convert_uploaded_file_to_mesh(file: UploadFile = File(...)):
+    """
+    Upload a local Gaussian Splat (.sog, .ply) and convert it directly into a solid polygon mesh (.glb).
+    Returns real job ID, mesh URL, floor infill URL, manifest, and any embedded license notice.
+    """
+    allowed = {".sog", ".ply"}
+    suffix = Path(file.filename or "scene.sog").suffix.lower()
+    if suffix not in allowed:
+        raise HTTPException(400, f"Unsupported splat format '{suffix}' for mesh conversion. Allowed: .sog, .ply")
+
+    job_id = f"sog_mesh_{uuid.uuid4().hex[:8]}"
+    job_dir = DATA_ROOT / job_id
+    export_dir = job_dir / "export"
+    mesh_dir = job_dir / "mesh"
+    export_dir.mkdir(parents=True, exist_ok=True)
+    mesh_dir.mkdir(parents=True, exist_ok=True)
+
+    target_filename = f"scene{suffix}"
+    target_path = export_dir / target_filename
+    with target_path.open("wb") as out:
+        shutil.copyfileobj(file.file, out)
+
+    from services.mesh_extractor import convert_splat_to_mesh
+    try:
+        manifest = await asyncio.to_thread(convert_splat_to_mesh, target_path, mesh_dir)
+        job_data = {
+            "job_id": job_id,
+            "status": "completed",
+            "progress": 100,
+            "step": "Mesh ready",
+            "log": f"Converted {file.filename} into solid mesh successfully.",
+            "scene_path": str(export_dir),
+            "splat_url": f"/api/reconstruction/jobs/{job_id}/model/{target_filename}",
+            "mesh_url": f"/api/reconstruction/jobs/{job_id}/mesh/scene_mesh.glb",
+            "manifest": manifest,
+        }
+        db.save_job(job_id, job_data)
+        return {
+            "status": "completed",
+            "job_id": job_id,
+            "splat_url": f"/api/reconstruction/jobs/{job_id}/model/{target_filename}",
+            "mesh_url": f"/api/reconstruction/jobs/{job_id}/mesh/scene_mesh.glb",
+            "floor_infill_url": f"/api/reconstruction/jobs/{job_id}/mesh/floor_infill.glb",
+            "manifest": manifest,
+            "license": manifest.get("license"),
+        }
+    except Exception as e:
+        raise HTTPException(500, f"Mesh conversion failed: {str(e)}")
+
+
 @router.post("/jobs/{job_id}/convert-to-mesh")
 async def convert_job_to_mesh(job_id: str):
-    """Convert an existing Gaussian Splat job into an editable solid polygon mesh (.glb) with segmented objects."""
+    """Convert an existing Gaussian Splat job (.sog, .ply) into an editable solid polygon mesh (.glb)."""
     from services.mesh_extractor import convert_splat_to_mesh
     job_dir = DATA_ROOT / job_id
     if not job_dir.exists():
@@ -421,23 +473,36 @@ async def convert_job_to_mesh(job_id: str):
             raise HTTPException(404, f"Job {job_id} not found")
 
     export_dir = job_dir / "export"
-    ply_file = export_dir / "splat.ply"
-    if not ply_file.exists():
-        ply_cands = list(export_dir.glob("*.ply")) or list(job_dir.glob("*.ply"))
-        if ply_cands:
-            ply_file = ply_cands[0]
+    candidates = [
+        export_dir / "scene.sog",
+        export_dir / "splat.ply",
+    ]
+    splat_file = None
+    for cand in candidates:
+        if cand.exists():
+            splat_file = cand
+            break
+
+    if not splat_file:
+        all_sog = list(export_dir.glob("*.sog")) or list(job_dir.glob("*.sog"))
+        all_ply = list(export_dir.glob("*.ply")) or list(job_dir.glob("*.ply"))
+        if all_sog:
+            splat_file = all_sog[0]
+        elif all_ply:
+            splat_file = all_ply[0]
         else:
-            raise HTTPException(400, "No splat PLY file found to convert into mesh.")
+            raise HTTPException(400, "No splat (.sog or .ply) file found in job to convert into mesh.")
 
     mesh_dir = job_dir / "mesh"
     try:
-        manifest = await asyncio.to_thread(convert_splat_to_mesh, ply_file, mesh_dir)
+        manifest = await asyncio.to_thread(convert_splat_to_mesh, splat_file, mesh_dir)
         return {
             "status": "completed",
             "job_id": job_id,
             "mesh_url": f"/api/reconstruction/jobs/{job_id}/mesh/scene_mesh.glb",
             "floor_infill_url": f"/api/reconstruction/jobs/{job_id}/mesh/floor_infill.glb",
             "manifest": manifest,
+            "license": manifest.get("license"),
         }
     except Exception as e:
         raise HTTPException(500, f"Mesh conversion failed: {str(e)}")

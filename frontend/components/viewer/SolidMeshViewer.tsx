@@ -139,17 +139,34 @@ export function SolidMeshViewer({
 
   // Load master room mesh if available
   useEffect(() => {
-    if (!meshUrl) return
+    if (!meshUrl) {
+      if (meshGroupRef.current) {
+        meshGroupRef.current.clear()
+      }
+      return
+    }
     let cancelled = false
 
     async function loadMesh() {
       try {
-        const { GLTFLoader } = await import('three/examples/jsm/loaders/GLTFLoader.js')
-        const loader = new GLTFLoader()
-        const gltf = await loader.loadAsync(meshUrl)
+        let model: THREE.Group | THREE.Object3D
+
+        if (meshUrl!.toLowerCase().includes('.obj')) {
+          const { OBJLoader } = await import('three/examples/jsm/loaders/OBJLoader.js')
+          const loader = new OBJLoader()
+          model = await loader.loadAsync(meshUrl!)
+        } else {
+          const { GLTFLoader } = await import('three/examples/jsm/loaders/GLTFLoader.js')
+          const loader = new GLTFLoader()
+          const gltf = await loader.loadAsync(meshUrl!)
+          model = gltf.scene
+        }
+
         if (cancelled || !meshGroupRef.current) return
 
-        const model = gltf.scene
+        let totalVertices = 0
+        let totalTriangles = 0
+
         model.traverse((child: any) => {
           if (child.isMesh) {
             child.castShadow = true
@@ -158,11 +175,27 @@ export function SolidMeshViewer({
               if (Array.isArray(child.material)) child.material.forEach((m: any) => { m.side = THREE.DoubleSide })
               else child.material.side = THREE.DoubleSide
             }
+            if (child.geometry) {
+              if (child.geometry.attributes?.position) {
+                totalVertices += child.geometry.attributes.position.count
+              }
+              if (child.geometry.index) {
+                totalTriangles += Math.round(child.geometry.index.count / 3)
+              } else if (child.geometry.attributes?.position) {
+                totalTriangles += Math.round(child.geometry.attributes.position.count / 3)
+              }
+            }
           }
         })
 
         meshGroupRef.current.clear()
         meshGroupRef.current.add(model)
+
+        useAppStore.getState().setModelStats({
+          count: totalVertices,
+          triangles: totalTriangles,
+          type: 'vertices',
+        })
       } catch (err) {
         console.warn('SolidMeshViewer: master room mesh load error (fallback to objects view):', err)
       }

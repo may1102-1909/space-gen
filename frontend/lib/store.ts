@@ -14,6 +14,7 @@ export interface AppState {
   beforeImage: string | null
   afterImage: string | null
   splatUrl: string | null
+  localSplatData: { buffer: ArrayBuffer; name: string } | null
   showSplat: boolean
   showBoxes: boolean
 
@@ -24,9 +25,19 @@ export interface AppState {
   objectReplacements: Record<string, { modelUrl: string; name: string }>
   isConvertingMesh: boolean
   convertProgress: number | null
+  convertStage: string | null
+  convertedMeshUrl: string | null
+  activeJobId: string | null
   meshManifest: MeshManifest | null
   furnitureCatalog: FurnitureItem[]
   showReplacementModal: boolean
+
+  // Unified Model & Camera Desk State
+  activeModelName: string | null
+  activeFileType: string | null
+  modelStats: { count?: number; triangles?: number; type?: string; sizeFormatted?: string } | null
+  coordSystem: 'OpenCV' | 'OpenGL'
+  farPlane: number
 
   setScene: (scene: SceneGraph | null) => void
   setSelectedObjectId: (id: string | null) => void
@@ -40,6 +51,7 @@ export interface AppState {
   setBeforeImage: (img: string | null) => void
   setAfterImage: (img: string | null) => void
   setSplatUrl: (url: string | null) => void
+  setLocalSplatData: (data: { buffer: ArrayBuffer; name: string } | null, options?: { viewMode?: 'splat' | 'mesh' }) => void
   setShowSplat: (show: boolean) => void
   setShowBoxes: (show: boolean) => void
 
@@ -52,9 +64,18 @@ export interface AppState {
   deleteObject: (id: string) => void
   setIsConvertingMesh: (val: boolean) => void
   setConvertProgress: (val: number | null) => void
+  setConvertStage: (stage: string | null) => void
+  setConvertedMeshUrl: (url: string | null) => void
+  setActiveJobId: (id: string | null) => void
   setMeshManifest: (manifest: MeshManifest | null) => void
   setFurnitureCatalog: (catalog: FurnitureItem[]) => void
   setShowReplacementModal: (show: boolean) => void
+  setActiveModelName: (name: string | null) => void
+  setActiveFileType: (type: string | null) => void
+  setModelStats: (stats: { count?: number; triangles?: number; type?: string; sizeFormatted?: string } | null) => void
+  setCoordSystem: (sys: 'OpenCV' | 'OpenGL') => void
+  setFarPlane: (far: number) => void
+  clearActiveModel: () => void
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -72,6 +93,7 @@ export const useAppStore = create<AppState>((set) => ({
   beforeImage: null,
   afterImage: null,
   splatUrl: null,
+  localSplatData: null,
   showSplat: true,
   showBoxes: true,
 
@@ -82,9 +104,19 @@ export const useAppStore = create<AppState>((set) => ({
   objectReplacements: {},
   isConvertingMesh: false,
   convertProgress: null,
+  convertStage: null,
+  convertedMeshUrl: null,
+  activeJobId: null,
   meshManifest: null,
   furnitureCatalog: [],
   showReplacementModal: false,
+
+  // Unified Model & Camera Desk default values
+  activeModelName: null,
+  activeFileType: null,
+  modelStats: null,
+  coordSystem: 'OpenCV',
+  farPlane: 2000,
 
   setScene: (scene) => set({ scene }),
   setSelectedObjectId: (id) => set({ selectedObjectId: id }),
@@ -97,7 +129,25 @@ export const useAppStore = create<AppState>((set) => ({
   setPresentationMode: (presentationMode) => set({ presentationMode }),
   setBeforeImage: (beforeImage) => set({ beforeImage }),
   setAfterImage: (afterImage) => set({ afterImage }),
-  setSplatUrl: (splatUrl) => set({ splatUrl, showSplat: true }),
+  setSplatUrl: (splatUrl) => set({
+    splatUrl,
+    localSplatData: null,
+    convertedMeshUrl: null,
+    activeJobId: null,
+    showSplat: true,
+    viewMode: 'splat',
+    activeModelName: splatUrl ? (splatUrl.split('/').pop() || 'Remote Model') : null,
+    activeFileType: '3DGS',
+  }),
+  setLocalSplatData: (localSplatData, options) => set({
+    localSplatData,
+    convertedMeshUrl: null,
+    activeJobId: null,
+    showSplat: true,
+    viewMode: options?.viewMode || 'splat',
+    activeModelName: localSplatData?.name || null,
+    activeFileType: localSplatData ? '3DGS' : null,
+  }),
   setShowSplat: (showSplat) => set({ showSplat }),
   setShowBoxes: (showBoxes) => set({ showBoxes }),
 
@@ -136,8 +186,29 @@ export const useAppStore = create<AppState>((set) => ({
   }),
   setIsConvertingMesh: (isConvertingMesh) => set({ isConvertingMesh }),
   setConvertProgress: (convertProgress) => set({ convertProgress }),
+  setConvertStage: (convertStage) => set({ convertStage }),
+  setConvertedMeshUrl: (convertedMeshUrl) => set({ convertedMeshUrl }),
+  setActiveJobId: (activeJobId) => set({ activeJobId }),
   setMeshManifest: (meshManifest) => set({ meshManifest }),
   setFurnitureCatalog: (furnitureCatalog) => set({ furnitureCatalog }),
   setShowReplacementModal: (showReplacementModal) => set({ showReplacementModal }),
+  setActiveModelName: (activeModelName) => set({ activeModelName }),
+  setActiveFileType: (activeFileType) => set({ activeFileType }),
+  setModelStats: (modelStats) => set({ modelStats }),
+  setCoordSystem: (coordSystem) => set({ coordSystem }),
+  setFarPlane: (farPlane) => set({ farPlane }),
+  clearActiveModel: () => set({
+    activeModelName: null,
+    activeFileType: null,
+    localSplatData: null,
+    convertedMeshUrl: null,
+    splatUrl: null,
+    activeJobId: null,
+    meshManifest: null,
+    modelStats: null,
+    isConvertingMesh: false,
+    convertProgress: null,
+    convertStage: null,
+  }),
 }))
 

@@ -6,14 +6,21 @@ import { SceneObject } from '@/lib/types'
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import * as THREE from 'three'
 import { useAppStore } from '@/lib/store'
+import dynamic from 'next/dynamic'
 import { SplatEngine } from './SplatEngine'
 import { SparkSplatViewer } from './SparkSplatViewer'
 import { CameraController, CameraMode } from './CameraController'
 import { useQualityManager } from './QualityManager'
+import { Loader2, Box } from 'lucide-react'
+
+const AholoViewer = dynamic(() => import('./AholoViewer').then((mod) => mod.AholoViewer), {
+  ssr: false,
+})
 import { ViewerOverlay } from './ViewerOverlay'
 import { SolidMeshViewer } from './SolidMeshViewer'
 import { ObjectActionBar } from './ObjectActionBar'
 import { ObjectReplacementModal } from './ObjectReplacementModal'
+import { ModelCameraDesk } from './ModelCameraDesk'
 import { api } from '@/lib/api'
 
 /* ---------- Per-object bounding-box mesh ---------- */
@@ -92,6 +99,8 @@ export function SceneViewer({
 }) {
   const { 
     splatUrl, 
+    localSplatData,
+    setLocalSplatData,
     showSplat, 
     setShowSplat, 
     showBoxes, 
@@ -100,10 +109,18 @@ export function SceneViewer({
     meshManifest,
     setMeshManifest,
     setFurnitureCatalog,
+    convertedMeshUrl,
+    activeJobId,
+    activeModelName,
+    isConvertingMesh,
+    convertProgress,
+    convertStage,
+    coordSystem,
   } = useAppStore()
   
   // Splat loading states
   const [loadProgress, setLoadProgress] = useState<number | null>(null)
+  const [loadStage, setLoadStage] = useState<string | null>(null)
   const [splatCount, setSplatCount] = useState<number | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   
@@ -116,6 +133,8 @@ export function SceneViewer({
   const [isDraggingGizmo, setIsDraggingGizmo] = useState(false)
   const [showShortcuts, setShowShortcuts] = useState(false)
   const [cameraMode, setCameraMode] = useState<CameraMode>('orbit')
+  const [cameraResetTrigger, setCameraResetTrigger] = useState(0)
+  const aholoResetViewRef = useRef<(() => void) | null>(null)
   const captureRef = useRef<(() => string | null) | null>(null)
 
   // Pre-load furniture catalog & mesh manifest
@@ -129,28 +148,34 @@ export function SceneViewer({
 
   useEffect(() => {
     const match = splatUrl?.match(/jobs\/([^\/]+)/)
-    const jobId = match ? match[1] : null
+    const jobId = activeJobId || (match ? match[1] : null)
     if (jobId && !meshManifest) {
       api.getMeshManifest(jobId).then((m) => {
         if (m) setMeshManifest(m)
       }).catch(() => {})
     }
-  }, [splatUrl, meshManifest, setMeshManifest])
+  }, [splatUrl, activeJobId, meshManifest, setMeshManifest])
 
   // Resolve master mesh URL for solid polygon mesh mode
   const masterMeshUrl = useMemo(() => {
+    if (convertedMeshUrl) {
+      return api.normalizeModelUrl(convertedMeshUrl) || convertedMeshUrl
+    }
     if (splatUrl && (splatUrl.endsWith('.glb') || splatUrl.endsWith('.gltf') || splatUrl.endsWith('.obj'))) {
       return api.normalizeModelUrl(splatUrl) || splatUrl
     }
     const match = splatUrl?.match(/jobs\/([^\/]+)/)
-    const jobId = match ? match[1] : '44a1897d1ca1'
+    const jobId = activeJobId || (match ? match[1] : null)
+    if (!jobId) {
+      return undefined
+    }
     if (meshManifest?.master_mesh) {
       return api.normalizeModelUrl(`/api/reconstruction/jobs/${jobId}/mesh/${meshManifest.master_mesh}`) || undefined
     }
     return api.normalizeModelUrl(`/api/reconstruction/jobs/${jobId}/mesh/scene_mesh.glb`) || undefined
-  }, [splatUrl, meshManifest])
+  }, [splatUrl, convertedMeshUrl, activeJobId, meshManifest])
 
-  // Merged objects list including semantic manifest items and guaranteed primary bed
+  // Merged objects list from scene graph and verified mesh manifest
   const allObjects: SceneObject[] = useMemo(() => {
     const existingIds = new Set(objects.map(o => o.entity_id))
     const list = [...objects]
@@ -172,23 +197,40 @@ export function SceneViewer({
         }
       }
     }
-    // Guarantee primary bed object exists so user can immediately move/rotate/scale/replace it
-    if (!list.some(o => o.category?.toLowerCase() === 'bed' || o.name?.toLowerCase().includes('bed'))) {
-      list.push({
-        entity_id: 'bed_primary',
-        name: 'King Size Bed',
-        category: 'Bed',
-        type: 'furniture',
-        position: { x: 0, y: 0.45, z: 0 },
-        dimensions: { width_m: 2.05, height_m: 0.95, depth_m: 2.15 },
-        material: { type: 'Fabric', color: '#6366f1', finish: 'Matte' },
-        confidence: 1.0,
-        editable: true,
-        is_visible: true,
-      })
-    }
     return list
   }, [objects, meshManifest])
+
+  // Custom model scene isolation:
+  // If user selected a custom file (direct mesh or splat conversion), NEVER display
+  // the mock room bedroom furniture (King Bed, Sofa, Table) as if it came from their file.
+  const isCustomScene = Boolean(activeModelName || convertedMeshUrl || localSplatData)
+  const solidMeshObjects = useMemo(() => {
+    if (isCustomScene) {
+      if (meshManifest?.objects && meshManifest.objects.length > 0) {
+        return meshManifest.objects.map(mObj => ({
+          entity_id: mObj.entity_id,
+          name: mObj.name,
+          category: mObj.category,
+          type: 'furniture' as const,
+          position: mObj.position,
+          dimensions: mObj.dimensions,
+          confidence: 1.0,
+          is_visible: true,
+          editable: true,
+        }))
+      }
+      return []
+    }
+    return allObjects
+  }, [isCustomScene, meshManifest, allObjects])
+
+  const handleResetView = useCallback(() => {
+    if (viewMode === 'splat') {
+      aholoResetViewRef.current?.()
+    } else {
+      setCameraResetTrigger(prev => prev + 1)
+    }
+  }, [viewMode])
 
   // Dynamic performance and quality management
   const { tier, setTier, fps, trackFrame } = useQualityManager()
@@ -236,48 +278,77 @@ export function SceneViewer({
     return () => window.removeEventListener('keydown', handleKey)
   }, [showBoxes, showSplat, splatUrl, setShowBoxes, setShowSplat, handleScreenshot, cameraMode])
 
-  // Reset fallback engine when URL changes
+  // Reset fallback engine when URL or local data changes
   useEffect(() => {
     setUseFallbackEngine(false)
-  }, [splatUrl])
+  }, [splatUrl, localSplatData])
 
-  // Determine if the spatial engine should be active
-  const useSpatialEngine = viewMode === 'splat' && splatUrl && !useFallbackEngine
+  const handleProgress = useCallback((p: number, stage?: string) => {
+    if (p > 0 && p < 100) {
+      setLoadProgress(p)
+      if (stage) setLoadStage(stage)
+    } else {
+      setLoadProgress(null)
+      setLoadStage(null)
+    }
+  }, [])
+
+  const handleLoaded = useCallback((info: { splatCount: number; fileName?: string }) => {
+    setSplatCount(info.splatCount || 0)
+    setLoadProgress(null)
+    setLoadStage(null)
+    setLoadError(null)
+  }, [])
+
+  const handleFpsUpdate = useCallback((f: number) => {
+    setSpatialFps(f)
+  }, [])
+
+  const handleDataLoaded = useCallback((data: { buffer: ArrayBuffer; name: string }) => {
+    setLocalSplatData(data)
+    setLoadError(null)
+  }, [setLocalSplatData])
+
+  const handleViewerError = useCallback((err: Error) => {
+    console.warn('[SceneViewer] 3DGS engine error:', err);
+    if (err.message === 'FALLBACK_REQUIRED' || err.message?.includes('timed out') || err.message?.includes('Worker')) {
+      console.info('[SceneViewer] Automatically switching to Spark Splat Viewer fallback');
+      setUseFallbackEngine(true);
+      setLoadError(null);
+      setLoadProgress(null);
+      setLoadStage(null);
+    } else {
+      setLoadError(err.message);
+      setLoadProgress(null);
+      setLoadStage(null);
+    }
+  }, []);
+
+  // Determine if Aholo Viewer is active (primary 3DGS engine)
+  const useAholoViewer = viewMode === 'splat' && !useFallbackEngine
 
   return (
     <div className="w-full h-full relative select-none">
       {/* 
-        ENGINE 1: SpaceGen Spatial Engine (high-performance 3DGS renderer)
+        ENGINE 1: SpaceGen Aholo 3D Viewer (powered by @manycore/aholo-viewer)
         Renders in its own WebGL2 canvas, sits on top of the R3F canvas.
-        Only visible when in Splat View mode and the spatial engine is active.
+        Supports drag-and-drop & file picker for local files without backend upload,
+        format validation for 3DGS vs mesh PLY, and full orbit/pan/zoom navigation.
       */}
-      {useSpatialEngine && (
-        <SplatEngine
-          url={splatUrl!}
+      {useAholoViewer && (
+        <AholoViewer
+          url={localSplatData ? null : splatUrl}
+          localData={localSplatData}
           visible={viewMode === 'splat' && showSplat}
+          coordinateSystem={(coordSystem?.toLowerCase() as 'opencv' | 'opengl') || 'opencv'}
+          useOrbit={cameraMode === 'orbit'}
           className="absolute inset-0 z-10"
-          onProgress={(p) => setLoadProgress(p < 100 ? p : null)}
-          onLoaded={(info) => {
-            setSplatCount(info.splatCount || 0)
-            setLoadProgress(null)
-            setLoadError(null)
-          }}
-          onFpsUpdate={(f) => setSpatialFps(f)}
-          onError={(err) => {
-            if (err.message === 'FALLBACK_REQUIRED') {
-              // Spatial engine cannot parse this format — switch to legacy renderer
-              console.log('[SpaceGen] Spatial engine falling back to legacy renderer for:', splatUrl)
-              setUseFallbackEngine(true)
-              setLoadError(null)
-              setLoadProgress(null)
-            } else if (err.message.startsWith('MESH_FORMAT:')) {
-              // This is a mesh file — it will be handled by the R3F viewer below
-              setUseFallbackEngine(true)
-            } else {
-              setLoadError(err.message)
-              setLoadProgress(null)
-            }
-          }}
+          onProgress={handleProgress}
+          onLoaded={handleLoaded}
+          onFpsUpdate={handleFpsUpdate}
+          onDataLoaded={handleDataLoaded}
+          onResetViewReady={(fn) => { aholoResetViewRef.current = fn }}
+          onError={handleViewerError}
         />
       )}
 
@@ -292,11 +363,11 @@ export function SceneViewer({
         camera={{ position: [0, 1.8, 4.5], fov: 55 }} 
         shadows={false}
         style={{
-          // Move behind the spatial engine when it's active and visible
-          position: useSpatialEngine ? 'absolute' : 'relative',
-          zIndex: useSpatialEngine ? 0 : 1,
-          opacity: useSpatialEngine ? 0 : 1,
-          pointerEvents: useSpatialEngine ? 'none' : 'auto',
+          // Move behind the Aholo engine when it's active and visible
+          position: useAholoViewer ? 'absolute' : 'relative',
+          zIndex: useAholoViewer ? 0 : 1,
+          opacity: useAholoViewer ? 0 : 1,
+          pointerEvents: useAholoViewer ? 'none' : 'auto',
         }}
         gl={{ 
           antialias: false,
@@ -319,13 +390,14 @@ export function SceneViewer({
           cellSize={0.5}
         />
         
-        {/* Switchable camera controller with gizmo drag locking */}
+        {/* Switchable camera controller with gizmo drag locking and reset trigger */}
         <CameraController 
           mode={cameraMode}
           onModeChange={setCameraMode}
           floorHeight={-1}
           eyeHeight={1.6}
           isDraggingGizmo={isDraggingGizmo}
+          resetTrigger={cameraResetTrigger}
         />
 
         <CanvasHelpers 
@@ -356,7 +428,7 @@ export function SceneViewer({
         {viewMode === 'mesh' && (
           <SolidMeshViewer
             meshUrl={masterMeshUrl}
-            objects={allObjects}
+            objects={solidMeshObjects}
             onSelectObject={onSelectObject}
             onDragChange={setIsDraggingGizmo}
           />
@@ -385,9 +457,33 @@ export function SceneViewer({
       {/* Object Replacement Modal (Catalog / Custom Upload / AI Generator) */}
       <ObjectReplacementModal />
 
+      {/* Solid Mesh Empty State Notice when no mesh produced yet and not converting */}
+      {viewMode === 'mesh' && !isConvertingMesh && !masterMeshUrl && (
+        <div className="absolute inset-0 z-5 flex flex-col items-center justify-center pointer-events-none">
+          <div className="flex flex-col items-center gap-2 p-6 rounded-2xl bg-black/40 border border-white/5 backdrop-blur-md max-w-md text-center">
+            <Box className="w-10 h-10 text-text-muted/60 mb-1" />
+            <h3 className="text-sm font-medium text-white">No Solid Mesh Loaded</h3>
+            <p className="text-xs text-text-muted max-w-xs">
+              {activeModelName
+                ? `Ready to reconstruct ${activeModelName}. Click "Convert to Solid Mesh" above to generate a polygon mesh.`
+                : 'Select or drop a 3D model (.glb, .gltf, .obj) or 3D Gaussian Splat (.sog, .ply) using the panel on the left.'}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Unified Model & Camera Control Desk (Visible in both Solid Mesh & Splat View) */}
+      <ModelCameraDesk
+        onResetView={handleResetView}
+        splatCount={splatCount}
+        cameraOrbiting={cameraMode === 'orbit'}
+        onToggleOrbit={(orbit) => setCameraMode(orbit ? 'orbit' : 'walk')}
+      />
+
       {/* Complete UI Controls and Overlays */}
       <ViewerOverlay
         loadProgress={loadProgress}
+        loadStage={loadStage}
         splatCount={splatCount}
         loadError={loadError}
         onDismissError={() => setLoadError(null)}
@@ -399,7 +495,7 @@ export function SceneViewer({
         cameraMode={cameraMode}
         onCameraMode={setCameraMode}
         quality={tier}
-        fps={useSpatialEngine ? spatialFps : fps}
+        fps={useAholoViewer ? spatialFps : fps}
         onQualityChange={setTier}
         onScreenshot={handleScreenshot}
         showShortcuts={showShortcuts}

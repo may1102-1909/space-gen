@@ -15,6 +15,7 @@ import { QualityTier } from './QualityManager'
 interface ViewerOverlayProps {
   // Loading state
   loadProgress: number | null
+  loadStage?: string | null
   splatCount: number | null
   loadError: string | null
   onDismissError: () => void
@@ -45,7 +46,7 @@ interface ViewerOverlayProps {
 
 export function ViewerOverlay(props: ViewerOverlayProps) {
   const {
-    loadProgress, splatCount, loadError, onDismissError,
+    loadProgress, loadStage, splatCount, loadError, onDismissError,
     splatUrl, showSplat, showBoxes, onToggleSplat, onToggleBoxes,
     cameraMode, onCameraMode,
     quality, fps, onQualityChange,
@@ -56,10 +57,17 @@ export function ViewerOverlay(props: ViewerOverlayProps) {
   const {
     viewMode,
     setViewMode,
+    localSplatData,
+    convertedMeshUrl,
+    setConvertedMeshUrl,
+    activeJobId,
+    setActiveJobId,
     isConvertingMesh,
     setIsConvertingMesh,
     convertProgress,
     setConvertProgress,
+    convertStage,
+    setConvertStage,
     meshManifest,
     setMeshManifest,
     objectTransforms,
@@ -69,29 +77,65 @@ export function ViewerOverlay(props: ViewerOverlayProps) {
   const [isExporting, setIsExporting] = useState(false)
 
   const handleConvertToMesh = async () => {
-    const match = splatUrl?.match(/jobs\/([^\/]+)/)
-    const jobId = match ? match[1] : '44a1897d1ca1'
     setIsConvertingMesh(true)
-    setConvertProgress(25)
+    setConvertProgress(10)
+    setConvertStage('Preparing Gaussian Splat conversion job...')
+
     try {
-      const res = await api.convertToMesh(jobId)
-      setConvertProgress(90)
+      let res: any
+
+      if (localSplatData) {
+        // Direct local file conversion path
+        res = await api.convertLocalFileToMesh(localSplatData, (stage, pct) => {
+          setConvertStage(stage)
+          setConvertProgress(pct)
+        })
+      } else if (splatUrl) {
+        const match = splatUrl.match(/jobs\/([^\/]+)/)
+        const jobId = activeJobId || (match ? match[1] : null)
+        if (!jobId) {
+          throw new Error('Cannot identify active reconstruction job ID for conversion.')
+        }
+        setConvertStage('Running Poisson surface reconstruction...')
+        setConvertProgress(40)
+        res = await api.convertToMesh(jobId)
+      } else {
+        throw new Error('No 3D Gaussian Splat scene is loaded. Please choose or import a .sog or .ply file first.')
+      }
+
+      setConvertProgress(100)
+      setConvertStage('Solid mesh ready!')
+
+      if (res.job_id) {
+        setActiveJobId(res.job_id)
+      }
+      if (res.mesh_url) {
+        setConvertedMeshUrl(res.mesh_url)
+      }
       if (res.manifest) {
         setMeshManifest(res.manifest)
       }
+
       setViewMode('mesh')
     } catch (e: any) {
       console.error('Mesh conversion failed:', e)
       alert(`Mesh conversion error: ${e.message}`)
     } finally {
       setIsConvertingMesh(false)
-      setConvertProgress(null)
+      setTimeout(() => {
+        setConvertProgress(null)
+        setConvertStage(null)
+      }, 1000)
     }
   }
 
   const handleExportScene = async () => {
     const match = splatUrl?.match(/jobs\/([^\/]+)/)
-    const jobId = match ? match[1] : '44a1897d1ca1'
+    const jobId = activeJobId || (match ? match[1] : null)
+    if (!jobId) {
+      alert('Scene export requires an active converted job.')
+      return
+    }
     setIsExporting(true)
     try {
       const res = await api.exportModifiedScene(jobId, objectTransforms, objectReplacements)
@@ -194,9 +238,48 @@ export function ViewerOverlay(props: ViewerOverlayProps) {
             exit={{ opacity: 0, y: -20 }}
             className="absolute top-16 left-1/2 -translate-x-1/2 z-20"
           >
-            <div className="flex items-center gap-3 px-5 py-2.5 glass rounded-full shadow-2xl border border-amber-500/30">
-              <Loader2 size={14} className="animate-spin text-amber-400" />
-              <span className="text-xs font-medium text-amber-200">Reconstructing Watertight Solid Mesh...</span>
+            <div className="flex items-center gap-3 px-5 py-2.5 glass rounded-full shadow-2xl border border-amber-500/40 bg-black/80 backdrop-blur-xl">
+              <Loader2 size={14} className="animate-spin text-amber-400 shrink-0" />
+              <span className="text-xs font-medium text-amber-200">
+                {convertStage || 'Reconstructing Watertight Solid Mesh...'}
+              </span>
+              {convertProgress !== null && (
+                <>
+                  <div className="w-20 h-1.5 bg-surface-elevated rounded-full overflow-hidden">
+                    <motion.div
+                      className="h-full bg-gradient-to-r from-amber-500 to-orange-400 rounded-full"
+                      animate={{ width: `${convertProgress}%` }}
+                      transition={{ ease: 'easeOut' }}
+                    />
+                  </div>
+                  <span className="text-xs font-mono text-amber-300">{convertProgress}%</span>
+                </>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ---- Mode Notification: Approximate Mesh Surface (Requirement 7) ---- */}
+      <AnimatePresence>
+        {viewMode === 'mesh' && !isConvertingMesh && meshManifest?.is_approximate_surface && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="absolute top-16 left-1/2 -translate-x-1/2 z-20 pointer-events-auto"
+          >
+            <div className="flex items-center gap-2 px-3.5 py-1.5 glass rounded-full shadow-lg border border-white/10 bg-black/70 backdrop-blur-xl text-[11px] text-text-secondary">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
+              <span>Approximate scene surface (Poisson reconstruction) · Furniture is not individually segmented</span>
+              {localSplatData && (
+                <button
+                  onClick={() => setViewMode('splat')}
+                  className="ml-2 font-medium text-accent hover:text-indigo-300 underline underline-offset-2"
+                >
+                  Return to Splat View
+                </button>
+              )}
             </div>
           </motion.div>
         )}
@@ -204,16 +287,16 @@ export function ViewerOverlay(props: ViewerOverlayProps) {
 
       {/* ---- Loading progress ---- */}
       <AnimatePresence>
-        {loadProgress !== null && (
+        {loadProgress !== null && loadProgress > 0 && (
           <motion.div 
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -20 }}
-            className="absolute top-16 left-1/2 -translate-x-1/2 z-10"
+            className="absolute top-16 left-1/2 -translate-x-1/2 z-20"
           >
-            <div className="flex items-center gap-3 px-5 py-2.5 glass rounded-full shadow-2xl">
-              <Loader2 size={14} className="animate-spin text-accent" />
-              <span className="text-xs font-medium">Loading 3D Scene</span>
+            <div className="flex items-center gap-3 px-5 py-2.5 glass rounded-full shadow-2xl border border-white/10">
+              <Loader2 size={14} className="animate-spin text-accent shrink-0" />
+              <span className="text-xs font-medium text-white">{loadStage || 'Loading 3D Scene'}</span>
               <div className="w-24 h-1.5 bg-surface-elevated rounded-full overflow-hidden">
                 <motion.div 
                   className="h-full bg-gradient-brand rounded-full"
@@ -235,30 +318,18 @@ export function ViewerOverlay(props: ViewerOverlayProps) {
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -20 }}
-            className="absolute top-4 left-1/2 -translate-x-1/2 z-10"
+            className="absolute top-4 left-1/2 -translate-x-1/2 z-20 max-w-lg w-[90%]"
           >
-            <div className="flex items-center gap-2 px-4 py-2 bg-error/10 backdrop-blur-xl rounded-full border border-error/30 text-xs text-error">
-              <AlertTriangle size={14} />
-              <span>Failed to load scene</span>
-              <button onClick={onDismissError} className="hover:text-error/60 transition-colors">
+            <div className="flex items-center gap-2.5 px-4 py-2.5 bg-red-950/85 backdrop-blur-xl rounded-xl border border-red-500/40 text-xs text-red-200 shadow-2xl">
+              <AlertTriangle size={15} className="shrink-0 text-red-400" />
+              <span className="flex-1 leading-snug break-words">{loadError}</span>
+              <button onClick={onDismissError} className="hover:text-white transition-colors p-1 shrink-0 ml-1">
                 <X size={14} />
               </button>
             </div>
           </motion.div>
         )}
       </AnimatePresence>
-
-      {/* ---- Top-left status badge ---- */}
-      {splatUrl && splatCount !== null && !loadProgress && (
-        <div className="absolute top-4 left-4 flex items-center gap-2 px-3 py-1.5 glass rounded-lg text-[11px] text-text-secondary z-10">
-          <div className="h-2 w-2 rounded-full bg-emerald-400 shadow-sm shadow-emerald-400/50 animate-pulse" />
-          <span>
-            {splatUrl.toLowerCase().includes('.obj') || splatUrl.toLowerCase().includes('.glb') || splatUrl.toLowerCase().includes('.gltf')
-              ? '3D Mesh'
-              : 'Gaussian Splat'} · <b className="text-text-primary">{splatCount.toLocaleString()}</b> {splatUrl.toLowerCase().includes('.obj') || splatUrl.toLowerCase().includes('.glb') ? 'vertices' : 'splats'}
-          </span>
-        </div>
-      )}
 
       {/* ---- Top-right FPS + Quality ---- */}
       {splatCount !== null && (
