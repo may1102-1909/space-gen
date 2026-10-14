@@ -1,15 +1,35 @@
 // frontend/components/AholoViewer/AholoViewerTypes.ts
 import {
-  SplatLoader,
-  ToneMapping,
-  PerspectiveCamera,
-  Vector3,
+  type PerspectiveCamera,
+  type Vector3,
   Color,
-  BackgroundMode,
   setViewerConfig,
   type Viewer,
 } from '@manycore/aholo-viewer';
 import type { CameraControl } from './AholoCameraControls';
+
+export enum SplatPackType {
+  Raw = 0,
+  Compressed = 1,
+  SuperCompressed = 2,
+  Sog = 3,
+}
+
+export enum ToneMapping {
+  Linear = 0,
+  Reinhard = 1,
+  ACES = 2,
+  ACESFilmic = 3,
+  Neutral = 4,
+}
+
+export enum BackgroundMode {
+  BasicBackground = 'basic',
+  SolidColorBackground = 'solid',
+  SkyBackground = 'sky',
+  GradientBackground = 'gradient',
+  EnvMapBackground = 'env',
+}
 
 export type SplattingPresetId =
   | 'custom'
@@ -38,7 +58,7 @@ export interface FileRecord {
 export interface AholoPipelineParams {
   splattingPreset: SplattingPresetId;
   pixelRatio: number;
-  splatPackType: SplatLoader.SplatPackType;
+  splatPackType: SplatPackType;
   maxSh: number;
   maxStdDev: number;
   packHighPrecisionEnabled: boolean;
@@ -106,7 +126,7 @@ export const VIEWER_SPLATTING_PRESETS: Record<
     descEn: 'Offline-grade full precision (high-end GPU)',
     params: {
       ...DEFAULT_SORT_PARAMS,
-      splatPackType: SplatLoader.SplatPackType.Compressed,
+      splatPackType: SplatPackType.Compressed,
       maxSh: 3,
       maxStdDev: 8,
       packHighPrecisionEnabled: true,
@@ -131,7 +151,7 @@ export const VIEWER_SPLATTING_PRESETS: Record<
     descEn: 'Standard desktop showcase mode',
     params: {
       ...DEFAULT_SORT_PARAMS,
-      splatPackType: SplatLoader.SplatPackType.Compressed,
+      splatPackType: SplatPackType.Compressed,
       maxSh: 3,
       maxStdDev: 8,
       packHighPrecisionEnabled: true,
@@ -156,7 +176,7 @@ export const VIEWER_SPLATTING_PRESETS: Record<
     descEn: 'Recommended for laptops & integrated GPUs',
     params: {
       ...DEFAULT_SORT_PARAMS,
-      splatPackType: SplatLoader.SplatPackType.SuperCompressed,
+      splatPackType: SplatPackType.SuperCompressed,
       maxSh: 3,
       maxStdDev: 8,
       packHighPrecisionEnabled: false,
@@ -181,7 +201,7 @@ export const VIEWER_SPLATTING_PRESETS: Record<
     descEn: 'Optimized for high FPS in complex scenes',
     params: {
       ...DEFAULT_SORT_PARAMS,
-      splatPackType: SplatLoader.SplatPackType.SuperCompressed,
+      splatPackType: SplatPackType.SuperCompressed,
       maxSh: 3,
       maxStdDev: 5,
       packHighPrecisionEnabled: false,
@@ -206,7 +226,7 @@ export const VIEWER_SPLATTING_PRESETS: Record<
     descEn: 'SH precalc disabled, ultra-fast sort',
     params: {
       ...EXTREME_PERFORMANCE_SORT_PARAMS,
-      splatPackType: SplatLoader.SplatPackType.SuperCompressed,
+      splatPackType: SplatPackType.SuperCompressed,
       maxSh: 0,
       maxStdDev: 5,
       packHighPrecisionEnabled: false,
@@ -231,7 +251,7 @@ export const VIEWER_SPLATTING_PRESETS: Record<
     descEn: 'Optimized for native SOG format',
     params: {
       ...EXTREME_PERFORMANCE_SORT_PARAMS,
-      splatPackType: SplatLoader.SplatPackType.Sog,
+      splatPackType: SplatPackType.Sog,
       maxSh: 0,
       maxStdDev: 5,
       packHighPrecisionEnabled: false,
@@ -254,7 +274,7 @@ export const VIEWER_SPLATTING_PRESETS: Record<
 export const DEFAULT_PIPELINE_PARAMS: AholoPipelineParams = {
   splattingPreset: 'balanced',
   pixelRatio: 1,
-  splatPackType: SplatLoader.SplatPackType.SuperCompressed,
+  splatPackType: SplatPackType.SuperCompressed,
   maxSh: 3,
   maxStdDev: 8,
   packHighPrecisionEnabled: false,
@@ -359,7 +379,9 @@ export function applyCoordinateSystem(
       camera.position.set(0, -1.2, 3);
       break;
   }
-  camera.lookAt(new Vector3(0, 0, 0));
+  if (camera.lookAt) {
+    camera.lookAt({ x: 0, y: 0, z: 0 } as any);
+  }
   if (typeof far === 'number' && Number.isFinite(far) && far > 0.1) {
     camera.far = far;
   }
@@ -375,13 +397,18 @@ export function applyViewerPipelineConfig(
   params: AholoPipelineParams,
   backgroundColor: string = '#0a0a0f'
 ) {
+  if (typeof setViewerConfig !== 'function' || !viewer) {
+    return;
+  }
   const hex = parseInt(backgroundColor.replace('#', ''), 16) || 0x0a0a0f;
   const r = ((hex >> 16) & 255) / 255;
   const g = ((hex >> 8) & 255) / 255;
   const b = (hex & 255) / 255;
 
   const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
-  const colorNumber = parseInt(params.highlightColor.replace('#', ''), 16) || 0x0000ff;
+  const colorNumber = parseInt(params.highlightColor?.replace('#', '') || '0000ff', 16) || 0x0000ff;
+
+  const colorObj = typeof Color === 'function' ? new Color(r, g, b) : { r, g, b };
 
   setViewerConfig(viewer, {
     pixelRatio: params.pixelRatio / dpr,
@@ -389,7 +416,7 @@ export function applyViewerPipelineConfig(
       Background: {
         background: {
           active: BackgroundMode.BasicBackground,
-          basic: { color: new Color(r, g, b) as any, alpha: 1 },
+          basic: { color: colorObj as any, alpha: 1 },
         },
         ground: { enabled: false },
       },

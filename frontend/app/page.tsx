@@ -6,8 +6,18 @@ import { EditorLayout } from '@/components/layout/EditorLayout'
 import dynamic from 'next/dynamic'
 
 const SceneViewer = dynamic(
-  () => import('@/components/viewer/SceneViewer').then((mod) => mod.SceneViewer),
-  { ssr: false }
+  () => import('@/components/viewer/SceneViewer'),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="w-full h-full flex items-center justify-center bg-background text-text-muted">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-6 h-6 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+          <span className="text-xs">Loading 3D workspace...</span>
+        </div>
+      </div>
+    ),
+  }
 )
 import { useEffect } from 'react'
 import { useAppStore } from '@/lib/store'

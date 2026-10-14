@@ -8,7 +8,13 @@
  * @license MIT — see THIRD_PARTY_LICENSES.md
  */
 
-import { AholoViewer, AholoViewerProps } from './AholoViewer'
+import dynamic from 'next/dynamic'
+import type { AholoViewerProps } from '../AholoViewer/AholoViewer'
+
+const AholoViewer = dynamic(
+  () => import('../AholoViewer/AholoViewer'),
+  { ssr: false }
+)
 
 export { AholoViewer }
 export type { AholoViewerProps }
