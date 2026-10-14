@@ -24,6 +24,12 @@ data/processed/
 data/output/
 data/export/
 data/reconstruction/
+backend/data/frames/
+backend/data/processed/
+backend/data/output/
+backend/data/export/
+backend/data/reconstruction/
+scratch/
 *.mp4
 *.mov
 *.avi
@@ -40,3 +46,4 @@ desktop.ini
 npm-debug.log*
 *.tsbuildinfo
 backend/data/jobs.json
+

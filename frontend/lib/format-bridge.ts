@@ -7,93 +7,109 @@
  * @license MIT — see THIRD_PARTY_LICENSES.md
  */
 
-export type RenderEngine = 'spatial' | 'legacy' | 'mesh'
+export type RenderEngine = 'aholo' | 'mesh' | 'unsupported'
 
-export type SpatialFileType = 'sog' | 'ply-3dgs' | 'splat' | 'ksplat'
+export type AholoFileType = 'ply' | 'spz' | 'splat' | 'ksplat' | 'sog' | 'lcc' | 'esz'
 export type MeshFileType = 'glb' | 'gltf' | 'obj'
 
 export interface FormatDetectionResult {
   engine: RenderEngine
-  spatialType?: SpatialFileType
+  aholoType?: AholoFileType
   meshType?: MeshFileType
-  isPointCloud?: boolean
+  isStandardPlyMesh?: boolean
+  errorReason?: string
 }
 
 /**
- * Detect the file format from the first bytes of a buffer and the URL.
- * Returns which rendering engine to use and the specific file type.
+ * Detect the file format from buffer content and filename.
  */
-export function detectFormat(buffer: ArrayBuffer, url: string): FormatDetectionResult {
-  const lowerUrl = url.toLowerCase()
+export function detectFormat(buffer: ArrayBuffer, filenameOrUrl: string): FormatDetectionResult {
+  const lower = filenameOrUrl.toLowerCase().split('?')[0].split('#')[0]
+  const ext = lower.split('.').pop() || ''
   const uint8 = new Uint8Array(buffer.slice(0, 64))
   const magic4 = safeDecodeText(buffer.slice(0, 4))
-  const headerText = safeDecodeText(buffer.slice(0, Math.min(65536, buffer.byteLength)))
+  const headerText = safeDecodeText(buffer.slice(0, Math.min(8192, buffer.byteLength)))
 
   // 1. Binary glTF (.glb) — Magic: 'glTF' (0x67 0x6c 0x54 0x46)
   if (
     (uint8[0] === 0x67 && uint8[1] === 0x6c && uint8[2] === 0x54 && uint8[3] === 0x46) ||
-    lowerUrl.endsWith('.glb')
+    ext === 'glb'
   ) {
     return { engine: 'mesh', meshType: 'glb' }
   }
 
   // 2. JSON glTF (.gltf)
   if (
-    (headerText.trim().startsWith('{') && headerText.includes('"asset"')) ||
-    lowerUrl.endsWith('.gltf')
+    ext === 'gltf' ||
+    (headerText.trim().startsWith('{') && headerText.includes('"asset"'))
   ) {
     return { engine: 'mesh', meshType: 'gltf' }
   }
 
   // 3. Wavefront OBJ (.obj)
   if (
-    lowerUrl.endsWith('.obj') ||
+    ext === 'obj' ||
     (!magic4.startsWith('glTF') && headerText.startsWith('#') && (headerText.includes('v ') || headerText.includes('vn ')))
   ) {
     return { engine: 'mesh', meshType: 'obj' }
   }
 
-  // 4. SOG format (native high-performance spatial format)
-  if (lowerUrl.endsWith('.sog') || lowerUrl.includes('.sog')) {
-    return { engine: 'spatial', spatialType: 'sog' }
-  }
-
-  // 5. KSPLAT format
-  if (lowerUrl.endsWith('.ksplat') || lowerUrl.includes('.ksplat')) {
-    return { engine: 'legacy', spatialType: 'ksplat' }
-  }
-
-  // 6. PLY format — check if it's a 3DGS PLY or a regular mesh/point cloud PLY
-  if (magic4.startsWith('ply') || lowerUrl.endsWith('.ply') || lowerUrl.includes('.ply')) {
+  // 4. PLY format — must inspect if it's 3DGS or standard mesh / point cloud
+  if (magic4.startsWith('ply') || ext === 'ply') {
     const is3DGS = detect3DGSPly(headerText)
     if (is3DGS) {
-      return { engine: 'spatial', spatialType: 'ply-3dgs' }
+      return { engine: 'aholo', aholoType: 'ply' }
     }
-    // Point cloud or mesh PLY — use legacy renderer
-    return { engine: 'legacy', isPointCloud: true }
+    // Ordinary mesh or point cloud PLY
+    return {
+      engine: 'unsupported',
+      isStandardPlyMesh: true,
+      errorReason: 'This PLY file is a standard polygon mesh or point cloud without 3D Gaussian Splatting attributes (f_dc_0, scale_0, rot_0). Aholo Viewer requires 3DGS PLY files. For regular 3D models, switch to Solid Mesh mode or use GLB/OBJ.',
+    }
   }
 
-  // 7. Raw .splat format (32-byte records per gaussian)
+  // 5. SPZ format (Compressed Gaussian Splats)
+  if (ext === 'spz' || magic4.startsWith('SPZ') || (uint8[0] === 0x1f && uint8[1] === 0x8b && ext === 'spz')) {
+    return { engine: 'aholo', aholoType: 'spz' }
+  }
+
+  // 6. SOG format (Scene Object Graph)
+  if (ext === 'sog' || lower.includes('.sog')) {
+    return { engine: 'aholo', aholoType: 'sog' }
+  }
+
+  // 7. KSPLAT format
+  if (ext === 'ksplat') {
+    return { engine: 'aholo', aholoType: 'ksplat' }
+  }
+
+  // 8. LCC format
+  if (ext === 'lcc') {
+    return { engine: 'aholo', aholoType: 'lcc' }
+  }
+
+  // 9. ESZ format
+  if (ext === 'esz') {
+    return { engine: 'aholo', aholoType: 'esz' }
+  }
+
+  // 10. Raw .splat format
   if (
-    lowerUrl.endsWith('.splat') ||
-    lowerUrl.includes('.splat') ||
-    (buffer.byteLength > 0 && buffer.byteLength % 32 === 0)
+    ext === 'splat' ||
+    (buffer.byteLength > 0 && buffer.byteLength % 32 === 0 && !headerText.startsWith('ply'))
   ) {
-    // Try spatial engine first — it supports .splat via parseSplatData
-    return { engine: 'spatial', spatialType: 'splat' }
+    return { engine: 'aholo', aholoType: 'splat' }
   }
 
-  // 8. Compressed SPZ
-  if (
-    magic4.startsWith('SPZ') ||
-    (uint8[0] === 0x1f && uint8[1] === 0x8b) ||
-    lowerUrl.endsWith('.spz') || lowerUrl.includes('.spz')
-  ) {
-    return { engine: 'legacy' }
+  // 11. ZIP format containing SOG or LCC
+  if (ext === 'zip') {
+    return { engine: 'aholo', aholoType: 'sog' }
   }
 
-  // Default: try spatial engine
-  return { engine: 'spatial', spatialType: 'splat' }
+  return {
+    engine: 'unsupported',
+    errorReason: `Unsupported file format (.${ext || 'unknown'}). Supported formats are: 3DGS PLY (.ply), SPZ (.spz), SPLAT (.splat), KSPLAT (.ksplat), SOG (.sog), LCC (.lcc), ESZ (.esz).`,
+  }
 }
 
 /**

@@ -2,37 +2,29 @@
 
 import { ScenePanel } from '@/components/panels/ScenePanel'
 import { ChatPanel } from '@/components/panels/ChatPanel'
-import { SceneViewer } from '@/components/viewer/SceneViewer'
 import { EditorLayout } from '@/components/layout/EditorLayout'
+import dynamic from 'next/dynamic'
+
+const SceneViewer = dynamic(
+  () => import('@/components/viewer/SceneViewer').then((mod) => mod.SceneViewer),
+  { ssr: false }
+)
 import { useEffect } from 'react'
 import { useAppStore } from '@/lib/store'
 import { api } from '@/lib/api'
 
 export default function EditorPage() {
-  const { setScene, scene, selectedObjectId, setSelectedObjectId, setSplatUrl } = useAppStore()
+  const { setScene, scene, selectedObjectId, setSelectedObjectId, clearActiveModel } = useAppStore()
 
   useEffect(() => {
-    // Load initial scene
+    // Start completely clean on reload - no lingering models or auto-loading
+    clearActiveModel()
+
+    // Load initial room layout scene graph
     api.getScene('mock-scene-1').then(data => {
       setScene(data as any)
     })
-
-    // Prioritize loading Victorian splat model requested by user
-    api.listAvailableModels().then(models => {
-      const victoria = models.find(m => m.job_id === 'import_victoria')
-      if (victoria) {
-        setSplatUrl(api.normalizeModelUrl(victoria.url) || victoria.url)
-      } else {
-        api.getLatestReconstructionJob().then(job => {
-          if (job && job.status === 'completed') {
-            setSplatUrl(api.getReconstructionModelUrl(job.job_id))
-          }
-        })
-      }
-    }).catch(() => {
-      setSplatUrl(api.normalizeModelUrl('/api/reconstruction/jobs/import_victoria/model/scene.splat'))
-    })
-  }, [setScene, setSplatUrl])
+  }, [setScene, clearActiveModel])
 
   return (
     <EditorLayout>

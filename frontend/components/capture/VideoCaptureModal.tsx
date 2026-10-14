@@ -37,7 +37,7 @@ const steps = ['Upload video', 'Extract keyframes', 'Estimate camera poses', 'Tr
 
 export function VideoCaptureModal({ onClose }: { onClose: () => void }) {
   const [activeTab, setActiveTab] = useState<ModalTab>('video')
-  const { splatUrl, setSplatUrl } = useAppStore()
+  const { splatUrl, setSplatUrl, setLocalSplatData, setActiveJobId } = useAppStore()
 
   /* ---------- Video Capture State ---------- */
   const inputRef = useRef<HTMLInputElement>(null)
@@ -122,21 +122,37 @@ export function VideoCaptureModal({ onClose }: { onClose: () => void }) {
   const chooseModel = (candidate?: File) => {
     if (!candidate) return
     const name = candidate.name.toLowerCase()
-    const valid = ['.ply', '.spz', '.splat', '.ksplat', '.glb', '.gltf', '.obj'].some(ext => name.endsWith(ext))
+    const valid = ['.ply', '.spz', '.splat', '.ksplat', '.sog', '.esz', '.lcc', '.glb', '.gltf', '.obj'].some(ext => name.endsWith(ext))
     if (!valid) {
-      setModelError('Unsupported format. Please upload .ply, .spz, .splat, .ksplat, .glb, .gltf, or .obj')
+      setModelError('Unsupported format. Please upload .ply, .spz, .splat, .ksplat, .sog, .glb, .gltf, or .obj')
       return
     }
     setModelError('')
     setModelFile(candidate)
   }
 
-  const handleInstantPreview = () => {
+  const handleInstantPreview = async () => {
     if (!modelFile) return
-    // Instant browser blob URL: 0 network latency
-    const localUrl = URL.createObjectURL(modelFile)
-    setSplatUrl(localUrl)
-    onClose()
+    try {
+      // Read bytes immediately into memory to avoid stale object URL permission revocations
+      const buffer = await modelFile.arrayBuffer()
+      setLocalSplatData({ buffer, name: modelFile.name })
+      onClose()
+    } catch (err: any) {
+      console.warn('[ModelImport] Direct file read failed, falling back to FileReader:', err)
+      try {
+        const buffer = await new Promise<ArrayBuffer>((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onload = () => resolve(reader.result as ArrayBuffer)
+          reader.onerror = () => reject(reader.error)
+          reader.readAsArrayBuffer(modelFile)
+        })
+        setLocalSplatData({ buffer, name: modelFile.name })
+        onClose()
+      } catch (readErr: any) {
+        setModelError(`Could not read file: ${readErr.message}`)
+      }
+    }
   }
 
   const handleUploadAndSave = async () => {
@@ -145,6 +161,9 @@ export function VideoCaptureModal({ onClose }: { onClose: () => void }) {
     setModelError('')
     try {
       const result = await api.uploadModel(modelFile)
+      if (result.job_id) {
+        setActiveJobId(result.job_id)
+      }
       if (result.splat_url) {
         setSplatUrl(api.normalizeModelUrl(result.splat_url) || result.splat_url)
       } else {
@@ -153,16 +172,23 @@ export function VideoCaptureModal({ onClose }: { onClose: () => void }) {
       onClose()
     } catch (err: any) {
       console.warn('[ModelImport] Server upload failed, loading via instant preview:', err)
-      // Instant fallback: Stream directly from browser memory so the user can look through it immediately!
-      const localUrl = URL.createObjectURL(modelFile)
-      setSplatUrl(localUrl)
-      onClose()
+      // Instant fallback: Read directly into browser memory
+      try {
+        const buffer = await modelFile.arrayBuffer()
+        setLocalSplatData({ buffer, name: modelFile.name })
+        onClose()
+      } catch (readErr: any) {
+        setModelError(`Could not read file: ${readErr.message}`)
+      }
     } finally {
       setIsUploadingModel(false)
     }
   }
 
   const handleSelectExistingModel = (model: AvailableModel) => {
+    if (model.job_id) {
+      setActiveJobId(model.job_id)
+    }
     setSplatUrl(api.normalizeModelUrl(model.url) || model.url)
     onClose()
   }
@@ -417,7 +443,7 @@ export function VideoCaptureModal({ onClose }: { onClose: () => void }) {
               <div className="mb-4 grid grid-cols-3 gap-2.5 text-center text-xs text-text-muted">
                 <div className="p-2.5 rounded-lg border border-border bg-surface-elevated/30">
                   <b className="block text-text-primary text-xs mb-0.5">Gaussian Splat</b>
-                  .ply, .spz, .splat
+                  .ply, .spz, .splat, .sog
                 </div>
                 <div className="p-2.5 rounded-lg border border-border bg-surface-elevated/30">
                   <b className="block text-text-primary text-xs mb-0.5">Instant Preview</b>
@@ -445,7 +471,7 @@ export function VideoCaptureModal({ onClose }: { onClose: () => void }) {
                   {modelFile ? modelFile.name : 'Drop existing 3D model or Gaussian Splat'}
                 </span>
                 <span className="mt-1 text-xs text-text-muted">
-                  Supports .ply, .spz (compressed splat), .splat, .ksplat, .glb, and .obj
+                  Supports .ply, .spz (compressed splat), .splat, .ksplat, .sog, .glb, and .obj
                 </span>
                 {modelFile && (
                   <span className="mt-2 text-xs font-mono text-accent bg-accent/10 px-2 py-0.5 rounded">
@@ -456,7 +482,7 @@ export function VideoCaptureModal({ onClose }: { onClose: () => void }) {
               <input
                 ref={modelInputRef}
                 type="file"
-                accept=".ply,.spz,.splat,.ksplat,.glb,.gltf,.obj"
+                accept=".ply,.spz,.splat,.ksplat,.sog,.esz,.lcc,.glb,.gltf,.obj"
                 className="hidden"
                 onChange={(e) => chooseModel(e.target.files?.[0])}
               />
