@@ -28,6 +28,7 @@ import {
   applyCameraState,
   applyCoordinateSystem as applyCoordSys,
   DEFAULT_PIPELINE_PARAMS,
+  SplatPackType,
 } from './AholoViewerTypes';
 
 export interface AholoViewerProps {
@@ -534,11 +535,11 @@ export const AholoViewer: React.FC<AholoViewerProps> = ({
               break;
           }
 
-          let packType = pipelineParams?.splatPackType ?? SplatLoader.SplatPackType.Compressed;
-          if (fileType === SplatLoader.SplatFileType.SOG && packType !== SplatLoader.SplatPackType.Sog) {
+          let packType = pipelineParams?.splatPackType ?? SplatPackType.Compressed;
+          if (fileType === SplatLoader.SplatFileType.SOG && packType !== SplatPackType.Sog) {
             // SOG files work with Sog or SuperCompressed
-          } else if (fileType !== SplatLoader.SplatFileType.SOG && packType === SplatLoader.SplatPackType.Sog) {
-            packType = SplatLoader.SplatPackType.Compressed;
+          } else if (fileType !== SplatLoader.SplatFileType.SOG && packType === SplatPackType.Sog) {
+            packType = SplatPackType.Compressed;
           }
 
           let maxSh = typeof pipelineParams?.maxSh === 'number' ? pipelineParams.maxSh : 3;

@@ -632,16 +632,36 @@ function isUrl(str) {
   return url.protocol === "http:" || url.protocol === "https:";
 }
 function extractFromRootDir(entries) {
-  let dir = "";
+  if (entries["meta.json"]) return entries;
+  let metaPath = "";
   for (const path in entries) {
-    if (path.endsWith("/")) {
-      dir = path;
+    if (path.endsWith("meta.json") || path.endsWith("/meta.json")) {
+      metaPath = path;
       break;
     }
   }
+  if (!metaPath) {
+    let dir = "";
+    for (const path in entries) {
+      if (path.endsWith("/")) {
+        dir = path;
+        break;
+      }
+    }
+    const result = {};
+    for (const path in entries) {
+      result[path.replace(dir, "")] = entries[path];
+    }
+    return result;
+  }
+  const prefix = metaPath.slice(0, metaPath.length - "meta.json".length);
   const result = {};
   for (const path in entries) {
-    result[path.replace(dir, "")] = entries[path];
+    if (prefix && path.startsWith(prefix)) {
+      result[path.slice(prefix.length)] = entries[path];
+    } else {
+      result[path] = entries[path];
+    }
   }
   return result;
 }

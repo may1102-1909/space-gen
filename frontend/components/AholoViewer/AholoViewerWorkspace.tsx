@@ -27,11 +27,7 @@ import {
   FileCode,
   X,
 } from 'lucide-react';
-import {
-  SplatLoader,
-  ToneMapping,
-  type Viewer,
-} from '@manycore/aholo-viewer';
+import type { Viewer } from '@manycore/aholo-viewer';
 import {
   AholoPipelineParams,
   AholoViewerHandles,
@@ -40,6 +36,8 @@ import {
   VIEWER_SPLATTING_PRESETS,
   DEFAULT_PIPELINE_PARAMS,
   formatBytes,
+  SplatPackType,
+  ToneMapping,
 } from './AholoViewerTypes';
 
 // Dynamic import with ssr: false to guarantee WebGL2 & Web Worker client execution
@@ -915,9 +913,9 @@ export function AholoViewerWorkspace({
                     onChange={(e) => handleParamChange('splatPackType', Number(e.target.value))}
                     className="px-2 py-1 rounded bg-neutral-800 border border-neutral-700 text-xs text-white"
                   >
-                    <option value={SplatLoader.SplatPackType.Compressed}>Compressed</option>
-                    <option value={SplatLoader.SplatPackType.SuperCompressed}>SuperCompressed</option>
-                    <option value={SplatLoader.SplatPackType.Sog}>Sog (Native)</option>
+                    <option value={SplatPackType.Compressed}>Compressed</option>
+                    <option value={SplatPackType.SuperCompressed}>SuperCompressed</option>
+                    <option value={SplatPackType.Sog}>Sog (Native)</option>
                   </select>
                 </div>
 

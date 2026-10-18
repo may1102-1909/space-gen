@@ -5,7 +5,7 @@ import dynamic from 'next/dynamic';
 
 // Dynamic import with ssr: false to guarantee WebGL2 & Web Worker client execution
 const AholoViewerWorkspace = dynamic(
-  () => import('@/components/AholoViewer').then((mod) => mod.AholoViewerWorkspace),
+  () => import('@/components/AholoViewer/AholoViewerWorkspace'),
   { ssr: false }
 );
 

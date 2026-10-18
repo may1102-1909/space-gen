@@ -7,13 +7,12 @@ import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import * as THREE from 'three'
 import { useAppStore } from '@/lib/store'
 import dynamic from 'next/dynamic'
-import { SplatEngine } from './SplatEngine'
 import { SparkSplatViewer } from './SparkSplatViewer'
 import { CameraController, CameraMode } from './CameraController'
 import { useQualityManager } from './QualityManager'
 import { Loader2, Box } from 'lucide-react'
 
-const AholoViewer = dynamic(() => import('./AholoViewer').then((mod) => mod.AholoViewer), {
+const AholoViewer = dynamic(() => import('../AholoViewer/AholoViewer'), {
   ssr: false,
 })
 import { ViewerOverlay } from './ViewerOverlay'
@@ -504,3 +503,6 @@ export function SceneViewer({
     </div>
   )
 }
+
+export default SceneViewer
+
