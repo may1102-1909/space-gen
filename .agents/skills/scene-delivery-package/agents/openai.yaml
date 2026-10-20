@@ -1,0 +1,4 @@
+interface:
+  display_name: "Scene Delivery"
+  short_description: "Make the result usable on another workstation."
+  default_prompt: "Use $scene-delivery-package for this architectural task and report the concrete result and verification."

@@ -5,7 +5,7 @@ import { IDENTITY_SCAN_TO_SCENE } from './scanAlignment';
 /** Creates or updates the canonical Pascal ScanNode. Matrix metadata is the alignment source of truth. */
 export function upsertScanNode(
   url: string,
-  options: { id?: string; format?: string; scanToScene?: Matrix4; meshUrl?: string } = {},
+  options: { id?: string; format?: string; scanToScene?: Matrix4; meshUrl?: string; maskRegions?: any[] } = {},
 ) {
   if (!url.trim()) throw new Error('A scan URL is required.');
   const scene = useScene.getState();
@@ -18,6 +18,7 @@ export function upsertScanNode(
     ...(existing?.metadata || {}),
     format: options.format || existing?.metadata?.format || formatFromUrl(url),
     scanToScene: options.scanToScene || existing?.metadata?.scanToScene || [...IDENTITY_SCAN_TO_SCENE],
+    maskRegions: options.maskRegions || existing?.metadata?.maskRegions || [],
     ...(options.meshUrl ? { meshUrl: options.meshUrl } : {}),
   };
   if (existing) {

@@ -25,5 +25,9 @@ export const MaskRegionSchema = z.object({
   obb: OrientedBoundingBoxSchema,
   feather: z.number().nonnegative(),
   enabled: z.boolean(),
+  detectionId: z.string().nullable().optional(),
+  itemId: z.string().nullable().optional(),
+  ghost: z.boolean().optional(),
+  opacity: z.number().min(0).max(1).nullable().optional(),
 });
 export type MaskRegion = z.infer<typeof MaskRegionSchema>;

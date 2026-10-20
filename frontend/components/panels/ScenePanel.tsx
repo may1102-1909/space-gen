@@ -26,6 +26,15 @@ import { api } from '@/lib/api';
 import type { FurnitureItem } from '@/lib/types';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { createItemNode, normalizeGlbBounds, replaceItemAsset, fetchCatalogItems } from '@/lib/pascal/itemEditing';
+import { seedScannedRoom } from '@/lib/pascal/seedScannedRoom';
+import {
+  replaceItemWithMask,
+  toggleMaskGhostMode,
+  updateMaskRegion,
+  resizeMaskRegion,
+  removeMaskRegion,
+} from '@/lib/splat/splatMasking';
+import type { MaskRegion } from '@/lib/contracts';
 
 export function ScenePanel() {
   const nodes = useScene((state) => state.nodes);
@@ -40,7 +49,18 @@ export function ScenePanel() {
 
   const activeId = selectedIds[0] || selectedObjectId || null;
   const selectedNode = activeId ? (nodes as Record<string, any>)[activeId] : null;
+  const scanNode = Object.values(nodes).find((n) => n?.type === 'scan') as any;
+  const maskRegions: MaskRegion[] = scanNode?.metadata?.maskRegions || [];
+  const linkedMask = maskRegions.find(
+    (m) => m.itemId === activeId || m.id === selectedNode?.metadata?.maskRegionId
+  );
   const [positionDraft, setPositionDraft] = useState<[string, string, string]>(['0', '0', '0']);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      (window as any).__seedScannedRoom = (options?: { forceReset?: boolean }) => seedScannedRoom(options);
+    }
+  }, []);
 
   useEffect(() => {
     if (selectedNode?.type === 'item') {
@@ -87,8 +107,11 @@ export function ScenePanel() {
       : asset.src;
     const assetPayload = { ...asset, src: resolvedSrc };
 
-    if (selectedNode?.type === 'item') {
-      scene.updateNode(activeId as any, replaceItemAsset(selectedNode as any, assetPayload) as any);
+    const currentActiveId = activeId || useViewer.getState().selection.selectedIds[0] || useSpaceGenStore.getState().selectedObjectId;
+    const currentSelectedNode = currentActiveId ? ((scene.nodes as Record<string, any>)[currentActiveId] || selectedNode) : selectedNode;
+
+    if (currentSelectedNode?.type === 'item') {
+      replaceItemWithMask(currentSelectedNode as any, assetPayload);
     } else {
       const levelId = Object.values(scene.nodes).find((node) => node?.type === 'level')?.id;
       const node = { ...createItemNode(assetPayload), parentId: levelId || null };
@@ -483,6 +506,102 @@ export function ScenePanel() {
                   </span>
                 </div>
               )}
+
+              {/* Linked Splat Mask Controls */}
+              {linkedMask && scanNode && (
+                <div className="mt-2 pt-2 border-t border-border/60 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-semibold text-accent-light flex items-center gap-1.5">
+                      <BoxSelect size={12} /> Splat Mask
+                    </span>
+                    <span className={`text-[9px] px-1.5 py-0.5 rounded font-mono ${linkedMask.ghost ? 'bg-amber-500/20 text-amber-300' : 'bg-emerald-500/20 text-emerald-300'}`}>
+                      {linkedMask.ghost ? 'Ghost (25%)' : 'Masked (0%)'}
+                    </span>
+                  </div>
+
+                  {/* Toggle Ghost Mode */}
+                  <button
+                    type="button"
+                    aria-label="Toggle Ghost Mode"
+                    onClick={() => toggleMaskGhostMode(scanNode.id, linkedMask.id)}
+                    className={`w-full py-1.5 px-2 rounded text-[11px] font-medium border transition-colors flex items-center justify-center gap-1.5 ${
+                      linkedMask.ghost
+                        ? 'bg-amber-500/15 border-amber-500/40 text-amber-300 hover:bg-amber-500/25'
+                        : 'bg-surface-elevated border-border text-text-secondary hover:text-text-primary hover:border-accent'
+                    }`}
+                  >
+                    <Eye size={12} />
+                    <span>{linkedMask.ghost ? 'Show Original: On (Ghost Mode)' : 'Show Original (Ghost Mode)'}</span>
+                  </button>
+
+                  {/* Mask Resize Controls */}
+                  <div className="space-y-1">
+                    <label className="text-[10px] text-text-muted block">Mask Size (m)</label>
+                    <div className="grid grid-cols-3 gap-1">
+                      <div>
+                        <span className="text-[9px] text-text-muted block">W</span>
+                        <input
+                          type="number"
+                          step="0.05"
+                          aria-label="Mask Width (m)"
+                          value={linkedMask.obb.size[0]}
+                          onChange={(e) => {
+                            const val = parseFloat(e.target.value) || 0.1;
+                            resizeMaskRegion(scanNode.id, linkedMask.id, [val, linkedMask.obb.size[1], linkedMask.obb.size[2]]);
+                          }}
+                          className="w-full bg-surface border border-border rounded px-1 py-0.5 text-[11px] font-mono"
+                        />
+                      </div>
+                      <div>
+                        <span className="text-[9px] text-text-muted block">H</span>
+                        <input
+                          type="number"
+                          step="0.05"
+                          aria-label="Mask Height (m)"
+                          value={linkedMask.obb.size[1]}
+                          onChange={(e) => {
+                            const val = parseFloat(e.target.value) || 0.1;
+                            resizeMaskRegion(scanNode.id, linkedMask.id, [linkedMask.obb.size[0], val, linkedMask.obb.size[2]]);
+                          }}
+                          className="w-full bg-surface border border-border rounded px-1 py-0.5 text-[11px] font-mono"
+                        />
+                      </div>
+                      <div>
+                        <span className="text-[9px] text-text-muted block">D</span>
+                        <input
+                          type="number"
+                          step="0.05"
+                          aria-label="Mask Depth (m)"
+                          value={linkedMask.obb.size[2]}
+                          onChange={(e) => {
+                            const val = parseFloat(e.target.value) || 0.1;
+                            resizeMaskRegion(scanNode.id, linkedMask.id, [linkedMask.obb.size[0], linkedMask.obb.size[1], val]);
+                          }}
+                          className="w-full bg-surface border border-border rounded px-1 py-0.5 text-[11px] font-mono"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Mask Feather Falloff Control */}
+                  <div className="flex items-center justify-between text-[10px] text-text-muted">
+                    <span>Feather Falloff:</span>
+                    <input
+                      type="range"
+                      min="0"
+                      max="0.2"
+                      step="0.01"
+                      aria-label="Mask Feather (m)"
+                      value={linkedMask.feather ?? 0.05}
+                      onChange={(e) => {
+                        updateMaskRegion(scanNode.id, linkedMask.id, { feather: parseFloat(e.target.value) || 0 });
+                      }}
+                      className="w-20 h-1.5 bg-surface rounded accent-accent"
+                    />
+                    <span className="font-mono text-text-primary text-[10px]">{(linkedMask.feather ?? 0.05).toFixed(2)}m</span>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -517,6 +636,45 @@ export function ScenePanel() {
                 <span className="font-mono text-text-primary">
                   {selectedNode.metadata?.exclusionBoxes?.length || 0}
                 </span>
+              </div>
+
+              {/* Mask Regions List */}
+              <div className="pt-2 border-t border-border/50 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold text-text-secondary">
+                    Mask Regions ({selectedNode.metadata?.maskRegions?.length || 0})
+                  </span>
+                </div>
+                {((selectedNode.metadata?.maskRegions || []) as MaskRegion[]).map((mask) => (
+                  <div key={mask.id} className="p-2 rounded-lg bg-surface border border-border/60 text-[10px] space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono text-text-primary truncate">{mask.id}</span>
+                      <button
+                        type="button"
+                        aria-label={`Toggle Ghost ${mask.id}`}
+                        onClick={() => toggleMaskGhostMode(selectedNode.id, mask.id)}
+                        className={`px-1.5 py-0.5 rounded text-[9px] border transition-colors ${
+                          mask.ghost
+                            ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                            : 'bg-surface-elevated text-text-muted border-border hover:text-text-primary'
+                        }`}
+                      >
+                        {mask.ghost ? 'Ghost (25%)' : 'Masked (0%)'}
+                      </button>
+                    </div>
+                    <div className="text-[9px] text-text-muted font-mono flex items-center justify-between">
+                      <span>Size: {mask.obb.size.map((v) => v.toFixed(2)).join(' × ')}m</span>
+                      <button
+                        type="button"
+                        title="Delete mask"
+                        onClick={() => removeMaskRegion(selectedNode.id, mask.id)}
+                        className="text-text-muted hover:text-red-400 p-0.5 rounded"
+                      >
+                        <Trash2 size={11} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           )}

@@ -1,0 +1,62 @@
+{
+  "low": {
+    "id": "low",
+    "intent": "Fast composition, realtime review and silhouette decisions",
+    "hero_asset_triangles": [
+      500,
+      20000
+    ],
+    "secondary_asset_triangles": [
+      100,
+      5000
+    ],
+    "subdivision_render_iterations": 0,
+    "silhouette_error_target_px": 2,
+    "texture_guidance": "0.5–2K by screen coverage; shared atlases where appropriate",
+    "geometry": "Preserve openings and silhouette; instance repetitions; bake non-silhouette relief",
+    "audit": "Check scale, normals, UVs, holes, grazing-angle silhouette and realtime draw calls",
+    "not_a_scene_budget": true
+  },
+  "high": {
+    "id": "high",
+    "intent": "Production architectural stills",
+    "hero_asset_triangles": [
+      20000,
+      250000
+    ],
+    "secondary_asset_triangles": [
+      1000,
+      50000
+    ],
+    "subdivision_render_iterations": [
+      0,
+      2
+    ],
+    "silhouette_error_target_px": 0.75,
+    "texture_guidance": "2–4K typical visible materials; calculate texel density rather than upscale everything",
+    "geometry": "Bevel visible hard edges in physical units; use control loops and displacement selectively",
+    "audit": "Inspect 100% crops, instances, fabric seams, reflection continuity and memory",
+    "not_a_scene_budget": true
+  },
+  "very-high": {
+    "id": "very-high",
+    "intent": "Closeups and hero details where high fails a measured crop",
+    "hero_asset_triangles": [
+      100000,
+      1500000
+    ],
+    "secondary_asset_triangles": [
+      5000,
+      150000
+    ],
+    "subdivision_render_iterations": [
+      1,
+      3
+    ],
+    "silhouette_error_target_px": 0.3,
+    "texture_guidance": "4–8K only for measured closeup demand; tiled/UDIM when supported",
+    "geometry": "Keep editable control cages; render-time subdivision/displacement; proxy heavy assets",
+    "audit": "Compare high vs very-high at final output size; retain extra cost only for visible improvement",
+    "not_a_scene_budget": true
+  }
+}

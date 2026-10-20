@@ -1,5 +1,7 @@
 import { useScene, AnyNode, AnyNodeId } from '@pascal-app/core';
 import { replaceItemAsset } from './itemEditing';
+import { createMaskRegionForNode } from '../splat/splatMasking';
+import type { MaskRegion } from '@/lib/contracts';
 
 export interface SplatExclusionBox {
   id: string;
@@ -51,6 +53,7 @@ export interface EditableSceneSummary {
     visible: boolean;
     opacity: number;
     exclusionBoxes: SplatExclusionBox[];
+    maskRegions: MaskRegion[];
   }>;
 }
 
@@ -170,6 +173,7 @@ export function getEditableSceneSummary(): EditableSceneSummary {
           visible: (node as any).visible ?? true,
           opacity: (node as any).opacity ?? 100,
           exclusionBoxes: (node as any).metadata?.exclusionBoxes || [],
+          maskRegions: (node as any).metadata?.maskRegions || [],
         });
         break;
     }
@@ -221,6 +225,7 @@ export function applySceneActions(actions: SceneAction[]): void {
         const existingNode = (scene.nodes as Record<string, any>)[act.nodeId];
         if (!existingNode || existingNode.type !== 'item') break;
         const dims = act.dimensions || existingNode.asset?.dimensions || [1, 1, 1];
+        const mask = createMaskRegionForNode(existingNode);
         const replaced = replaceItemAsset(existingNode, {
           id: existingNode.asset?.id,
           name: act.newName || existingNode.asset?.name || existingNode.name || 'Item',
@@ -230,8 +235,27 @@ export function applySceneActions(actions: SceneAction[]): void {
         });
         updates.push({
           id: act.nodeId as AnyNodeId,
-          data: replaced as any,
+          data: {
+            ...replaced,
+            metadata: {
+              ...(existingNode.metadata || {}),
+              maskRegionId: mask.id,
+            },
+          } as any,
         });
+        const targetScan = Object.values(scene.nodes).find((n) => n?.type === 'scan') as any;
+        if (targetScan) {
+          const currentMasks: MaskRegion[] = targetScan.metadata?.maskRegions || [];
+          updates.push({
+            id: targetScan.id as AnyNodeId,
+            data: {
+              metadata: {
+                ...targetScan.metadata,
+                maskRegions: [...currentMasks.filter((m) => m.itemId !== existingNode.id), mask],
+              },
+            } as any,
+          });
+        }
         break;
       }
 

@@ -41,6 +41,16 @@ export default function ProjectEditorPage() {
       } else {
         useScene.getState().clearScene();
       }
+      const scene = useScene.getState();
+      const scanNode = Object.values(scene.nodes).find((n: any) => n?.type === 'scan') as any;
+      if (scanNode && doc.manifest.maskRegions && doc.manifest.maskRegions.length > 0 && (!scanNode.metadata?.maskRegions || scanNode.metadata.maskRegions.length === 0)) {
+        (scene.updateNode as any)(scanNode.id, {
+          metadata: {
+            ...scanNode.metadata,
+            maskRegions: doc.manifest.maskRegions,
+          },
+        });
+      }
       clearActiveModel();
       setStatus('saved');
       loaded.current = true;
@@ -61,7 +71,16 @@ export default function ProjectEditorPage() {
           const savedGeneration = generation.current;
           setStatus('saving'); setError('');
           try {
-            const next = await saveProject({ ...base, manifest: { ...base.manifest, sceneSnapshot: getSceneDocument() } });
+            const scanNode = Object.values(useScene.getState().nodes).find((n: any) => n?.type === 'scan') as any;
+            const maskRegions = scanNode?.metadata?.maskRegions || base.manifest.maskRegions || [];
+            const next = await saveProject({
+              ...base,
+              manifest: {
+                ...base.manifest,
+                maskRegions,
+                sceneSnapshot: getSceneDocument(),
+              },
+            });
             documentRef.current = next;
             setDocument(next);
             if (generation.current === savedGeneration) dirty.current = false;

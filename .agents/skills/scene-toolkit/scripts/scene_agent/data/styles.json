@@ -1,0 +1,438 @@
+[
+  {
+    "id": "photoreal-daylight",
+    "name": "Photoreal daylight",
+    "kind": "lighting",
+    "atmosphere": "neutral daylight",
+    "palette": [
+      "limestone",
+      "clear glass",
+      "neutral plaster"
+    ],
+    "roughness_start_range": [
+      0.45,
+      0.8
+    ],
+    "displacement_relief_mm": [
+      0.1,
+      0.6
+    ],
+    "lighting_recipe": "Large sky fill plus one consistent sun; keep interiors readable without flattening contrast.",
+    "camera_guidance": "Perspective, 28–50 mm full-frame equivalent; level verticals only when reference supports it.",
+    "post_guidance": "Neutral WB; restrained highlight compression.",
+    "acceptance": "Crisp contact shadows, plausible window reflections, no clipped white facade.",
+    "avoid": "Do not whiten every material or add a second contradictory sun.",
+    "geometry_policy": "Preserve footprint, openings, storeys and camera unless user authorizes redesign",
+    "execution_support": "Art direction + recipe JSON; native host changes require the relevant skill",
+    "image_prompt": "Reinterpret the supplied architectural reference as photoreal daylight. Use limestone, clear glass, neutral plaster. Large sky fill plus one consistent sun; keep interiors readable without flattening contrast. Keep the building silhouette, window positions, perspective and image crop. Neutral WB; restrained highlight compression."
+  },
+  {
+    "id": "blue-hour",
+    "name": "Blue hour",
+    "kind": "lighting",
+    "atmosphere": "cool dusk",
+    "palette": [
+      "cool concrete",
+      "warm timber",
+      "low-iron glass"
+    ],
+    "roughness_start_range": [
+      0.35,
+      0.75
+    ],
+    "displacement_relief_mm": [
+      0.1,
+      0.8
+    ],
+    "lighting_recipe": "Cool sky plus 2700–3200 K luminaires, separated into interior/exterior groups.",
+    "camera_guidance": "Lock reference pose; small exposure changes before changing lamp output.",
+    "post_guidance": "Preserve blue exterior and warm interior separation; modest bloom.",
+    "acceptance": "Visible fixtures retain shape; glass reveals depth and reflected sky.",
+    "avoid": "Do not compensate dark foliage with neon green albedo.",
+    "geometry_policy": "Preserve footprint, openings, storeys and camera unless user authorizes redesign",
+    "execution_support": "Art direction + recipe JSON; native host changes require the relevant skill",
+    "image_prompt": "Reinterpret the supplied architectural reference as blue hour. Use cool concrete, warm timber, low-iron glass. Cool sky plus 2700–3200 K luminaires, separated into interior/exterior groups. Keep the building silhouette, window positions, perspective and image crop. Preserve blue exterior and warm interior separation; modest bloom."
+  },
+  {
+    "id": "golden-hour",
+    "name": "Golden hour",
+    "kind": "lighting",
+    "atmosphere": "low warm sun",
+    "palette": [
+      "warm stone",
+      "oak",
+      "satin metal"
+    ],
+    "roughness_start_range": [
+      0.35,
+      0.7
+    ],
+    "displacement_relief_mm": [
+      0.1,
+      0.6
+    ],
+    "lighting_recipe": "One low directional sun; warm key and cooler sky fill; choose shadow direction from reference.",
+    "camera_guidance": "Frame for long shadows; retain focal length across variants.",
+    "post_guidance": "Warm highlights, neutral midtones, soft shoulder.",
+    "acceptance": "Sun direction agrees with shadows, reflections and illuminated facades.",
+    "avoid": "Do not turn all surfaces orange or paint shadows into albedo.",
+    "geometry_policy": "Preserve footprint, openings, storeys and camera unless user authorizes redesign",
+    "execution_support": "Art direction + recipe JSON; native host changes require the relevant skill",
+    "image_prompt": "Reinterpret the supplied architectural reference as golden hour. Use warm stone, oak, satin metal. One low directional sun; warm key and cooler sky fill; choose shadow direction from reference. Keep the building silhouette, window positions, perspective and image crop. Warm highlights, neutral midtones, soft shoulder."
+  },
+  {
+    "id": "overcast-soft",
+    "name": "Soft overcast",
+    "kind": "lighting",
+    "atmosphere": "diffuse overcast",
+    "palette": [
+      "pale concrete",
+      "weathered wood",
+      "matte stone"
+    ],
+    "roughness_start_range": [
+      0.5,
+      0.85
+    ],
+    "displacement_relief_mm": [
+      0.2,
+      1
+    ],
+    "lighting_recipe": "Large diffuse sky, no strong direct sun; maintain contact and recess shading.",
+    "camera_guidance": "Architectural perspective; add depth with occlusion and scale, not fake wide-angle stretch.",
+    "post_guidance": "Soft contrast, restrained saturation.",
+    "acceptance": "Open shadows retain depth; no hard cast sun shadow.",
+    "avoid": "Do not add ambient occlusion halos around every edge.",
+    "geometry_policy": "Preserve footprint, openings, storeys and camera unless user authorizes redesign",
+    "execution_support": "Art direction + recipe JSON; native host changes require the relevant skill",
+    "image_prompt": "Reinterpret the supplied architectural reference as soft overcast. Use pale concrete, weathered wood, matte stone. Large diffuse sky, no strong direct sun; maintain contact and recess shading. Keep the building silhouette, window positions, perspective and image crop. Soft contrast, restrained saturation."
+  },
+  {
+    "id": "rainy-cinematic",
+    "name": "Rainy cinematic",
+    "kind": "lighting",
+    "atmosphere": "wet dusk",
+    "palette": [
+      "wet stone",
+      "dark metal",
+      "coated glass"
+    ],
+    "roughness_start_range": [
+      0.08,
+      0.6
+    ],
+    "displacement_relief_mm": [
+      0.1,
+      0.6
+    ],
+    "lighting_recipe": "Broad cool environment with warm practical sources; physically placed wetness masks.",
+    "camera_guidance": "Keep horizon and reflections consistent; low camera only if requested.",
+    "post_guidance": "Subtle haze and highlight bloom; retain readable blacks.",
+    "acceptance": "Wetness pools in plausible areas; roughness varies with drainage/exposure.",
+    "avoid": "Do not make every surface a perfect mirror; rain must not change building geometry.",
+    "geometry_policy": "Preserve footprint, openings, storeys and camera unless user authorizes redesign",
+    "execution_support": "Art direction + recipe JSON; native host changes require the relevant skill",
+    "image_prompt": "Reinterpret the supplied architectural reference as rainy cinematic. Use wet stone, dark metal, coated glass. Broad cool environment with warm practical sources; physically placed wetness masks. Keep the building silhouette, window positions, perspective and image crop. Subtle haze and highlight bloom; retain readable blacks."
+  },
+  {
+    "id": "night-architectural",
+    "name": "Architectural night",
+    "kind": "lighting",
+    "atmosphere": "night",
+    "palette": [
+      "dark stone",
+      "emissive fixtures",
+      "transparent glazing"
+    ],
+    "roughness_start_range": [
+      0.25,
+      0.7
+    ],
+    "displacement_relief_mm": [
+      0.1,
+      0.8
+    ],
+    "lighting_recipe": "Exterior fixtures, interior luminaires and environment in separate LightMix groups; finite output.",
+    "camera_guidance": "Reference camera and visible fixture layout locked.",
+    "post_guidance": "Control fireflies and clipping before denoising; gentle bloom.",
+    "acceptance": "Light sources explain illuminated surfaces; unlit surfaces remain plausible.",
+    "avoid": "Do not use emission as a substitute for all indirect lighting.",
+    "geometry_policy": "Preserve footprint, openings, storeys and camera unless user authorizes redesign",
+    "execution_support": "Art direction + recipe JSON; native host changes require the relevant skill",
+    "image_prompt": "Reinterpret the supplied architectural reference as architectural night. Use dark stone, emissive fixtures, transparent glazing. Exterior fixtures, interior luminaires and environment in separate LightMix groups; finite output. Keep the building silhouette, window positions, perspective and image crop. Control fireflies and clipping before denoising; gentle bloom."
+  },
+  {
+    "id": "scandinavian",
+    "name": "Scandinavian calm",
+    "kind": "design",
+    "atmosphere": "soft daylight",
+    "palette": [
+      "light ash",
+      "wool",
+      "chalk plaster",
+      "muted grey"
+    ],
+    "roughness_start_range": [
+      0.5,
+      0.9
+    ],
+    "displacement_relief_mm": [
+      0.05,
+      0.4
+    ],
+    "lighting_recipe": "Diffuse daylight and restrained 3000 K practicals.",
+    "camera_guidance": "Eye-level, calm composition and moderate focal length.",
+    "post_guidance": "Neutral whites, soft contrast, restrained warm timber.",
+    "acceptance": "Wood grain has real scale; woven materials differ from plaster.",
+    "avoid": "Preserve floor plan; avoid sterile white clipping and generic oversized furniture.",
+    "geometry_policy": "Preserve footprint, openings, storeys and camera unless user authorizes redesign",
+    "execution_support": "Art direction + recipe JSON; native host changes require the relevant skill",
+    "image_prompt": "Reinterpret the supplied architectural reference as scandinavian calm. Use light ash, wool, chalk plaster, muted grey. Diffuse daylight and restrained 3000 K practicals. Keep the building silhouette, window positions, perspective and image crop. Neutral whites, soft contrast, restrained warm timber."
+  },
+  {
+    "id": "japandi",
+    "name": "Japandi",
+    "kind": "design",
+    "atmosphere": "filtered daylight",
+    "palette": [
+      "smoked oak",
+      "linen",
+      "clay",
+      "warm off-white"
+    ],
+    "roughness_start_range": [
+      0.55,
+      0.9
+    ],
+    "displacement_relief_mm": [
+      0.1,
+      0.7
+    ],
+    "lighting_recipe": "Soft directional daylight, low contrast practicals; readable alcoves.",
+    "camera_guidance": "Quiet framing, natural eye height; retain windows and circulation.",
+    "post_guidance": "Earth palette, deep but open shadows.",
+    "acceptance": "Tactile timber and linen, quiet joins, consistent low furniture scale.",
+    "avoid": "Do not invent shoji openings or lower ceiling heights to signal a style.",
+    "geometry_policy": "Preserve footprint, openings, storeys and camera unless user authorizes redesign",
+    "execution_support": "Art direction + recipe JSON; native host changes require the relevant skill",
+    "image_prompt": "Reinterpret the supplied architectural reference as japandi. Use smoked oak, linen, clay, warm off-white. Soft directional daylight, low contrast practicals; readable alcoves. Keep the building silhouette, window positions, perspective and image crop. Earth palette, deep but open shadows."
+  },
+  {
+    "id": "warm-minimalism",
+    "name": "Warm minimalism",
+    "kind": "design",
+    "atmosphere": "warm diffuse interior",
+    "palette": [
+      "travertine",
+      "walnut",
+      "boucle",
+      "cream plaster"
+    ],
+    "roughness_start_range": [
+      0.45,
+      0.85
+    ],
+    "displacement_relief_mm": [
+      0.1,
+      1
+    ],
+    "lighting_recipe": "Concealed warm sources with broad daylight; avoid visible hot strips.",
+    "camera_guidance": "Use reference composition and leave deliberate negative space.",
+    "post_guidance": "Cream neutral balance; warm highlights without yellow whites.",
+    "acceptance": "Fine plaster, porous stone and soft textiles are distinguishable in crop.",
+    "avoid": "Do not replace all texture with a uniform beige shader.",
+    "geometry_policy": "Preserve footprint, openings, storeys and camera unless user authorizes redesign",
+    "execution_support": "Art direction + recipe JSON; native host changes require the relevant skill",
+    "image_prompt": "Reinterpret the supplied architectural reference as warm minimalism. Use travertine, walnut, boucle, cream plaster. Concealed warm sources with broad daylight; avoid visible hot strips. Keep the building silhouette, window positions, perspective and image crop. Cream neutral balance; warm highlights without yellow whites."
+  },
+  {
+    "id": "brutalist",
+    "name": "Tactile brutalism",
+    "kind": "design",
+    "atmosphere": "raking overcast",
+    "palette": [
+      "board-formed concrete",
+      "dark steel",
+      "smoked glass"
+    ],
+    "roughness_start_range": [
+      0.55,
+      0.9
+    ],
+    "displacement_relief_mm": [
+      0.3,
+      2
+    ],
+    "lighting_recipe": "Broad cool fill plus grazing light to show formwork relief; no exaggerated noise.",
+    "camera_guidance": "Emphasize mass through framing, without altering locked structure.",
+    "post_guidance": "Restrained saturation, controlled grey values.",
+    "acceptance": "Formwork seams, tie-hole spacing and weathering follow construction logic.",
+    "avoid": "Do not add random holes everywhere or use centimetres of concrete displacement.",
+    "geometry_policy": "Preserve footprint, openings, storeys and camera unless user authorizes redesign",
+    "execution_support": "Art direction + recipe JSON; native host changes require the relevant skill",
+    "image_prompt": "Reinterpret the supplied architectural reference as tactile brutalism. Use board-formed concrete, dark steel, smoked glass. Broad cool fill plus grazing light to show formwork relief; no exaggerated noise. Keep the building silhouette, window positions, perspective and image crop. Restrained saturation, controlled grey values."
+  },
+  {
+    "id": "mediterranean",
+    "name": "Contemporary Mediterranean",
+    "kind": "design",
+    "atmosphere": "warm daylight",
+    "palette": [
+      "lime plaster",
+      "terracotta",
+      "pale stone",
+      "natural fibre"
+    ],
+    "roughness_start_range": [
+      0.55,
+      0.95
+    ],
+    "displacement_relief_mm": [
+      0.2,
+      1.5
+    ],
+    "lighting_recipe": "Warm sun with open sky fill; shaded rooms remain cooler.",
+    "camera_guidance": "Keep approved openings; arches require explicit geometry redesign scope.",
+    "post_guidance": "Warm mineral palette; avoid oversaturated terracotta.",
+    "acceptance": "Plaster relief and stone edge wear remain fine at full scale.",
+    "avoid": "Do not insert arches, pools or palms merely to force the aesthetic.",
+    "geometry_policy": "Preserve footprint, openings, storeys and camera unless user authorizes redesign",
+    "execution_support": "Art direction + recipe JSON; native host changes require the relevant skill",
+    "image_prompt": "Reinterpret the supplied architectural reference as contemporary mediterranean. Use lime plaster, terracotta, pale stone, natural fibre. Warm sun with open sky fill; shaded rooms remain cooler. Keep the building silhouette, window positions, perspective and image crop. Warm mineral palette; avoid oversaturated terracotta."
+  },
+  {
+    "id": "industrial-loft",
+    "name": "Industrial loft",
+    "kind": "design",
+    "atmosphere": "window daylight",
+    "palette": [
+      "brick",
+      "blackened steel",
+      "leather",
+      "reclaimed timber"
+    ],
+    "roughness_start_range": [
+      0.35,
+      0.85
+    ],
+    "displacement_relief_mm": [
+      0.3,
+      2
+    ],
+    "lighting_recipe": "Strong window direction, soft fill, modest warm pendants.",
+    "camera_guidance": "Match perspective and structural rhythm; avoid making every lens ultra-wide.",
+    "post_guidance": "Balanced shadows; warm/cool materials separated.",
+    "acceptance": "Brick courses and joints use measured dimensions; steel edges catch highlights.",
+    "avoid": "No invented exposed structure without a redesign instruction.",
+    "geometry_policy": "Preserve footprint, openings, storeys and camera unless user authorizes redesign",
+    "execution_support": "Art direction + recipe JSON; native host changes require the relevant skill",
+    "image_prompt": "Reinterpret the supplied architectural reference as industrial loft. Use brick, blackened steel, leather, reclaimed timber. Strong window direction, soft fill, modest warm pendants. Keep the building silhouette, window positions, perspective and image crop. Balanced shadows; warm/cool materials separated."
+  },
+  {
+    "id": "biophilic-tropical",
+    "name": "Biophilic tropical",
+    "kind": "design",
+    "atmosphere": "humid late afternoon",
+    "palette": [
+      "dense greenery",
+      "timber",
+      "pale concrete",
+      "water"
+    ],
+    "roughness_start_range": [
+      0.35,
+      0.85
+    ],
+    "displacement_relief_mm": [
+      0.1,
+      1
+    ],
+    "lighting_recipe": "Filtered sun and sky; use layered vegetation, foliage transmission and gentle atmospheric depth.",
+    "camera_guidance": "Preserve building visibility; set hero frame before scattering vegetation.",
+    "post_guidance": "Natural varied greens; depth haze kept separate from geometry.",
+    "acceptance": "Leaves vary in orientation, age and translucency; grass has no tile-grid repetition.",
+    "avoid": "No uniform green blobs, billboard foreground forest or excessive displacement on leaves.",
+    "geometry_policy": "Preserve footprint, openings, storeys and camera unless user authorizes redesign",
+    "execution_support": "Art direction + recipe JSON; native host changes require the relevant skill",
+    "image_prompt": "Reinterpret the supplied architectural reference as biophilic tropical. Use dense greenery, timber, pale concrete, water. Filtered sun and sky; use layered vegetation, foliage transmission and gentle atmospheric depth. Keep the building silhouette, window positions, perspective and image crop. Natural varied greens; depth haze kept separate from geometry."
+  },
+  {
+    "id": "clay-study",
+    "name": "Clay study",
+    "kind": "presentation",
+    "atmosphere": "studio soft",
+    "palette": [
+      "single neutral clay with optional glass exception"
+    ],
+    "roughness_start_range": [
+      0.65,
+      0.85
+    ],
+    "displacement_relief_mm": [
+      0,
+      0
+    ],
+    "lighting_recipe": "Large soft key and fill; neutral environment; no texture-driven distraction.",
+    "camera_guidance": "Reference camera for comparison; optional orthographic secondary view.",
+    "post_guidance": "Linear-neutral lighting comparison, no stylized grading.",
+    "acceptance": "Silhouette, reveals, openings and junctions stay legible.",
+    "avoid": "Do not claim a clay pass validates final materials or photorealism.",
+    "geometry_policy": "Preserve footprint, openings, storeys and camera unless user authorizes redesign",
+    "execution_support": "Art direction + recipe JSON; native host changes require the relevant skill",
+    "image_prompt": "Reinterpret the supplied architectural reference as clay study. Use single neutral clay with optional glass exception. Large soft key and fill; neutral environment; no texture-driven distraction. Keep the building silhouette, window positions, perspective and image crop. Linear-neutral lighting comparison, no stylized grading."
+  },
+  {
+    "id": "watercolor-concept",
+    "name": "Watercolor concept",
+    "kind": "presentation",
+    "atmosphere": "illustrative diffuse",
+    "palette": [
+      "paper grain",
+      "pigment washes",
+      "limited palette"
+    ],
+    "roughness_start_range": [
+      0.7,
+      1
+    ],
+    "displacement_relief_mm": [
+      0,
+      0
+    ],
+    "lighting_recipe": "Render a clean structural base; use an image/illustration tool for wash and line treatment.",
+    "camera_guidance": "Lock crop and key edges using guides; compare openings after stylization.",
+    "post_guidance": "Paper and pigment treatment in a separate derived image.",
+    "acceptance": "Building outline and openings survive the illustration pass.",
+    "avoid": "Not a native Corona preset. Do not substitute the illustration for an editable scene.",
+    "geometry_policy": "Preserve footprint, openings, storeys and camera unless user authorizes redesign",
+    "execution_support": "Art direction + recipe JSON; native host changes require the relevant skill",
+    "image_prompt": "Reinterpret the supplied architectural reference as watercolor concept. Use paper grain, pigment washes, limited palette. Render a clean structural base; use an image/illustration tool for wash and line treatment. Keep the building silhouette, window positions, perspective and image crop. Paper and pigment treatment in a separate derived image."
+  },
+  {
+    "id": "technical-axonometric",
+    "name": "Technical axonometric",
+    "kind": "presentation",
+    "atmosphere": "diagram studio",
+    "palette": [
+      "neutral surfaces",
+      "material category accents",
+      "linework"
+    ],
+    "roughness_start_range": [
+      0.65,
+      0.9
+    ],
+    "displacement_relief_mm": [
+      0,
+      0
+    ],
+    "lighting_recipe": "Even readable illumination, soft grounding shadow; optional line pass via supported host.",
+    "camera_guidance": "True orthographic camera; parallel world-axis lines remain parallel.",
+    "post_guidance": "Clean white background and clear category separation.",
+    "acceptance": "No perspective convergence; scale bar only when output scale is defined.",
+    "avoid": "A long focal length perspective is not a true axonometric projection.",
+    "geometry_policy": "Preserve footprint, openings, storeys and camera unless user authorizes redesign",
+    "execution_support": "Art direction + recipe JSON; native host changes require the relevant skill",
+    "image_prompt": "Reinterpret the supplied architectural reference as technical axonometric. Use neutral surfaces, material category accents, linework. Even readable illumination, soft grounding shadow; optional line pass via supported host. Keep the building silhouette, window positions, perspective and image crop. Clean white background and clear category separation."
+  }
+]

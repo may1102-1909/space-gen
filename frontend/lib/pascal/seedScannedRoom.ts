@@ -218,6 +218,7 @@ export function seedScannedRoom(options?: SeedRoomOptions): boolean {
       layers: {},
       metadata: {
         exclusionBoxes: [],
+        maskRegions: [],
       },
     },
     'level_main'

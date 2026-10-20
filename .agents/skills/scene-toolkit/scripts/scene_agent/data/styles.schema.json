@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "array",
+  "minItems": 16,
+  "maxItems": 16,
+  "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "id": {
+        "type": "string",
+        "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}$"
+      },
+      "name": {
+        "type": "string"
+      },
+      "kind": {
+        "enum": [
+          "lighting",
+          "design",
+          "presentation"
+        ]
+      },
+      "atmosphere": {
+        "type": "string"
+      },
+      "palette": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "minItems": 1
+      },
+      "roughness_start_range": {
+        "type": "array",
+        "items": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "minItems": 2,
+        "maxItems": 2
+      },
+      "displacement_relief_mm": {
+        "type": "array",
+        "items": {
+          "type": "number",
+          "minimum": 0
+        },
+        "minItems": 2,
+        "maxItems": 2
+      },
+      "lighting_recipe": {
+        "type": "string",
+        "minLength": 1
+      },
+      "camera_guidance": {
+        "type": "string",
+        "minLength": 1
+      },
+      "post_guidance": {
+        "type": "string",
+        "minLength": 1
+      },
+      "acceptance": {
+        "type": "string",
+        "minLength": 1
+      },
+      "avoid": {
+        "type": "string",
+        "minLength": 1
+      },
+      "geometry_policy": {
+        "type": "string",
+        "minLength": 1
+      },
+      "execution_support": {
+        "type": "string",
+        "minLength": 1
+      },
+      "image_prompt": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "required": [
+      "id",
+      "name",
+      "kind",
+      "atmosphere",
+      "palette",
+      "roughness_start_range",
+      "displacement_relief_mm",
+      "lighting_recipe",
+      "camera_guidance",
+      "post_guidance",
+      "acceptance",
+      "avoid",
+      "geometry_policy",
+      "execution_support",
+      "image_prompt"
+    ]
+  }
+}

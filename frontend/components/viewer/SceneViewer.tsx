@@ -17,10 +17,12 @@ import {
   useViewer,
 } from '@pascal-app/viewer';
 import { ensurePascalInitialized } from '@/lib/pascal/initPascal';
+import { seedScannedRoom } from '@/lib/pascal/seedScannedRoom';
 import { useScene } from '@pascal-app/core';
 import { SplatBackgroundCanvas, type SplatCameraState } from '@/components/splat-prototype/SplatBackgroundCanvas';
 import { ScanAlignmentTool } from './ScanAlignmentTool';
 import type { Matrix4, Vector3 } from '@/lib/contracts/primitives';
+import type { MaskRegion } from '@/lib/contracts';
 import { EditorToolbar, ActiveTool } from '@/components/layout/EditorToolbar';
 import { ScanSegmentationOverlay } from './ScanSegmentationOverlay';
 import { ScanToEditableModal } from '../capture/ScanToEditableModal';
@@ -55,6 +57,26 @@ function ScanCameraBridge({
     perspective.lookAt(0, 1, 0);
     perspective.updateProjectionMatrix();
   }, [camera, scanId]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      (window as any).__setEditorCamera = (
+        position: [number, number, number],
+        target: [number, number, number] = [2.0, 0.45, -0.75]
+      ) => {
+        const perspective = camera as THREE.PerspectiveCamera;
+        perspective.position.set(...position);
+        perspective.lookAt(...target);
+        perspective.updateProjectionMatrix();
+        perspective.updateMatrixWorld();
+      };
+    }
+    return () => {
+      if (typeof window !== 'undefined') {
+        delete (window as any).__setEditorCamera;
+      }
+    };
+  }, [camera]);
 
   useFrame(() => {
     if ((camera as THREE.PerspectiveCamera).isPerspectiveCamera) {
@@ -142,6 +164,42 @@ function ScanDepthOcclusionProxy({
   );
 }
 
+function MaskRegionVisualizer({
+  maskRegions,
+  selectedId,
+}: {
+  maskRegions: MaskRegion[];
+  selectedId?: string | null;
+}) {
+  if (!maskRegions || maskRegions.length === 0) return null;
+  return (
+    <group>
+      {maskRegions.map((mask) => {
+        if (!mask.enabled) return null;
+        const isSelected = selectedId && (mask.itemId === selectedId || mask.id === selectedId);
+        return (
+          <group
+            key={mask.id}
+            position={[mask.obb.center[0], mask.obb.center[1], mask.obb.center[2]]}
+            rotation={[0, mask.obb.yaw || 0, 0]}
+          >
+            <mesh>
+              <boxGeometry args={[mask.obb.size[0], mask.obb.size[1], mask.obb.size[2]]} />
+              <meshBasicMaterial
+                wireframe
+                color={isSelected ? '#38bdf8' : mask.ghost ? '#fbbf24' : '#10b981'}
+                transparent
+                opacity={isSelected ? 0.75 : mask.ghost ? 0.35 : 0.15}
+                depthWrite={false}
+              />
+            </mesh>
+          </group>
+        );
+      })}
+    </group>
+  );
+}
+
 interface SceneViewerProps {
   objects?: any[];
   selectedId?: string | null;
@@ -163,6 +221,7 @@ export function SceneViewer({ selectedId, onSelectObject }: SceneViewerProps) {
   const scanToScene: Matrix4 = scanNode?.metadata?.scanToScene || [
     1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1,
   ];
+  const maskRegions: MaskRegion[] = scanNode?.metadata?.maskRegions || [];
   const handlePickerReady = useCallback((picker: ScanPicker | null) => {
     pickerRef.current = picker;
   }, []);
@@ -186,6 +245,9 @@ export function SceneViewer({ selectedId, onSelectObject }: SceneViewerProps) {
         await ensurePascalInitialized();
         if (mounted) {
           setIsReady(true);
+          if (typeof window !== 'undefined') {
+            (window as any).__seedScannedRoom = (options?: { forceReset?: boolean }) => seedScannedRoom(options);
+          }
         }
       } catch (err: any) {
         console.error('[SceneViewer] Failed to initialize Pascal workspace:', err);
@@ -281,11 +343,16 @@ export function SceneViewer({ selectedId, onSelectObject }: SceneViewerProps) {
         cameraStateRef={cameraStateRef}
         scanUrl={scanNode?.url || null}
         scanToScene={scanToScene}
+        maskRegions={maskRegions}
         visible={showScans && scanNode?.visible !== false}
         onPickerReady={handlePickerReady}
       />
       <Viewer perf={false} useBvh={true} transparent>
         <TransformGizmo />
+        <MaskRegionVisualizer
+          maskRegions={maskRegions}
+          selectedId={selectedId || selectedIds[0] || null}
+        />
         <ScanCameraBridge
           cameraStateRef={cameraStateRef}
           isPicking={isPickingScanPoint}

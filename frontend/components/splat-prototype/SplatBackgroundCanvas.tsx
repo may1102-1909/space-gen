@@ -9,6 +9,7 @@ import {
   SplatEditSdf,
   SplatEditSdfType,
 } from '@sparkjsdev/spark';
+import type { MaskRegion } from '@/lib/contracts';
 
 type SparkRendererType = InstanceType<typeof SparkRenderer>;
 type SplatMeshType = InstanceType<typeof SplatMesh>;
@@ -34,6 +35,7 @@ export interface SplatBackgroundCanvasProps {
   enableMasking?: boolean;
   maskPosition?: [number, number, number];
   maskSize?: [number, number, number];
+  maskRegions?: MaskRegion[];
   onMetricsUpdate?: (metrics: {
     fps: number;
     splatCount: number;
@@ -53,6 +55,7 @@ export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
   enableMasking = false,
   maskPosition = [0, 0, 0],
   maskSize = [1.5, 1.5, 1.5],
+  maskRegions = [],
   onMetricsUpdate,
   renderMode = 'synced',
 }) => {
@@ -62,7 +65,7 @@ export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const sparkRef = useRef<SparkRendererType | null>(null);
   const splatMeshRef = useRef<SplatMeshType | null>(null);
-  const splatEditRef = useRef<SplatEditType | null>(null);
+  const activeEditsRef = useRef<SplatEditType[]>([]);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const raycasterRef = useRef(new THREE.Raycaster());
@@ -283,39 +286,85 @@ export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
     mesh.matrixWorldNeedsUpdate = true;
   }, [scanToScene, scanUrl, visible]);
 
-  // 3. Dynamic Per-Region OBB Masking (SplatEdit SDF Box)
+  // 3. Dynamic Per-Region OBB Masking (SplatEdit SDF Box) with feathered opacity falloff & ghost mode
   useEffect(() => {
     const splatMesh = splatMeshRef.current;
-    if (!splatMesh) return;
+    const scene = sceneRef.current;
+    if (!splatMesh || !scene) return;
 
-    if (enableMasking) {
-      if (!splatEditRef.current) {
+    // Clean up previous edits
+    for (const oldEdit of activeEditsRef.current) {
+      scene.remove(oldEdit);
+      splatMesh.remove(oldEdit);
+    }
+    activeEditsRef.current = [];
+
+    const nextEdits: SplatEditType[] = [];
+
+    if (maskRegions && maskRegions.length > 0) {
+      for (const mask of maskRegions) {
+        if (mask.enabled === false) continue;
+
+        const targetOpacity = mask.ghost ? (mask.opacity ?? 0.25) : 0.0;
         const boxSdf = new SplatEditSdf({
           type: SplatEditSdfType.BOX,
-          opacity: 0.0, // Clear / hide splats in this region
+          opacity: targetOpacity,
         });
-        boxSdf.position.set(...maskPosition);
-        boxSdf.scale.set(...maskSize);
+
+        boxSdf.position.set(mask.obb.center[0], mask.obb.center[1], mask.obb.center[2]);
+        boxSdf.rotation.set(0, mask.obb.yaw || 0, 0);
+        // Half-extents for Spark box SDF:
+        boxSdf.scale.set(
+          Math.max(0.01, mask.obb.size[0] / 2),
+          Math.max(0.01, mask.obb.size[1] / 2),
+          Math.max(0.01, mask.obb.size[2] / 2)
+        );
 
         const edit = new SplatEdit({
           sdfs: [boxSdf],
-          sdfSmooth: 0.05,
+          softEdge: mask.feather ?? 0.05,
+          sdfSmooth: 0.02,
         });
 
-        splatMesh.add(edit);
-        splatEditRef.current = edit;
-      } else {
-        const sdf = splatEditRef.current.sdfs?.[0];
-        if (sdf) {
-          sdf.position.set(...maskPosition);
-          sdf.scale.set(...maskSize);
-        }
+        scene.add(edit);
+        nextEdits.push(edit);
       }
-    } else if (splatEditRef.current) {
-      splatMesh.remove(splatEditRef.current);
-      splatEditRef.current = null;
+    } else if (enableMasking) {
+      const boxSdf = new SplatEditSdf({
+        type: SplatEditSdfType.BOX,
+        opacity: 0.0,
+      });
+      boxSdf.position.set(...maskPosition);
+      boxSdf.scale.set(
+        Math.max(0.01, maskSize[0] / 2),
+        Math.max(0.01, maskSize[1] / 2),
+        Math.max(0.01, maskSize[2] / 2)
+      );
+
+      const edit = new SplatEdit({
+        sdfs: [boxSdf],
+        softEdge: 0.05,
+        sdfSmooth: 0.02,
+      });
+
+      scene.add(edit);
+      nextEdits.push(edit);
     }
-  }, [enableMasking, maskPosition, maskSize]);
+
+    splatMesh.edits = nextEdits.length > 0 ? nextEdits : null;
+    activeEditsRef.current = nextEdits;
+
+    return () => {
+      for (const edit of nextEdits) {
+        scene.remove(edit);
+        splatMesh.remove(edit);
+      }
+      activeEditsRef.current = [];
+      if (splatMeshRef.current) {
+        splatMeshRef.current.edits = null;
+      }
+    };
+  }, [enableMasking, maskPosition, maskSize, maskRegions]);
 
   return (
     <div ref={containerRef} className="absolute inset-0 w-full h-full pointer-events-none">

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Exterior and Landscape"
+  short_description: "Use layered, varied vegetation and coherent building-ground rela"
+  default_prompt: "Use $scene-exterior-landscape for this architectural task and report the concrete result and verification."

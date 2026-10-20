@@ -83,6 +83,10 @@ class MaskRegion(BaseModel):
     obb: OrientedBoundingBox
     feather: float = Field(ge=0.0)
     enabled: bool
+    detectionId: Optional[str] = None
+    itemId: Optional[str] = None
+    ghost: Optional[bool] = False
+    opacity: Optional[float] = Field(default=None, ge=0.0, le=1.0)
 
 
 # ---------------------------------------------------------------------------
