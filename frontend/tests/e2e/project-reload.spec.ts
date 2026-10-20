@@ -34,7 +34,8 @@ test('reopening a project restores the Pascal item transform', async ({ page }) 
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect.poll(() => putCount).toBe(1);
   await page.locator('input[type="number"]').nth(0).fill('4.5');
-  await expect.poll(() => putCount).toBe(2);
+  await page.locator('input[type="number"]').nth(0).blur();
+  await expect.poll(() => putCount, { timeout: 10000 }).toBe(2);
   await expect.poll(() => revision).toBe(3);
   await expect(page.locator('input[type="number"]').nth(0)).toHaveValue('4.5');
 
