@@ -179,3 +179,10 @@ export function polygonBounds(poly: Poly): { minX: number; maxX: number; minZ: n
   }
   return { minX, maxX, minZ, maxZ };
 }
+
+/** Cheap lower bound on the gap between two OBBs (centre distance minus circumradii); may be negative. */
+export function obbBroadGap(a: Obb2, b: Obb2): number {
+  const dx = a.cx - b.cx;
+  const dz = a.cz - b.cz;
+  return Math.sqrt(dx * dx + dz * dz) - Math.sqrt(a.hx * a.hx + a.hz * a.hz) - Math.sqrt(b.hx * b.hx + b.hz * b.hz);
+}

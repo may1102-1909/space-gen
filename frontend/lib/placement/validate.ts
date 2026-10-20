@@ -4,6 +4,7 @@ import {
   type Poly,
   convexSeparation,
   makeObb2,
+  obbBroadGap,
   polygonContains,
 } from './geometry';
 import {
@@ -64,6 +65,7 @@ export function validateSubject(subject: Subject, ctx: PlacementContext): Placem
   const obb = subjectObb(subject);
   const id = subject.id;
   const top = subject.y + subject.dims[1];
+  const reach = Math.max(options.walkwayMin, ...Object.values(options.frontClearance)) + tol + 0.05;
 
   // Inside room outline.
   if (room.outline && !polygonContains(room.outline, obb.corners, tol)) {
@@ -93,6 +95,7 @@ export function validateSubject(subject: Subject, ctx: PlacementContext): Placem
   // Items.
   for (const o of obstacles) {
     if (o.id === id) continue;
+    if (obbBroadGap(obb, o.obb) > tol) continue;
     const sep = convexSeparation(obb.corners, o.obb.corners);
     if (sep.gap < -tol && yOverlap(subject.y, subject.dims[1], o.y, o.h) > Y_EPS) {
       out.push({
@@ -161,7 +164,7 @@ export function validateSubject(subject: Subject, ctx: PlacementContext): Placem
   // Front clearance: subject's own front and subject blocking others' fronts.
   if (hasFront(subject.category)) {
     const depth = frontDepthFor(subject.category, options);
-    const zone = frontZone(obb, depth).corners;
+    const zone = frontZone(obb, depth);
     const blocker = findFrontBlocker(zone, subject.y, subject.dims[1], subject.category, id, ctx, tol);
     if (blocker) {
       out.push({
@@ -175,6 +178,7 @@ export function validateSubject(subject: Subject, ctx: PlacementContext): Placem
   }
   for (const o of obstacles) {
     if (o.id === id || !hasFront(o.category) || isIntendedPartner(o.category, subject.category)) continue;
+    if (obbBroadGap(obb, o.obb) > reach) continue;
     const depth = frontDepthFor(o.category, options);
     const zone = frontZone(o.obb, depth).corners;
     if (yOverlap(subject.y, subject.dims[1], o.y, o.h) > Y_EPS && convexSeparation(obb.corners, zone).gap < -tol) {
@@ -204,7 +208,7 @@ export function validateSubject(subject: Subject, ctx: PlacementContext): Placem
     }
   };
   for (const o of obstacles) {
-    if (o.id !== id && yOverlap(subject.y, subject.dims[1], o.y, o.h) > Y_EPS) gapCheck(o.obb.corners, o.id, o.category, `"${o.name}"`);
+    if (o.id !== id && obbBroadGap(obb, o.obb) <= reach && yOverlap(subject.y, subject.dims[1], o.y, o.h) > Y_EPS) gapCheck(o.obb.corners, o.id, o.category, `"${o.name}"`);
   }
   for (const w of room.walls) gapCheck(w.rect, w.id, null, `wall ${w.id}`);
 
@@ -212,7 +216,7 @@ export function validateSubject(subject: Subject, ctx: PlacementContext): Placem
 }
 
 function findFrontBlocker(
-  zone: Poly,
+  zoneObb: Obb2,
   y: number,
   h: number,
   category: string,
@@ -220,11 +224,13 @@ function findFrontBlocker(
   ctx: PlacementContext,
   tol: number
 ): { id: string; name: string } | null {
+  const zone = zoneObb.corners;
   for (const w of ctx.room.walls) {
     if (convexSeparation(zone, w.rect).gap < -tol) return { id: w.id, name: `wall ${w.id}` };
   }
   for (const o of ctx.obstacles) {
     if (o.id === selfId || isIntendedPartner(category, o.category)) continue;
+    if (obbBroadGap(zoneObb, o.obb) > tol) continue;
     if (yOverlap(y, h, o.y, o.h) > Y_EPS && convexSeparation(zone, o.obb.corners).gap < -tol) return { id: o.id, name: `"${o.name}"` };
   }
   return null;
@@ -236,7 +242,7 @@ export function clearFrontDepth(subject: Subject, ctx: PlacementContext, max = 1
   const tol = ctx.options.overlapTolerance;
   let clear = 0;
   for (let d = 0.3; d <= max + 1e-9; d += 0.3) {
-    const zone = frontZone(obb, d).corners;
+    const zone = frontZone(obb, d);
     if (findFrontBlocker(zone, subject.y, subject.dims[1], subject.category, subject.id, ctx, tol)) break;
     clear = d;
   }
