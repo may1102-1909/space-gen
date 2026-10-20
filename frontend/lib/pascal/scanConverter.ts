@@ -157,10 +157,7 @@ export function convertScanToEditableNodes(
       id: slabId,
       name: `${manifest.name || 'Room'} Floor Slab`,
       thickness: 0.2,
-      polygon: {
-        type: 'polygon',
-        points: manifest.boundaryPolygon,
-      },
+      polygon: manifest.boundaryPolygon,
     } as any,
   });
   createdNodeIds.push(slabId);
@@ -235,7 +232,20 @@ export function convertScanToEditableNodes(
         position: obj.center,
         rotation: obj.rotation || [0, 0, 0],
         dimensions: obj.dimensions,
+        scale: [1, 1, 1],
         modelUrl,
+        asset: {
+          id: `asset_${itemId}`,
+          category: obj.category,
+          name: obj.label,
+          thumbnail: '',
+          source: 'library',
+          src: modelUrl,
+          dimensions: obj.dimensions,
+          offset: [0, 0, 0],
+          rotation: [0, 0, 0],
+          scale: [1, 1, 1],
+        },
       } as any,
     });
     createdNodeIds.push(itemId);

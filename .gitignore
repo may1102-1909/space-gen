@@ -47,3 +47,9 @@ npm-debug.log*
 *.tsbuildinfo
 backend/data/jobs.json
 
+
+# Test outputs
+test-results/
+playwright-report/
+frontend/test-results/
+frontend/playwright-report/

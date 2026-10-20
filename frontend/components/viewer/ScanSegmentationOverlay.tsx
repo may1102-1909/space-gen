@@ -40,8 +40,21 @@ export function ScanSegmentationOverlay({ onReplaceWithAI }: ScanSegmentationOve
         category: obj.category,
         position: obj.center,
         rotation: obj.rotation || [0, 0, 0],
+        scale: [1, 1, 1],
         dimensions: obj.dimensions,
         modelUrl: obj.modelUrl || `/samples/models/${obj.category === 'sofa' ? 'sofa.glb' : obj.category === 'chair' ? 'chair.glb' : 'coffee_table.glb'}`,
+        asset: {
+          id: `asset_${itemId}`,
+          category: obj.category,
+          name: obj.label,
+          thumbnail: '',
+          source: 'library',
+          src: obj.modelUrl || `/samples/models/${obj.category === 'sofa' ? 'sofa.glb' : obj.category === 'chair' ? 'chair.glb' : 'coffee_table.glb'}`,
+          dimensions: obj.dimensions,
+          offset: [0, 0, 0],
+          rotation: [0, 0, 0],
+          scale: [1, 1, 1],
+        },
       },
       levelId
     );

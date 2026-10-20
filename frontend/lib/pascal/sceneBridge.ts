@@ -144,18 +144,22 @@ export function getEditableSceneSummary(): EditableSceneSummary {
         });
         break;
 
-      case 'item':
+      case 'item': {
+        const itemNode = node as any;
+        const dims = itemNode.asset?.dimensions || itemNode.dimensions || [0.8, 0.8, 0.8];
+        const src = itemNode.asset?.src || itemNode.modelUrl;
         items.push({
           id: node.id,
           name: node.name || 'Item',
-          category: (node as any).category,
-          position: (node as any).position || [0, 0, 0],
-          rotation: (node as any).rotation || [0, 0, 0],
-          dimensions: (node as any).dimensions,
-          modelUrl: (node as any).modelUrl,
-          levelId: (node as any).parentId || null,
+          category: itemNode.category || itemNode.asset?.category,
+          position: itemNode.position || [0, 0, 0],
+          rotation: itemNode.rotation || [0, 0, 0],
+          dimensions: dims,
+          modelUrl: src,
+          levelId: itemNode.parentId || null,
         });
         break;
+      }
 
       case 'scan':
         scans.push({
@@ -213,11 +217,22 @@ export function applySceneActions(actions: SceneAction[]): void {
       }
 
       case 'replace_asset': {
+        const existingNode = (scene.nodes as Record<string, any>)[act.nodeId];
+        const prevAsset = existingNode?.asset || {};
+        const dims = act.dimensions || prevAsset.dimensions || existingNode?.dimensions || [1, 1, 1];
         const patch: Record<string, any> = {
           modelUrl: act.newModelUrl,
+          dimensions: dims,
+          asset: {
+            ...prevAsset,
+            id: prevAsset.id || `asset_${act.nodeId}`,
+            src: act.newModelUrl,
+            name: act.newName || prevAsset.name || existingNode?.name || 'Item',
+            category: prevAsset.category || existingNode?.category || 'item',
+            dimensions: dims,
+          },
         };
         if (act.newName) patch.name = act.newName;
-        if (act.dimensions) patch.dimensions = act.dimensions;
         if (act.materialStyle) patch.materialStyle = act.materialStyle;
         updates.push({
           id: act.nodeId as AnyNodeId,
