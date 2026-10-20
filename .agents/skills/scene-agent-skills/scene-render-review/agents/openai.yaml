@@ -1,0 +1,4 @@
+interface:
+  display_name: "Render Review"
+  short_description: "Use evidence to choose the next useful iteration."
+  default_prompt: "Use $scene-render-review for this architectural task and report the concrete result and verification."

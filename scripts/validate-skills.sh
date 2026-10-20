@@ -5,7 +5,6 @@
 error_count=0
 skills_checked=0
 
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo " GSD ► VALIDATING SKILLS"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
@@ -14,6 +13,8 @@ for skill_dir in .agents/skills/*/; do
     ((skills_checked++))
     skill_name=$(basename "$skill_dir")
     skill_file="$skill_dir/SKILL.md"
+    nested=$(find "$skill_dir" -mindepth 2 -name SKILL.md -print 2>/dev/null | head -1)
+    [ -z "$skill_file" ] || [ ! -f "$skill_file" ] && [ -n "$nested" ] && skill_file="$nested"
     has_errors=false
     
     # Check SKILL.md exists

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Low Poly Modeling"
+  short_description: "Use geometry where it changes structure or the target silhouette"
+  default_prompt: "Use $scene-model-low for this architectural task and report the concrete result and verification."

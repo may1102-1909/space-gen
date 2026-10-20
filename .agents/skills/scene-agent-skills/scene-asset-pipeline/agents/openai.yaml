@@ -1,0 +1,4 @@
+interface:
+  display_name: "Asset Pipeline"
+  short_description: "Make asset provenance and decoding reliable."
+  default_prompt: "Use $scene-asset-pipeline for this architectural task and report the concrete result and verification."
