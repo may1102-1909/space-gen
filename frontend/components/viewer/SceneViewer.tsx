@@ -22,6 +22,7 @@ import { EditorToolbar, ActiveTool } from '@/components/layout/EditorToolbar';
 import { ScanSegmentationOverlay } from './ScanSegmentationOverlay';
 import { ScanToEditableModal } from '../capture/ScanToEditableModal';
 import { AIPlacementPreview } from './AIPlacementPreview';
+import { TransformGizmo } from './TransformGizmo';
 import { useSpaceGenStore } from '@/lib/store';
 import { Loader2 } from 'lucide-react';
 
@@ -117,6 +118,7 @@ export function SceneViewer({ selectedId, onSelectObject }: SceneViewerProps) {
 
       {/* Pascal Full 3D Viewport with Boolean CSG & Scan Overlays */}
       <Viewer perf={false} useBvh={true}>
+        <TransformGizmo />
         <SceneEnvironment />
         <WallSystem />
         <ItemSystem />

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useScene } from '@pascal-app/core';
 import { useViewer } from '@pascal-app/viewer';
 import { useSpaceGenStore } from '@/lib/store';
@@ -18,8 +18,14 @@ import {
   Sliders,
   DoorOpen,
   Frame,
+  Plus,
+  Upload,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { api } from '@/lib/api';
+import type { FurnitureItem } from '@/lib/types';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { createItemNode, normalizeGlbBounds, replaceItemAsset, fetchCatalogItems } from '@/lib/pascal/itemEditing';
 
 export function ScenePanel() {
   const nodes = useScene((state) => state.nodes);
@@ -27,9 +33,20 @@ export function ScenePanel() {
   const setSelection = useViewer((state) => state.setSelection);
   const selectedObjectId = useSpaceGenStore((state) => state.selectedObjectId);
   const setSelectedObjectId = useSpaceGenStore((state) => state.setSelectedObjectId);
+  const [catalog, setCatalog] = useState<FurnitureItem[]>([]);
+  const [catalogOpen, setCatalogOpen] = useState(false);
+  const [assetError, setAssetError] = useState<string | null>(null);
+  const uploadRef = useRef<HTMLInputElement>(null);
 
   const activeId = selectedIds[0] || selectedObjectId || null;
   const selectedNode = activeId ? (nodes as Record<string, any>)[activeId] : null;
+  const [positionDraft, setPositionDraft] = useState<[string, string, string]>(['0', '0', '0']);
+
+  useEffect(() => {
+    if (selectedNode?.type === 'item') {
+      setPositionDraft((selectedNode.position || [0, 0, 0]).map((value: number) => String(value)) as [string, string, string]);
+    }
+  }, [activeId, selectedNode?.position?.[0], selectedNode?.position?.[1], selectedNode?.position?.[2]]);
 
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
     new Set(['items', 'walls', 'scans', 'zones'])
@@ -61,6 +78,65 @@ export function ScenePanel() {
     (useScene.getState().deleteNode as any)(activeId);
     setSelection({ selectedIds: [] });
     setSelectedObjectId(null);
+  };
+
+  const commitAsset = (asset: { id?: string; name: string; category: string; src: string; dimensions: [number, number, number]; source?: 'library' | 'mine' }) => {
+    const scene = useScene.getState();
+    const resolvedSrc = (typeof window !== 'undefined' && asset.src.startsWith('/'))
+      ? `${window.location.origin}${asset.src}`
+      : asset.src;
+    const assetPayload = { ...asset, src: resolvedSrc };
+
+    if (selectedNode?.type === 'item') {
+      scene.updateNode(activeId as any, replaceItemAsset(selectedNode as any, assetPayload) as any);
+    } else {
+      const levelId = Object.values(scene.nodes).find((node) => node?.type === 'level')?.id;
+      const node = { ...createItemNode(assetPayload), parentId: levelId || null };
+      scene.applyNodeChanges({ create: [{ node: node as any, parentId: levelId as any }] });
+      setSelectedObjectId(node.id);
+      setSelection({ selectedIds: [node.id as any] });
+    }
+    setCatalogOpen(false);
+  };
+
+  const openCatalog = async () => {
+    setAssetError(null);
+    try {
+      const items = catalog.length ? catalog : await fetchCatalogItems();
+      setCatalog(items);
+      setCatalogOpen(true);
+    } catch (error) {
+      setAssetError(error instanceof Error ? error.message : 'Catalog could not be loaded');
+    }
+  };
+
+  const uploadGlb = async (file?: File) => {
+    if (!file) return;
+    setAssetError(null);
+    try {
+      const url = URL.createObjectURL(file);
+      const gltf = await new GLTFLoader().loadAsync(url);
+      const bounds = new (await import('three')).Box3().setFromObject(gltf.scene);
+      const min = bounds.min.toArray() as [number, number, number];
+      const max = bounds.max.toArray() as [number, number, number];
+      const measured = normalizeGlbBounds(min, max);
+      gltf.scene.scale.set(measured.unitScale, measured.unitScale, measured.unitScale);
+      gltf.scene.position.set(
+        measured.offset[0] * measured.unitScale,
+        measured.offset[1] * measured.unitScale,
+        measured.offset[2] * measured.unitScale
+      );
+      const { GLTFExporter } = await import('three/examples/jsm/exporters/GLTFExporter.js');
+      const normalizedBlob = await new Promise<Blob>((resolve, reject) => new GLTFExporter().parse(gltf.scene, (result) => {
+        if (result instanceof ArrayBuffer) resolve(new Blob([result], { type: 'model/gltf-binary' }));
+        else reject(new Error('GLB normalization did not produce a binary GLB'));
+      }, reject, { binary: true }));
+      const normalizedUrl = URL.createObjectURL(normalizedBlob);
+      URL.revokeObjectURL(url);
+      commitAsset({ name: file.name.replace(/\.glb$/i, ''), category: 'custom', src: normalizedUrl, dimensions: measured.dimensions, source: 'mine' });
+    } catch (error) {
+      setAssetError(error instanceof Error ? error.message : 'GLB could not be measured');
+    }
   };
 
   // Group nodes by category
@@ -108,6 +184,22 @@ export function ScenePanel() {
             </p>
           </div>
         </div>
+      </div>
+
+      <div className="p-2 border-b border-border/60 space-y-2">
+        <div className="flex gap-1.5">
+          <button onClick={openCatalog} className="flex-1 flex items-center justify-center gap-1.5 rounded-md bg-accent/15 px-2 py-1.5 text-[11px] text-accent-light hover:bg-accent/25">
+            <Plus size={12} /> {selectedNode?.type === 'item' ? 'Replace / Add Catalog Item' : 'Add Catalog Item'}
+          </button>
+          <button onClick={() => uploadRef.current?.click()} className="flex items-center gap-1.5 rounded-md border border-border px-2 py-1.5 text-[11px] hover:bg-surface-elevated">
+            <Upload size={12} /> GLB
+          </button>
+          <input ref={uploadRef} type="file" accept=".glb,model/gltf-binary" className="hidden" onChange={(event) => void uploadGlb(event.target.files?.[0])} />
+        </div>
+        {assetError && <p role="alert" className="text-[10px] text-red-400">{assetError}</p>}
+        {catalogOpen && <div className="max-h-32 overflow-y-auto rounded border border-border">
+          {catalog.map((item) => <button key={item.id} onClick={() => commitAsset({ id: item.id, name: item.name, category: item.category, src: api.normalizeModelUrl(item.url) || item.url, dimensions: [item.dimensions.width_m, item.dimensions.height_m, item.dimensions.depth_m || item.dimensions.width_m] })} className="block w-full px-2 py-1.5 text-left text-[11px] hover:bg-surface-elevated">{item.name} · {item.dimensions.width_m} × {item.dimensions.height_m} × {item.dimensions.depth_m || item.dimensions.width_m} m</button>)}
+        </div>}
       </div>
 
       {/* Hierarchical Node Tree */}
@@ -350,14 +442,10 @@ export function ScenePanel() {
                   <input
                     type="number"
                     step="0.1"
-                    value={selectedNode.position?.[0] ?? 0}
-                    onChange={(e) =>
-                      handleUpdateNodeProp('position', [
-                        parseFloat(e.target.value) || 0,
-                        selectedNode.position?.[1] ?? 0,
-                        selectedNode.position?.[2] ?? 0,
-                      ])
-                    }
+                    aria-label="Pos X (m)"
+                    value={positionDraft[0]}
+                    onChange={(e) => setPositionDraft([e.target.value, positionDraft[1], positionDraft[2]])}
+                    onBlur={() => handleUpdateNodeProp('position', [parseFloat(positionDraft[0]) || 0, selectedNode.position?.[1] ?? 0, selectedNode.position?.[2] ?? 0])}
                     className="w-full bg-surface border border-border rounded px-1.5 py-1 text-xs font-mono"
                   />
                 </div>
@@ -366,14 +454,10 @@ export function ScenePanel() {
                   <input
                     type="number"
                     step="0.1"
-                    value={selectedNode.position?.[1] ?? 0}
-                    onChange={(e) =>
-                      handleUpdateNodeProp('position', [
-                        selectedNode.position?.[0] ?? 0,
-                        parseFloat(e.target.value) || 0,
-                        selectedNode.position?.[2] ?? 0,
-                      ])
-                    }
+                    aria-label="Pos Y (m)"
+                    value={positionDraft[1]}
+                    onChange={(e) => setPositionDraft([positionDraft[0], e.target.value, positionDraft[2]])}
+                    onBlur={() => handleUpdateNodeProp('position', [selectedNode.position?.[0] ?? 0, Math.max(0, parseFloat(positionDraft[1]) || 0), selectedNode.position?.[2] ?? 0])}
                     className="w-full bg-surface border border-border rounded px-1.5 py-1 text-xs font-mono"
                   />
                 </div>
@@ -382,24 +466,20 @@ export function ScenePanel() {
                   <input
                     type="number"
                     step="0.1"
-                    value={selectedNode.position?.[2] ?? 0}
-                    onChange={(e) =>
-                      handleUpdateNodeProp('position', [
-                        selectedNode.position?.[0] ?? 0,
-                        selectedNode.position?.[1] ?? 0,
-                        parseFloat(e.target.value) || 0,
-                      ])
-                    }
+                    aria-label="Pos Z (m)"
+                    value={positionDraft[2]}
+                    onChange={(e) => setPositionDraft([positionDraft[0], positionDraft[1], e.target.value])}
+                    onBlur={() => handleUpdateNodeProp('position', [selectedNode.position?.[0] ?? 0, selectedNode.position?.[1] ?? 0, parseFloat(positionDraft[2]) || 0])}
                     className="w-full bg-surface border border-border rounded px-1.5 py-1 text-xs font-mono"
                   />
                 </div>
               </div>
 
-              {selectedNode.dimensions && (
+              {(selectedNode.asset?.dimensions || selectedNode.dimensions) && (
                 <div className="flex items-center gap-2 text-[10px] text-text-muted font-mono bg-surface p-1.5 rounded border border-border/50">
                   <Maximize2 size={11} className="text-text-secondary" />
                   <span>
-                    Size: {selectedNode.dimensions[0]}m × {selectedNode.dimensions[1]}m × {selectedNode.dimensions[2]}m
+                    Size: {(selectedNode.asset?.dimensions || selectedNode.dimensions)[0]}m × {(selectedNode.asset?.dimensions || selectedNode.dimensions)[1]}m × {(selectedNode.asset?.dimensions || selectedNode.dimensions)[2]}m
                   </span>
                 </div>
               )}
