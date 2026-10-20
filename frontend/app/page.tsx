@@ -1,9 +1,11 @@
-'use client'
+'use client';
 
-import { ScenePanel } from '@/components/panels/ScenePanel'
-import { ChatPanel } from '@/components/panels/ChatPanel'
-import { EditorLayout } from '@/components/layout/EditorLayout'
-import dynamic from 'next/dynamic'
+import React, { useEffect } from 'react';
+import dynamic from 'next/dynamic';
+import { ScenePanel } from '@/components/panels/ScenePanel';
+import { ChatPanel } from '@/components/panels/ChatPanel';
+import { EditorLayout } from '@/components/layout/EditorLayout';
+import { useSpaceGenStore } from '@/lib/store';
 
 const SceneViewer = dynamic(
   () => import('@/components/viewer/SceneViewer'),
@@ -13,49 +15,40 @@ const SceneViewer = dynamic(
       <div className="w-full h-full flex items-center justify-center bg-background text-text-muted">
         <div className="flex flex-col items-center gap-3">
           <div className="w-6 h-6 border-2 border-accent border-t-transparent rounded-full animate-spin" />
-          <span className="text-xs">Loading 3D workspace...</span>
+          <span className="text-xs font-mono">Loading Pascal 3D workspace...</span>
         </div>
       </div>
     ),
   }
-)
-import { useEffect } from 'react'
-import { useAppStore } from '@/lib/store'
-import { api } from '@/lib/api'
+);
 
 export default function EditorPage() {
-  const { setScene, scene, selectedObjectId, setSelectedObjectId, clearActiveModel } = useAppStore()
+  const { selectedObjectId, setSelectedObjectId, clearActiveModel } = useSpaceGenStore();
 
   useEffect(() => {
-    // Start completely clean on reload - no lingering models or auto-loading
-    clearActiveModel()
-
-    // Load initial room layout scene graph
-    api.getScene('mock-scene-1').then(data => {
-      setScene(data as any)
-    })
-  }, [setScene, clearActiveModel])
+    // Start clean on page reload
+    clearActiveModel();
+  }, [clearActiveModel]);
 
   return (
     <EditorLayout>
-      {/* Left Panel - 280px */}
-      <div className="w-[280px] border-r border-border bg-surface flex flex-col shrink-0">
+      {/* Left Rail - 280px: Pascal Hierarchical Node Outliner & Live Inspector */}
+      <div className="w-[280px] border-r border-border bg-surface flex flex-col shrink-0 h-full overflow-hidden">
         <ScenePanel />
       </div>
 
-      {/* Center - 3D Viewer */}
-      <div className="flex-1 bg-background relative overflow-hidden">
-        <SceneViewer 
-          objects={scene?.objects || []} 
-          selectedId={selectedObjectId} 
-          onSelectObject={setSelectedObjectId} 
+      {/* Center 3D Viewport - Pascal <Viewer> + EditorToolbar */}
+      <div className="flex-1 bg-background relative overflow-hidden h-full">
+        <SceneViewer
+          selectedId={selectedObjectId}
+          onSelectObject={setSelectedObjectId}
         />
       </div>
 
-      {/* Right Panel - 380px */}
-      <div className="w-[380px] border-l border-border bg-surface flex flex-col shrink-0">
+      {/* Right Rail - 380px: AI Spatial Workspace Panel */}
+      <div className="w-[380px] border-l border-border bg-surface flex flex-col shrink-0 h-full overflow-hidden">
         <ChatPanel />
       </div>
     </EditorLayout>
-  )
+  );
 }

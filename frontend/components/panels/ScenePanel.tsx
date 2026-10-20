@@ -1,228 +1,449 @@
-'use client'
+'use client';
 
-import { useAppStore } from '@/lib/store'
-import { Box, Layers, BoxSelect, Trash2, Palette, ArrowRightLeft, Lightbulb, Flower2, ChevronRight } from 'lucide-react'
-import { SceneObject } from '@/lib/types'
-import { motion, AnimatePresence } from 'framer-motion'
-import { useState } from 'react'
-
-const CATEGORY_CONFIG: Record<string, { label: string; icon: React.ReactNode; color: string }> = {
-  architecture: { label: 'Architecture', icon: <Box size={12} />, color: 'text-blue-400' },
-  furniture: { label: 'Furniture', icon: <BoxSelect size={12} />, color: 'text-amber-400' },
-  lighting: { label: 'Lighting', icon: <Lightbulb size={12} />, color: 'text-yellow-300' },
-  decor: { label: 'Decor', icon: <Flower2 size={12} />, color: 'text-emerald-400' },
-}
+import React, { useState } from 'react';
+import { useScene } from '@pascal-app/core';
+import { useViewer } from '@pascal-app/viewer';
+import { useSpaceGenStore } from '@/lib/store';
+import {
+  Layers,
+  Box,
+  BoxSelect,
+  Grid3X3,
+  Shapes,
+  Eye,
+  EyeOff,
+  Trash2,
+  ChevronRight,
+  Maximize2,
+  Sliders,
+  DoorOpen,
+  Frame,
+} from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 
 export function ScenePanel() {
-  const { scene, selectedObjectId, setSelectedObjectId } = useAppStore()
-  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set(['furniture', 'architecture']))
+  const nodes = useScene((state) => state.nodes);
+  const selectedIds = useViewer((state) => state.selection.selectedIds);
+  const setSelection = useViewer((state) => state.setSelection);
+  const selectedObjectId = useSpaceGenStore((state) => state.selectedObjectId);
+  const setSelectedObjectId = useSpaceGenStore((state) => state.setSelectedObjectId);
 
-  const categories: Record<string, SceneObject[]> = {
-    architecture: scene?.objects.filter(o => o.type === 'architecture') || [],
-    furniture: scene?.objects.filter(o => o.type === 'furniture') || [],
-    lighting: scene?.objects.filter(o => o.type === 'lighting') || [],
-    decor: scene?.objects.filter(o => o.type === 'decor') || [],
+  const activeId = selectedIds[0] || selectedObjectId || null;
+  const selectedNode = activeId ? (nodes as Record<string, any>)[activeId] : null;
+
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(
+    new Set(['items', 'walls', 'scans', 'zones'])
+  );
+
+  const toggleSection = (sec: string) => {
+    setExpandedSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(sec)) next.delete(sec);
+      else next.add(sec);
+      return next;
+    });
+  };
+
+  const handleSelectNode = (id: string) => {
+    setSelection({ selectedIds: [id as any] });
+    setSelectedObjectId(id);
+  };
+
+  const handleUpdateNodeProp = (key: string, value: any) => {
+    if (!activeId) return;
+    (useScene.getState().updateNode as any)(activeId, {
+      [key]: value,
+    });
+  };
+
+  const handleDeleteNode = () => {
+    if (!activeId) return;
+    (useScene.getState().deleteNode as any)(activeId);
+    setSelection({ selectedIds: [] });
+    setSelectedObjectId(null);
+  };
+
+  // Group nodes by category
+  const walls: any[] = [];
+  const items: any[] = [];
+  const scans: any[] = [];
+  const zones: any[] = [];
+  const slabs: any[] = [];
+
+  for (const node of Object.values(nodes)) {
+    if (!node) continue;
+    switch (node.type) {
+      case 'wall':
+        walls.push(node);
+        break;
+      case 'item':
+        items.push(node);
+        break;
+      case 'scan':
+        scans.push(node);
+        break;
+      case 'zone':
+        zones.push(node);
+        break;
+      case 'slab':
+        slabs.push(node);
+        break;
+    }
   }
 
-  const selectedObject = scene?.objects.find(o => o.entity_id === selectedObjectId)
-  const totalObjects = scene?.objects?.length || 0
-
-  const toggleCategory = (cat: string) => {
-    setExpandedCategories(prev => {
-      const next = new Set(prev)
-      if (next.has(cat)) next.delete(cat)
-      else next.add(cat)
-      return next
-    })
-  }
+  const totalCount = Object.keys(nodes).length;
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
+    <div className="flex flex-col h-full overflow-hidden text-text-primary bg-surface select-none">
       {/* Header */}
       <div className="p-4 border-b border-border flex items-center justify-between shrink-0">
         <div className="flex items-center gap-2.5">
           <div className="w-6 h-6 rounded-lg bg-surface-elevated flex items-center justify-center border border-border">
-            <Layers size={12} className="text-text-secondary" />
+            <Layers size={13} className="text-text-secondary" />
           </div>
           <div>
-            <h2 className="font-semibold text-sm leading-tight">Scene Graph</h2>
-            <p className="text-[10px] text-text-muted leading-tight">{totalObjects} objects detected</p>
+            <h2 className="font-semibold text-xs leading-tight">Scene Hierarchy</h2>
+            <p className="text-[10px] text-text-muted leading-tight font-mono">
+              {totalCount} Pascal nodes registered
+            </p>
           </div>
         </div>
-        {scene?.room_type && (
-          <span className="badge-accent">{scene.room_type}</span>
-        )}
       </div>
 
-      {/* Object tree */}
-      <div className="flex-1 overflow-y-auto p-2 space-y-1">
-        {Object.entries(categories).map(([type, objects]) => {
-          if (objects.length === 0) return null
-          const config = CATEGORY_CONFIG[type]
-          const isExpanded = expandedCategories.has(type)
-          
-          return (
-            <div key={type}>
-              {/* Category header */}
-              <button
-                onClick={() => toggleCategory(type)}
-                className="w-full flex items-center gap-2 px-2 py-1.5 text-xs font-semibold text-text-muted uppercase tracking-wider hover:text-text-secondary transition-colors rounded-md hover:bg-surface-elevated/50"
-              >
-                <ChevronRight 
-                  size={12} 
-                  className={`transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`} 
-                />
-                <span className={config.color}>{config.icon}</span>
-                <span>{config.label}</span>
-                <span className="ml-auto text-[10px] font-mono text-text-muted bg-surface-elevated px-1.5 py-0.5 rounded">
-                  {objects.length}
-                </span>
-              </button>
+      {/* Hierarchical Node Tree */}
+      <div className="flex-1 overflow-y-auto p-2 space-y-1 divide-y divide-border/20 text-xs">
+        {/* 1. Furniture Items Section */}
+        {items.length > 0 && (
+          <div className="pt-1.5 first:pt-0">
+            <button
+              onClick={() => toggleSection('items')}
+              className="w-full flex items-center gap-2 px-2 py-1 font-semibold text-[11px] text-text-muted uppercase tracking-wider hover:text-text-secondary rounded-md hover:bg-surface-elevated/40"
+            >
+              <ChevronRight
+                size={12}
+                className={`transition-transform duration-200 ${
+                  expandedSections.has('items') ? 'rotate-90' : ''
+                }`}
+              />
+              <BoxSelect size={13} className="text-amber-400" />
+              <span>Furniture ({items.length})</span>
+            </button>
 
-              {/* Objects in category */}
-              <AnimatePresence>
-                {isExpanded && (
-                  <motion.div
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: 'auto', opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    transition={{ duration: 0.2 }}
-                    className="overflow-hidden ml-4 space-y-0.5"
-                  >
-                    {objects.map((obj) => (
-                      <motion.button
-                        key={obj.entity_id}
-                        whileHover={{ x: 2 }}
-                        onClick={() => setSelectedObjectId(obj.entity_id)}
-                        className={`w-full flex items-center gap-2 px-2.5 py-1.5 text-sm rounded-lg transition-all duration-150 ${
-                          selectedObjectId === obj.entity_id 
-                            ? 'bg-accent/15 text-accent-light border border-accent/25 shadow-sm shadow-accent/10' 
-                            : 'hover:bg-surface-elevated text-text-primary border border-transparent'
-                        }`}
+            <AnimatePresence>
+              {expandedSections.has('items') && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  className="ml-3 mt-1 space-y-0.5 overflow-hidden"
+                >
+                  {items.map((item) => (
+                    <button
+                      key={item.id}
+                      onClick={() => handleSelectNode(item.id)}
+                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left transition-all ${
+                        activeId === item.id
+                          ? 'bg-accent/20 text-accent-light border border-accent/30 font-medium'
+                          : 'hover:bg-surface-elevated text-text-secondary hover:text-text-primary'
+                      }`}
+                    >
+                      <span className="truncate">{item.name || item.id}</span>
+                      <span className="text-[9px] font-mono text-text-muted uppercase px-1 rounded bg-surface-elevated">
+                        {item.category || 'prop'}
+                      </span>
+                    </button>
+                  ))}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        )}
+
+        {/* 2. Perimeter Walls Section */}
+        {walls.length > 0 && (
+          <div className="pt-1.5">
+            <button
+              onClick={() => toggleSection('walls')}
+              className="w-full flex items-center gap-2 px-2 py-1 font-semibold text-[11px] text-text-muted uppercase tracking-wider hover:text-text-secondary rounded-md hover:bg-surface-elevated/40"
+            >
+              <ChevronRight
+                size={12}
+                className={`transition-transform duration-200 ${
+                  expandedSections.has('walls') ? 'rotate-90' : ''
+                }`}
+              />
+              <Box size={13} className="text-blue-400" />
+              <span>Walls ({walls.length})</span>
+            </button>
+
+            <AnimatePresence>
+              {expandedSections.has('walls') && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  className="ml-3 mt-1 space-y-0.5 overflow-hidden"
+                >
+                  {walls.map((wall) => (
+                    <button
+                      key={wall.id}
+                      onClick={() => handleSelectNode(wall.id)}
+                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left transition-all ${
+                        activeId === wall.id
+                          ? 'bg-accent/20 text-accent-light border border-accent/30 font-medium'
+                          : 'hover:bg-surface-elevated text-text-secondary hover:text-text-primary'
+                      }`}
+                    >
+                      <span className="truncate">{wall.name || wall.id}</span>
+                      <span className="text-[9px] font-mono text-text-muted">
+                        h: {wall.height || 3}m
+                      </span>
+                    </button>
+                  ))}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        )}
+
+        {/* 3. Scan Overlays Section */}
+        {scans.length > 0 && (
+          <div className="pt-1.5">
+            <button
+              onClick={() => toggleSection('scans')}
+              className="w-full flex items-center gap-2 px-2 py-1 font-semibold text-[11px] text-text-muted uppercase tracking-wider hover:text-text-secondary rounded-md hover:bg-surface-elevated/40"
+            >
+              <ChevronRight
+                size={12}
+                className={`transition-transform duration-200 ${
+                  expandedSections.has('scans') ? 'rotate-90' : ''
+                }`}
+              />
+              <Eye size={13} className="text-emerald-400" />
+              <span>Scans ({scans.length})</span>
+            </button>
+
+            <AnimatePresence>
+              {expandedSections.has('scans') && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  className="ml-3 mt-1 space-y-0.5 overflow-hidden"
+                >
+                  {scans.map((scan) => (
+                    <div
+                      key={scan.id}
+                      onClick={() => handleSelectNode(scan.id)}
+                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg cursor-pointer transition-all ${
+                        activeId === scan.id
+                          ? 'bg-accent/20 text-accent-light border border-accent/30 font-medium'
+                          : 'hover:bg-surface-elevated text-text-secondary hover:text-text-primary'
+                      }`}
+                    >
+                      <span className="truncate">{scan.name || scan.id}</span>
+                      <button
+                        title="Toggle visibility"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          (useScene.getState().updateNode as any)(scan.id, {
+                            visible: !scan.visible,
+                          });
+                        }}
+                        className="p-1 hover:text-text-primary"
                       >
-                        <span className={`text-xs ${config.color}`}>{config.icon}</span>
-                        <span className="truncate text-xs">{obj.name || obj.category}</span>
-                        {obj.material?.color && (
-                          <div 
-                            className="ml-auto w-3 h-3 rounded-full border border-border/60 shrink-0 shadow-sm" 
-                            style={{ backgroundColor: obj.material.color }}
-                          />
-                        )}
-                        {obj.confidence !== undefined && obj.confidence < 0.8 && (
-                          <span className="text-[9px] text-warning">⚠</span>
-                        )}
-                      </motion.button>
-                    ))}
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-          )
-        })}
+                        {scan.visible ? <Eye size={12} /> : <EyeOff size={12} className="text-text-muted" />}
+                      </button>
+                    </div>
+                  ))}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        )}
 
-        {totalObjects === 0 && (
-          <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
-            <div className="w-12 h-12 rounded-xl bg-surface-elevated flex items-center justify-center mb-3 border border-border">
-              <Layers size={20} className="text-text-muted" />
-            </div>
-            <p className="text-sm text-text-secondary font-medium">No scene loaded</p>
-            <p className="text-xs text-text-muted mt-1">Upload a video to start</p>
+        {/* 4. Functional Zones & Slabs */}
+        {(zones.length > 0 || slabs.length > 0) && (
+          <div className="pt-1.5">
+            <button
+              onClick={() => toggleSection('zones')}
+              className="w-full flex items-center gap-2 px-2 py-1 font-semibold text-[11px] text-text-muted uppercase tracking-wider hover:text-text-secondary rounded-md hover:bg-surface-elevated/40"
+            >
+              <ChevronRight
+                size={12}
+                className={`transition-transform duration-200 ${
+                  expandedSections.has('zones') ? 'rotate-90' : ''
+                }`}
+              />
+              <Shapes size={13} className="text-purple-400" />
+              <span>Floors & Zones ({zones.length + slabs.length})</span>
+            </button>
+
+            <AnimatePresence>
+              {expandedSections.has('zones') && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  className="ml-3 mt-1 space-y-0.5 overflow-hidden"
+                >
+                  {slabs.map((slab) => (
+                    <button
+                      key={slab.id}
+                      onClick={() => handleSelectNode(slab.id)}
+                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left transition-all ${
+                        activeId === slab.id
+                          ? 'bg-accent/20 text-accent-light border border-accent/30 font-medium'
+                          : 'hover:bg-surface-elevated text-text-secondary hover:text-text-primary'
+                      }`}
+                    >
+                      <span className="truncate">{slab.name || slab.id}</span>
+                      <span className="text-[9px] font-mono text-text-muted">slab</span>
+                    </button>
+                  ))}
+                  {zones.map((zone) => (
+                    <button
+                      key={zone.id}
+                      onClick={() => handleSelectNode(zone.id)}
+                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left transition-all ${
+                        activeId === zone.id
+                          ? 'bg-accent/20 text-accent-light border border-accent/30 font-medium'
+                          : 'hover:bg-surface-elevated text-text-secondary hover:text-text-primary'
+                      }`}
+                    >
+                      <span className="truncate">{zone.name || zone.id}</span>
+                      <span className="text-[9px] font-mono text-purple-300">
+                        {zone.category || 'zone'}
+                      </span>
+                    </button>
+                  ))}
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         )}
       </div>
 
-      {/* Selected object details */}
-      <AnimatePresence>
-        {selectedObject && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            className="border-t border-border shrink-0 overflow-hidden"
-          >
-            <ObjectDetails object={selectedObject} />
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  )
-}
-
-function ObjectDetails({ object }: { object: SceneObject }) {
-  return (
-    <div className="p-4 space-y-3">
-      {/* Name + type */}
-      <div className="flex items-center justify-between">
-        <h3 className="font-medium text-sm truncate">{object.name || object.category}</h3>
-        <span className="badge-accent">{object.category}</span>
-      </div>
-
-      {/* Confidence bar */}
-      {object.confidence !== undefined && (
-        <div className="space-y-1">
-          <div className="flex items-center justify-between text-[11px]">
-            <span className="text-text-muted">AI Confidence</span>
-            <span className={`font-mono font-medium ${object.confidence >= 0.9 ? 'text-success' : object.confidence >= 0.7 ? 'text-warning' : 'text-error'}`}>
-              {Math.round(object.confidence * 100)}%
-            </span>
+      {/* Live Node Inspector Drawer */}
+      {selectedNode && (
+        <div className="border-t border-border bg-surface-elevated/40 p-3 shrink-0 flex flex-col gap-2.5 text-xs">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5 font-semibold text-text-primary truncate">
+              <Sliders size={13} className="text-accent" />
+              <span className="truncate">{selectedNode.name || selectedNode.id}</span>
+            </div>
+            <button
+              title="Delete node"
+              onClick={handleDeleteNode}
+              className="text-text-muted hover:text-red-400 p-1 rounded hover:bg-surface-elevated transition-colors"
+            >
+              <Trash2 size={13} />
+            </button>
           </div>
-          <div className="w-full h-1 bg-surface-elevated rounded-full overflow-hidden">
-            <div 
-              className={`h-full rounded-full transition-all ${
-                object.confidence >= 0.9 ? 'bg-success' : object.confidence >= 0.7 ? 'bg-warning' : 'bg-error'
-              }`}
-              style={{ width: `${object.confidence * 100}%` }}
-            />
-          </div>
-        </div>
-      )}
 
-      {/* Properties */}
-      <div className="space-y-1.5 text-[11px]">
-        <PropertyRow label="Material" value={object.material?.type || 'Unknown'} />
-        <PropertyRow label="Color" value={object.material?.color || 'Unknown'}>
-          {object.material?.color && (
-            <div 
-              className="w-3 h-3 rounded border border-border/60" 
-              style={{ backgroundColor: object.material.color }}
-            />
+          {/* Node Specific Controls */}
+          {selectedNode.type === 'item' && (
+            <div className="space-y-2">
+              <div className="grid grid-cols-3 gap-1.5">
+                <div>
+                  <label className="text-[10px] text-text-muted block">Pos X (m)</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={selectedNode.position?.[0] ?? 0}
+                    onChange={(e) =>
+                      handleUpdateNodeProp('position', [
+                        parseFloat(e.target.value) || 0,
+                        selectedNode.position?.[1] ?? 0,
+                        selectedNode.position?.[2] ?? 0,
+                      ])
+                    }
+                    className="w-full bg-surface border border-border rounded px-1.5 py-1 text-xs font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] text-text-muted block">Pos Y (m)</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={selectedNode.position?.[1] ?? 0}
+                    onChange={(e) =>
+                      handleUpdateNodeProp('position', [
+                        selectedNode.position?.[0] ?? 0,
+                        parseFloat(e.target.value) || 0,
+                        selectedNode.position?.[2] ?? 0,
+                      ])
+                    }
+                    className="w-full bg-surface border border-border rounded px-1.5 py-1 text-xs font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] text-text-muted block">Pos Z (m)</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={selectedNode.position?.[2] ?? 0}
+                    onChange={(e) =>
+                      handleUpdateNodeProp('position', [
+                        selectedNode.position?.[0] ?? 0,
+                        selectedNode.position?.[1] ?? 0,
+                        parseFloat(e.target.value) || 0,
+                      ])
+                    }
+                    className="w-full bg-surface border border-border rounded px-1.5 py-1 text-xs font-mono"
+                  />
+                </div>
+              </div>
+
+              {selectedNode.dimensions && (
+                <div className="flex items-center gap-2 text-[10px] text-text-muted font-mono bg-surface p-1.5 rounded border border-border/50">
+                  <Maximize2 size={11} className="text-text-secondary" />
+                  <span>
+                    Size: {selectedNode.dimensions[0]}m × {selectedNode.dimensions[1]}m × {selectedNode.dimensions[2]}m
+                  </span>
+                </div>
+              )}
+            </div>
           )}
-        </PropertyRow>
-        <PropertyRow label="Finish" value={object.material?.finish || '—'} />
-        {object.dimensions && (
-          <PropertyRow 
-            label="Size" 
-            value={`${object.dimensions.width_m}×${object.dimensions.depth_m || object.dimensions.width_m}×${object.dimensions.height_m}m`} 
-          />
-        )}
-      </div>
 
-      {/* Action buttons */}
-      {object.editable && (
-        <div className="grid grid-cols-2 gap-1.5 pt-1">
-          <button className="btn-secondary text-xs py-1.5 text-[11px]">
-            <ArrowRightLeft size={11} /> Replace
-          </button>
-          <button className="btn-secondary text-xs py-1.5 text-[11px]">
-            <Palette size={11} /> Restyle
-          </button>
-          <button className="col-span-2 btn-danger text-xs py-1.5 text-[11px]">
-            <Trash2 size={11} /> Remove
-          </button>
+          {selectedNode.type === 'wall' && (
+            <div className="space-y-1.5">
+              <div className="flex justify-between items-center text-text-muted text-[11px]">
+                <span>Thickness:</span>
+                <span className="font-mono text-text-primary">{selectedNode.thickness || 0.2}m</span>
+              </div>
+              <div className="flex justify-between items-center text-text-muted text-[11px]">
+                <span>Height:</span>
+                <span className="font-mono text-text-primary">{selectedNode.height || 3.0}m</span>
+              </div>
+            </div>
+          )}
+
+          {selectedNode.type === 'scan' && (
+            <div className="space-y-1.5">
+              <div className="flex justify-between items-center text-text-muted text-[11px]">
+                <span>Opacity:</span>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={selectedNode.opacity ?? 100}
+                  onChange={(e) => handleUpdateNodeProp('opacity', parseInt(e.target.value, 10))}
+                  className="w-24 h-1.5 bg-surface rounded accent-accent"
+                />
+              </div>
+              <div className="flex justify-between items-center text-text-muted text-[11px]">
+                <span>Exclusion Boxes:</span>
+                <span className="font-mono text-text-primary">
+                  {selectedNode.metadata?.exclusionBoxes?.length || 0}
+                </span>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
-  )
+  );
 }
 
-function PropertyRow({ label, value, children }: { label: string; value: string; children?: React.ReactNode }) {
-  return (
-    <div className="flex items-center justify-between py-0.5">
-      <span className="text-text-muted">{label}</span>
-      <div className="flex items-center gap-1.5">
-        {children}
-        <span className="text-text-secondary font-medium">{value}</span>
-      </div>
-    </div>
-  )
-}
+export default ScenePanel;

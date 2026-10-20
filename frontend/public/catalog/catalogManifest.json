@@ -1,0 +1,83 @@
+{
+  "version": "1.0.0",
+  "name": "SpaceGen 3D Interior Asset Catalog",
+  "assets": [
+    {
+      "id": "chair_nordic_walnut",
+      "name": "Nordic Walnut Dining Chair",
+      "category": "chair",
+      "subType": "dining_chair",
+      "dimensions": [0.55, 0.85, 0.55],
+      "modelUrl": "/samples/models/chair.glb",
+      "defaultColorHex": "#8B5A2B",
+      "materialType": "wood",
+      "styleTags": ["nordic", "scandinavian", "wood", "modern", "minimalist"]
+    },
+    {
+      "id": "chair_eames_lounge",
+      "name": "Mid-Century Lounge Chair",
+      "category": "chair",
+      "subType": "lounge_chair",
+      "dimensions": [0.85, 0.82, 0.85],
+      "modelUrl": "/samples/models/chair.glb",
+      "defaultColorHex": "#2B2625",
+      "materialType": "leather_wood",
+      "styleTags": ["mid_century", "leather", "luxury", "lounge"]
+    },
+    {
+      "id": "chair_minimalist_ash",
+      "name": "Minimalist Ash Wood Chair",
+      "category": "chair",
+      "subType": "dining_chair",
+      "dimensions": [0.52, 0.82, 0.52],
+      "modelUrl": "/samples/models/chair.glb",
+      "defaultColorHex": "#D6C3B0",
+      "materialType": "ash_wood",
+      "styleTags": ["scandinavian", "minimalist", "light_wood", "japandi"]
+    },
+    {
+      "id": "sofa_contemporary_fabric",
+      "name": "Contemporary 3-Seater Fabric Sofa",
+      "category": "sofa",
+      "subType": "fabric_sofa",
+      "dimensions": [2.2, 0.85, 0.95],
+      "modelUrl": "/samples/models/sofa.glb",
+      "defaultColorHex": "#4A4D52",
+      "materialType": "textured_linen",
+      "styleTags": ["contemporary", "fabric", "modern", "neutral"]
+    },
+    {
+      "id": "sofa_warm_cognac",
+      "name": "Warm Cognac Leather Sofa",
+      "category": "sofa",
+      "subType": "leather_sofa",
+      "dimensions": [2.15, 0.82, 0.92],
+      "modelUrl": "/samples/models/sofa.glb",
+      "defaultColorHex": "#9E5B32",
+      "materialType": "cognac_leather",
+      "styleTags": ["leather", "luxury", "warm", "industrial"]
+    },
+    {
+      "id": "table_coffee_glass_wood",
+      "name": "Sculptural Coffee Table",
+      "category": "coffee_table",
+      "subType": "coffee_table",
+      "dimensions": [1.2, 0.42, 0.7],
+      "modelUrl": "/samples/models/coffee_table.glb",
+      "defaultColorHex": "#1F1B18",
+      "materialType": "wood_glass",
+      "styleTags": ["modern", "sculptural", "living_room"]
+    },
+    {
+      "id": "table_dining_oak",
+      "name": "Solid White Oak Dining Table",
+      "category": "dining_table",
+      "subType": "dining_table",
+      "dimensions": [1.8, 0.75, 0.9],
+      "modelUrl": "/samples/models/dining_table.glb",
+      "defaultColorHex": "#C8AB83",
+      "materialType": "white_oak",
+      "styleTags": ["scandinavian", "dining", "natural_wood", "minimalist"]
+    }
+  ]
+}

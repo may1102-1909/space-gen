@@ -1,5 +1,8 @@
 import { create } from 'zustand'
+import { useScene } from '@pascal-app/core'
 import { SceneGraph, ChatMessage, ObjectTransform, FurnitureItem, MeshManifest } from './types'
+import { SplatExclusionBox, applySceneActions } from './pascal/sceneBridge'
+import { CandidatePlacement } from './ai/spatialLayoutSolver'
 
 export interface AppState {
   scene: SceneGraph | null
@@ -31,6 +34,19 @@ export interface AppState {
   meshManifest: MeshManifest | null
   furnitureCatalog: FurnitureItem[]
   showReplacementModal: boolean
+
+  // SuperSplat Splat Erasure State (Bounding Box Masks)
+  splatExclusionBoxes: SplatExclusionBox[]
+  addSplatExclusionBox: (box: SplatExclusionBox) => void
+  removeSplatExclusionBox: (id: string) => void
+
+  // AI Smart Candidate Placements
+  candidatePlacements: CandidatePlacement[]
+  setCandidatePlacements: (candidates: CandidatePlacement[]) => void
+  acceptCandidatePlacement: (id: string) => void
+  rejectCandidatePlacement: (id: string) => void
+  acceptAllCandidatePlacements: () => void
+  clearCandidatePlacements: () => void
 
   // Unified Model & Camera Desk State
   activeModelName: string | null
@@ -78,7 +94,7 @@ export interface AppState {
   clearActiveModel: () => void
 }
 
-export const useAppStore = create<AppState>((set) => ({
+export const useSpaceGenStore = create<AppState>((set, get) => ({
   scene: null,
   selectedObjectId: null,
   chatMessages: [
@@ -110,6 +126,76 @@ export const useAppStore = create<AppState>((set) => ({
   meshManifest: null,
   furnitureCatalog: [],
   showReplacementModal: false,
+
+  // SuperSplat splat exclusion state
+  splatExclusionBoxes: [],
+  addSplatExclusionBox: (box) => set((state) => ({
+    splatExclusionBoxes: [...state.splatExclusionBoxes, box]
+  })),
+  removeSplatExclusionBox: (id) => set((state) => ({
+    splatExclusionBoxes: state.splatExclusionBoxes.filter((b) => b.id !== id)
+  })),
+
+  // AI Smart Candidate Placements
+  candidatePlacements: [],
+  setCandidatePlacements: (candidates) => set({ candidatePlacements: candidates }),
+  acceptCandidatePlacement: (id) => {
+    const candidate = get().candidatePlacements.find((c) => c.id === id);
+    if (candidate) {
+      const activeLevelId =
+        Object.values(useScene.getState().nodes).find((n) => n?.type === 'level')?.id || 'level_main';
+      applySceneActions([
+        {
+          action: 'create_node',
+          node: {
+            type: 'item',
+            id: `item_${candidate.category}_${Date.now()}`,
+            name: candidate.name,
+            category: candidate.category,
+            position: candidate.position,
+            rotation: candidate.rotation,
+            dimensions: candidate.dimensions,
+            modelUrl: candidate.modelUrl,
+          } as any,
+          parentId: activeLevelId,
+        },
+      ]);
+      set((state) => ({
+        candidatePlacements: state.candidatePlacements.filter((c) => c.id !== id),
+      }));
+    }
+  },
+  rejectCandidatePlacement: (id) => {
+    set((state) => ({
+      candidatePlacements: state.candidatePlacements.filter((c) => c.id !== id),
+    }));
+  },
+  acceptAllCandidatePlacements: () => {
+    const candidates = get().candidatePlacements;
+    if (candidates.length === 0) return;
+
+    const activeLevelId =
+      Object.values(useScene.getState().nodes).find((n) => n?.type === 'level')?.id || 'level_main';
+
+    const actions = candidates.map((candidate, idx) => ({
+      action: 'create_node' as const,
+      node: {
+        type: 'item' as const,
+        id: `item_${candidate.category}_${Date.now()}_${idx}`,
+        name: candidate.name,
+        category: candidate.category,
+        position: candidate.position,
+        rotation: candidate.rotation,
+        dimensions: candidate.dimensions,
+        modelUrl: candidate.modelUrl,
+      } as any,
+      parentId: activeLevelId,
+    }));
+
+    applySceneActions(actions);
+    set({ candidatePlacements: [] });
+  },
+  clearCandidatePlacements: () => set({ candidatePlacements: [] }),
 
   // Unified Model & Camera Desk default values
   activeModelName: null,
@@ -153,37 +239,91 @@ export const useAppStore = create<AppState>((set) => ({
 
   setViewMode: (viewMode) => set({ viewMode }),
   setGizmoMode: (gizmoMode) => set({ gizmoMode }),
-  updateObjectTransform: (id, trans) => set((state) => ({
-    objectTransforms: {
-      ...state.objectTransforms,
-      [id]: {
-        position: trans.position || state.objectTransforms[id]?.position || [0, 0, 0],
-        rotation: trans.rotation || state.objectTransforms[id]?.rotation || [0, 0, 0],
-        scale: trans.scale || state.objectTransforms[id]?.scale || [1, 1, 1],
+
+  // Delegates transform mutations to Pascal's useScene if node exists
+  updateObjectTransform: (id, trans) => {
+    if (typeof window !== 'undefined') {
+      try {
+        const pascalNodes = useScene.getState().nodes as Record<string, any>;
+        if (pascalNodes[id]) {
+          const updateData: Record<string, any> = {};
+          if (trans.position) updateData.position = trans.position;
+          if (trans.rotation) updateData.rotation = trans.rotation;
+          if (trans.scale) updateData.scale = trans.scale;
+          (useScene.getState().updateNode as any)(id, updateData);
+        }
+      } catch (e) {
+        console.warn('[store] Could not sync transform to Pascal node:', e);
       }
     }
-  })),
-  resetObjectTransform: (id) => set((state) => {
-    const next = { ...state.objectTransforms }
-    delete next[id]
-    return { objectTransforms: next }
-  }),
-  replaceObject: (id, modelUrl, name) => set((state) => ({
-    objectReplacements: {
-      ...state.objectReplacements,
-      [id]: { modelUrl, name }
-    }
-  })),
-  deleteObject: (id) => set((state) => {
-    if (!state.scene) return {}
-    return {
-      selectedObjectId: state.selectedObjectId === id ? null : state.selectedObjectId,
-      scene: {
-        ...state.scene,
-        objects: state.scene.objects.map(obj => obj.entity_id === id ? { ...obj, is_visible: false } : obj)
+
+    set((state) => ({
+      objectTransforms: {
+        ...state.objectTransforms,
+        [id]: {
+          position: trans.position || state.objectTransforms[id]?.position || [0, 0, 0],
+          rotation: trans.rotation || state.objectTransforms[id]?.rotation || [0, 0, 0],
+          scale: trans.scale || state.objectTransforms[id]?.scale || [1, 1, 1],
+        }
+      }
+    }));
+  },
+
+  resetObjectTransform: (id) => {
+    set((state) => {
+      const next = { ...state.objectTransforms };
+      delete next[id];
+      return { objectTransforms: next };
+    });
+  },
+
+  replaceObject: (id, modelUrl, name) => {
+    if (typeof window !== 'undefined') {
+      try {
+        const pascalNodes = useScene.getState().nodes as Record<string, any>;
+        if (pascalNodes[id]) {
+          (useScene.getState().updateNode as any)(id, {
+            modelUrl,
+            name,
+          });
+        }
+      } catch (e) {
+        console.warn('[store] Could not sync replacement to Pascal node:', e);
       }
     }
-  }),
+
+    set((state) => ({
+      objectReplacements: {
+        ...state.objectReplacements,
+        [id]: { modelUrl, name }
+      }
+    }));
+  },
+
+  deleteObject: (id) => {
+    if (typeof window !== 'undefined') {
+      try {
+        const pascalNodes = useScene.getState().nodes as Record<string, any>;
+        if (pascalNodes[id]) {
+          (useScene.getState().deleteNode as any)(id);
+        }
+      } catch (e) {
+        console.warn('[store] Could not delete Pascal node:', e);
+      }
+    }
+
+    set((state) => {
+      if (!state.scene) return { selectedObjectId: state.selectedObjectId === id ? null : state.selectedObjectId };
+      return {
+        selectedObjectId: state.selectedObjectId === id ? null : state.selectedObjectId,
+        scene: {
+          ...state.scene,
+          objects: state.scene.objects.map(obj => obj.entity_id === id ? { ...obj, is_visible: false } : obj)
+        }
+      };
+    });
+  },
+
   setIsConvertingMesh: (isConvertingMesh) => set({ isConvertingMesh }),
   setConvertProgress: (convertProgress) => set({ convertProgress }),
   setConvertStage: (convertStage) => set({ convertStage }),
@@ -209,6 +349,9 @@ export const useAppStore = create<AppState>((set) => ({
     isConvertingMesh: false,
     convertProgress: null,
     convertStage: null,
+    splatExclusionBoxes: [],
+    candidatePlacements: [],
   }),
-}))
+}));
 
+export const useAppStore = useSpaceGenStore;

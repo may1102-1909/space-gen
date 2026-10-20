@@ -1,6 +1,14 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  transpilePackages: ['three', '@react-three/fiber', '@react-three/drei'],
+  transpilePackages: [
+    '@pascal-app/core',
+    '@pascal-app/viewer',
+    '@pascal-app/editor',
+    '@pascal-app/nodes',
+    'three',
+    '@react-three/fiber',
+    '@react-three/drei',
+  ],
   turbopack: {},
   webpack: (config, { isServer }) => {
     if (isServer) {

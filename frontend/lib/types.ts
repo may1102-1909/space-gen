@@ -47,8 +47,14 @@ export interface ChatMessage {
   id?: string
   role: 'user' | 'assistant'
   content: string
-  image?: string  // base64 or url
+  image?: string // base64 or url
   timestamp: number
+  toolResults?: Array<{
+    toolName: string
+    message: string
+    modifiedNodeIds: string[]
+  }>
+  canUndo?: boolean
 }
 
 export interface ReconstructionJob {
