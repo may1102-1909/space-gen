@@ -1,37 +1,51 @@
 import json
-import os
+import logging
+from pathlib import Path
+
+from config import settings
 from models.scene import SceneGraph
 from services.gemini_agent import GeminiAgent
-from config import settings
+
+logger = logging.getLogger(__name__)
+
 
 class SceneAnalyzer:
     def __init__(self):
         self.agent = GeminiAgent(
             api_key=settings.gemini_api_key,
-            default_model=settings.gemini_reasoning_model
+            default_model=settings.gemini_reasoning_model,
         )
-        
+
     async def analyze(self, image_bytes: bytes) -> SceneGraph:
         try:
-            return await self.agent.analyze_scene(image_bytes)
+            scene = await self.agent.analyze_scene(image_bytes)
+            scene.demo = False
+            return scene
         except Exception as e:
-            print(f"Analysis failed, falling back to demo data: {e}")
-            return self.get_demo_scene()
-            
+            logger.warning("Analysis failed, falling back to explicit demo scene: %s", e)
+            demo_scene = self.get_demo_scene()
+            demo_scene.demo = True
+            return demo_scene
+
     def get_demo_scene(self) -> SceneGraph:
-        demo_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "demo_scene.json")
+        demo_path = settings.data_dir / "demo_scene.json"
+        if not demo_path.exists():
+            demo_path = Path(__file__).resolve().parent.parent / "data" / "demo_scene.json"
+
         try:
-            with open(demo_path, "r") as f:
+            with open(demo_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
+                data["demo"] = True
                 return SceneGraph.model_validate(data)
         except Exception as e:
-            print(f"Failed to load demo scene: {e}")
-            # Return a minimal empty scene if everything fails
+            logger.error("Failed to load demo scene: %s", e)
             return SceneGraph(
                 scene_id="fallback",
                 room_type="unknown",
                 style="unknown",
-                objects=[]
+                objects=[],
+                demo=True,
             )
+
 
 scene_analyzer = SceneAnalyzer()

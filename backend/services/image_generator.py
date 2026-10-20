@@ -1,21 +1,20 @@
 import asyncio
 import base64
-from services.gemini_agent import GeminiAgent
+
 from config import settings
+from services.gemini_agent import GeminiAgent
+
 
 class ImageGenerator:
     def __init__(self):
-        self.agent = GeminiAgent(
-            api_key=settings.gemini_api_key,
-            default_model=settings.gemini_fast_model
-        )
+        self.agent = GeminiAgent(api_key=settings.gemini_api_key, default_model=settings.gemini_fast_model)
         self.image_model = settings.gemini_image_model
 
     def _decode_base64(self, b64_str: str) -> bytes:
         if "," in b64_str:
             b64_str = b64_str.split(",")[1]
         return base64.b64decode(b64_str)
-        
+
     def _encode_base64(self, image_bytes: bytes) -> str:
         b64_str = base64.b64encode(image_bytes).decode("utf-8")
         return f"data:image/jpeg;base64,{b64_str}"
@@ -27,7 +26,7 @@ class ImageGenerator:
                 base_image=image_bytes,
                 edit_instruction=edit_instruction,
                 scene_context=scene_context,
-                image_model=self.image_model
+                image_model=self.image_model,
             )
             return self._encode_base64(generated_bytes)
         except Exception as e:
@@ -45,5 +44,6 @@ class ImageGenerator:
         tasks = [_gen_variant(style) for style in styles]
         results = await asyncio.gather(*tasks)
         return list(results)
+
 
 image_generator = ImageGenerator()

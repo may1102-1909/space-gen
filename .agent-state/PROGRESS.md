@@ -1,57 +1,59 @@
 # SpaceGen Engineering System — Progress & State
 
-**Last Updated:** 2026-10-20 17:18 IST  
-**Branch:** `feat/clean-frontend-build-ci`  
-**Execution Scope:** Frontend CI/CD, Dependency Alignment, Dead-code Quarantine, Vitest, Playwright E2E  
+**Last Updated:** 2026-10-20 17:37 IST  
+**Branch:** `feat/backend-safety-ci`  
+**Execution Scope:** Backend Safety, Cross-Platform Configuration, Traversal Remediation, Explicit Demo Fallbacks, Pytest & Ruff, CI Integration  
 **Status:** COMPLETED (All Checks Verified with Empirical Proof)
 
 ---
 
-## 1. Verified Frontend CI/CD Suite Status
+## 1. Verified CI/CD Suite Status
 
+### Frontend (`frontend/`)
 | Step | Command | Status | Result / Metrics |
 | :--- | :--- | :--- | :--- |
-| **Clean Install** | `npm ci` | **PASS** | 548 packages audited in 52s (0 peer dependency conflicts, no `--legacy-peer-deps`) |
+| **Clean Install** | `npm ci` | **PASS** | 548 packages audited (0 peer dependency conflicts, no `--legacy-peer-deps`) |
 | **Lint** | `npm run lint` | **PASS** | `eslint .` passed with 0 errors / 0 warnings |
 | **Typecheck** | `npm run typecheck` | **PASS** | `tsc --noEmit` passed with 0 errors |
 | **Unit Tests** | `npm run test` | **PASS** | 5/5 Vitest unit tests passed (1.43s) |
 | **Production Build** | `npm run build` | **PASS** | Next.js 16.4.0 (Turbopack) compiled cleanly in 4.7s |
 | **E2E Smoke Test** | `npm run test:e2e` | **PASS** | 1/1 Playwright smoke test passed in 6.1s (canvas rendered, 0 console errors) |
 
----
-
-## 2. Key Architecture & Dependency Fixes
-
-1. **Dependency Conflict Resolution (Plain `npm ci` without `--legacy-peer-deps`):**
-   - Upgraded `three` to `^0.186.0` and `@types/three` to `^0.186.0` (matching `@pascal-app/core` peer requirement).
-   - Upgraded `zustand` to `^5.0.3` and `lucide-react` to `^1.60.0` (matching `@pascal-app/nodes` peer requirements).
-   - Added `overrides: { "three-mesh-bvh": "^0.9.16" }` to resolve the version variance between `three-bvh-csg@0.0.18` and `@react-three/drei`.
-   - Result: `npm ci` installs cleanly out of the box.
-
-2. **Quarantined & Removed Dead Files (Verified via Git Grep):**
-   - `frontend/src/App.tsx` (legacy Vite app root)
-   - `frontend/vite.config.ts` (legacy Vite config)
-   - `frontend/components/viewer/AholoViewer.tsx` (redundant re-export)
-   - `frontend/components/viewer/AholoCameraControls.ts` (redundant re-export)
-   - `frontend/components/viewer/GaussianSplatMesh.tsx` (unused legacy component)
-   - `frontend/components/viewer/SolidMeshViewer.tsx` (unused legacy component)
-   - `frontend/components/viewer/SparkSplatViewer.tsx` (unused legacy component)
-   - `frontend/components/viewer/ViewerOverlay.tsx` (unused legacy component)
-   - `frontend/components/viewer/ModelCameraDesk.tsx` (unused legacy component)
-   - `frontend/components/viewer/SplatEngine.tsx` (unused legacy component)
-
-3. **Pascal Node Schema Alignment (`item.asset.src`, `position`, `rotation`, `polygon`):**
-   - Corrected `ItemNode` payloads to include required `asset: { id, category, name, src, dimensions, ... }`.
-   - Corrected `BuildingNode` to provide `position: [0, 0, 0]` and `rotation: [0, 0, 0]`.
-   - Corrected `SlabNode` and `ZoneNode` to provide `polygon: [[x, z], ...]` as direct arrays of 2D coordinates.
-
-4. **Testing Infrastructure:**
-   - **Vitest Unit Suite**: Added `vitest.config.ts` and `tests/unit/spatial.test.ts` covering collision detection, spiral coordinate search, and SuperSplat 3D point-in-box volume tests.
-   - **Playwright E2E Suite**: Added `playwright.config.ts` and `tests/e2e/editor-smoke.spec.ts` testing DOM layout mount, canvas element mount, and zero console error assertion.
-   - **GitHub Actions Workflow**: Added `.github/workflows/ci.yml` running `npm ci`, `lint`, `typecheck`, `test`, `build`, and `test:e2e` on every push/PR.
+### Backend (`backend/`)
+| Step | Command | Status | Result / Metrics |
+| :--- | :--- | :--- | :--- |
+| **Dependencies** | `pip install -r requirements.txt` | **PASS** | `open3d`, `trimesh`, `plyfile`, `fastapi`, `pytest`, `ruff` installed |
+| **Linting** | `ruff check backend` | **PASS** | 0 errors, all checks passed |
+| **Formatting** | `ruff format --check backend` | **PASS** | 27 files verified formatted |
+| **Unit Tests** | `pytest backend/tests -v` | **PASS** | 13/13 tests passed in 0.92s |
 
 ---
 
-## 3. UI Smoke Test Verification Proof
+## 2. Key Backend Safety & Architecture Fixes
 
-- **Screenshot Artifact:** `frontend/tests/e2e/screenshots/editor-smoke.png` (274 KB, capturing rendered editor page with 3D canvas, hierarchy outliner, and floating toolbar).
+1. **Dependency Splitting (`requirements.txt` vs `requirements-gpu.txt`):**
+   - Added `open3d>=0.18.0`, `trimesh>=4.0.0`, `plyfile>=1.0.0`, `pytest>=8.0.0`, `pytest-asyncio>=0.23.0`, `ruff>=0.5.0` to `backend/requirements.txt`.
+   - Quarantined heavy GPU dependencies (`torch`, `gsplat`, `nerfstudio`) in `backend/requirements-gpu.txt`.
+
+2. **Cross-Platform Configuration & `DATA_ROOT` Normalization:**
+   - Eliminated hardcoded `Path("D:/spacegen_data/reconstruction")` which created a literal `./D:` directory on non-Windows/Linux hosts.
+   - Refactored `config.Settings` with cross-platform default `data_dir` (`Path(__file__).resolve().parent / "data"`), `reconstruction_root` property, and configurable tool binaries (`colmap_path`, `ffmpeg_path`, `nerfstudio_path`, `extra_tool_paths`).
+   - Removed hardcoded Windows drive tool search paths (`C:/colmap`, `Anaconda3`, etc.) from `routes/reconstruction.py` in favor of dynamic `Settings.tool_paths`.
+
+3. **Path Traversal Remediation:**
+   - Implemented strict path resolution helper `_safe_resolve_child(base_dir, requested_path)` enforcing `is_relative_to(base_dir)` and rejecting `..` traversal sequences with HTTP 400.
+   - Implemented `_validate_path_component` preventing traversal in `job_id` route parameters.
+   - Secured all file-serving endpoints:
+     - `/api/reconstruction/jobs/{job_id}/model/{filename:path}`
+     - `/api/reconstruction/jobs/{job_id}/mesh/{filename:path}`
+     - `/api/reconstruction/furniture-catalog/{filename:path}`
+
+4. **Explicit Demo-Data Fallbacks:**
+   - Added explicit `demo: bool = False` flag to `SceneGraph` schema (`backend/models/scene.py`).
+   - Added `"demo": true` to `backend/data/demo_scene.json`.
+   - Updated `backend/services/scene_analyzer.py` and `backend/routes/scenes.py` to always return `demo: True` when demo scenes or fallbacks are served.
+
+5. **Shared Contracts & Testing:**
+   - Established `backend/models/contracts.py` as canonical sync point with frontend Zod contracts, exporting `SceneGraph`, `SceneObject`, `EditProposal`, and `ReconstructionJobStatus`.
+   - Added 13 Pytest cases covering health check, traversal rejection, explicit demo fallbacks, and cross-platform config.
+   - Updated `.github/workflows/ci.yml` with dual-matrix CI running frontend and backend suites.

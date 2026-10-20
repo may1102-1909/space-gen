@@ -1,7 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routes import scenes, chat, generation, reconstruction
+
 from config import settings
+from routes import chat, generation, reconstruction, scenes
 
 app = FastAPI(title="SpaceGen AI", version="0.1.0")
 
@@ -20,10 +21,13 @@ app.include_router(chat.router)
 app.include_router(generation.router)
 app.include_router(reconstruction.router)
 
+
 @app.get("/health")
 async def health():
     return {"status": "ok", "service": "spacegen-ai"}
 
+
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

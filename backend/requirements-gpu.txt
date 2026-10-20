@@ -1,0 +1,4 @@
+# Heavy GPU dependencies for 3D Gaussian Splatting and Nerfstudio training pipeline
+torch>=2.1.0
+gsplat>=1.0.0
+nerfstudio>=1.1.0

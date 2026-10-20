@@ -3,15 +3,15 @@
 Supports local JSON/SQLite persistence out of the box and connects to
 PostgreSQL/Supabase when DATABASE_URL is configured.
 """
+
 from __future__ import annotations
 
 import json
-import os
-from pathlib import Path
 from typing import Any, Dict, List, Optional
-from pydantic import BaseModel
 
-DB_DIR = Path(__file__).resolve().parent.parent / "data"
+from config import settings
+
+DB_DIR = settings.data_dir.resolve()
 DB_DIR.mkdir(parents=True, exist_ok=True)
 JOBS_FILE = DB_DIR / "jobs.json"
 SCENES_FILE = DB_DIR / "scenes.json"

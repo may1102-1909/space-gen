@@ -2,7 +2,11 @@
   "scene_id": "demo_living_room",
   "room_type": "living_room",
   "style": "modern_minimalist",
-  "dimensions": {"width_m": 5.2, "depth_m": 6.8, "height_m": 2.9},
+  "dimensions": {
+    "width_m": 5.2,
+    "depth_m": 6.8,
+    "height_m": 2.9
+  },
   "lighting": {
     "primary_source": "natural_north_window",
     "color_temperature_k": 5500,
@@ -13,7 +17,11 @@
       "entity_id": "wall_north",
       "type": "architecture",
       "category": "wall",
-      "material": {"type": "paint", "color": "warm white", "finish": "matte"},
+      "material": {
+        "type": "paint",
+        "color": "warm white",
+        "finish": "matte"
+      },
       "confidence": 0.98,
       "editable": false,
       "is_visible": true
@@ -22,7 +30,11 @@
       "entity_id": "wall_south",
       "type": "architecture",
       "category": "wall",
-      "material": {"type": "paint", "color": "warm white", "finish": "matte"},
+      "material": {
+        "type": "paint",
+        "color": "warm white",
+        "finish": "matte"
+      },
       "confidence": 0.98,
       "editable": false,
       "is_visible": true
@@ -31,7 +43,11 @@
       "entity_id": "wall_east",
       "type": "architecture",
       "category": "wall",
-      "material": {"type": "paint", "color": "warm white", "finish": "matte"},
+      "material": {
+        "type": "paint",
+        "color": "warm white",
+        "finish": "matte"
+      },
       "confidence": 0.98,
       "editable": false,
       "is_visible": true
@@ -40,7 +56,11 @@
       "entity_id": "wall_west",
       "type": "architecture",
       "category": "wall",
-      "material": {"type": "paint", "color": "warm white", "finish": "matte"},
+      "material": {
+        "type": "paint",
+        "color": "warm white",
+        "finish": "matte"
+      },
       "confidence": 0.98,
       "editable": false,
       "is_visible": true
@@ -49,7 +69,11 @@
       "entity_id": "floor_01",
       "type": "architecture",
       "category": "floor",
-      "material": {"type": "tile", "color": "cream marble", "finish": "polished"},
+      "material": {
+        "type": "tile",
+        "color": "cream marble",
+        "finish": "polished"
+      },
       "confidence": 0.95,
       "editable": false,
       "is_visible": true
@@ -58,8 +82,12 @@
       "entity_id": "ceiling_01",
       "type": "architecture",
       "category": "ceiling",
-      "material": {"type": "paint", "color": "white", "finish": "flat"},
-      "confidence": 0.90,
+      "material": {
+        "type": "paint",
+        "color": "white",
+        "finish": "flat"
+      },
+      "confidence": 0.9,
       "editable": false,
       "is_visible": true
     },
@@ -67,8 +95,15 @@
       "entity_id": "window_01",
       "type": "architecture",
       "category": "window",
-      "dimensions": {"width_m": 1.8, "height_m": 1.5},
-      "material": {"type": "glass", "color": "clear", "finish": "transparent"},
+      "dimensions": {
+        "width_m": 1.8,
+        "height_m": 1.5
+      },
+      "material": {
+        "type": "glass",
+        "color": "clear",
+        "finish": "transparent"
+      },
       "confidence": 0.92,
       "editable": false,
       "is_visible": true
@@ -77,8 +112,15 @@
       "entity_id": "door_01",
       "type": "architecture",
       "category": "door",
-      "dimensions": {"width_m": 0.9, "height_m": 2.1},
-      "material": {"type": "wood", "color": "walnut", "finish": "matte"},
+      "dimensions": {
+        "width_m": 0.9,
+        "height_m": 2.1
+      },
+      "material": {
+        "type": "wood",
+        "color": "walnut",
+        "finish": "matte"
+      },
       "confidence": 0.93,
       "editable": false,
       "is_visible": true
@@ -88,9 +130,21 @@
       "type": "furniture",
       "category": "sofa",
       "subcategory": "3_seater",
-      "position": {"x": 2.1, "y": 0.0, "z": 3.4},
-      "dimensions": {"width_m": 2.4, "depth_m": 0.95, "height_m": 0.85},
-      "material": {"type": "fabric", "color": "gray", "finish": "linen"},
+      "position": {
+        "x": 2.1,
+        "y": 0.0,
+        "z": 3.4
+      },
+      "dimensions": {
+        "width_m": 2.4,
+        "depth_m": 0.95,
+        "height_m": 0.85
+      },
+      "material": {
+        "type": "fabric",
+        "color": "gray",
+        "finish": "linen"
+      },
       "style": "modern",
       "confidence": 0.96,
       "editable": true,
@@ -101,9 +155,21 @@
       "type": "furniture",
       "category": "bed",
       "name": "King Size Bed",
-      "position": {"x": 0.0, "y": 0.45, "z": 0.0},
-      "dimensions": {"width_m": 2.05, "depth_m": 2.15, "height_m": 0.95},
-      "material": {"type": "fabric", "color": "charcoal gray", "finish": "textured linen"},
+      "position": {
+        "x": 0.0,
+        "y": 0.45,
+        "z": 0.0
+      },
+      "dimensions": {
+        "width_m": 2.05,
+        "depth_m": 2.15,
+        "height_m": 0.95
+      },
+      "material": {
+        "type": "fabric",
+        "color": "charcoal gray",
+        "finish": "textured linen"
+      },
       "style": "modern luxury",
       "confidence": 0.98,
       "editable": true,
@@ -113,9 +179,21 @@
       "entity_id": "coffee_table_01",
       "type": "furniture",
       "category": "coffee_table",
-      "position": {"x": 2.1, "y": 0.0, "z": 2.2},
-      "dimensions": {"width_m": 1.2, "depth_m": 0.6, "height_m": 0.45},
-      "material": {"type": "glass", "color": "clear", "finish": "polished"},
+      "position": {
+        "x": 2.1,
+        "y": 0.0,
+        "z": 2.2
+      },
+      "dimensions": {
+        "width_m": 1.2,
+        "depth_m": 0.6,
+        "height_m": 0.45
+      },
+      "material": {
+        "type": "glass",
+        "color": "clear",
+        "finish": "polished"
+      },
       "style": "modern",
       "confidence": 0.94,
       "editable": true,
@@ -125,9 +203,21 @@
       "entity_id": "tv_unit_01",
       "type": "furniture",
       "category": "tv_unit",
-      "position": {"x": 2.1, "y": 0.0, "z": 0.3},
-      "dimensions": {"width_m": 1.8, "depth_m": 0.45, "height_m": 0.5},
-      "material": {"type": "wood", "color": "walnut", "finish": "veneer"},
+      "position": {
+        "x": 2.1,
+        "y": 0.0,
+        "z": 0.3
+      },
+      "dimensions": {
+        "width_m": 1.8,
+        "depth_m": 0.45,
+        "height_m": 0.5
+      },
+      "material": {
+        "type": "wood",
+        "color": "walnut",
+        "finish": "veneer"
+      },
       "style": "modern",
       "confidence": 0.91,
       "editable": true,
@@ -137,9 +227,20 @@
       "entity_id": "lamp_01",
       "type": "lighting",
       "category": "floor_lamp",
-      "position": {"x": 0.5, "y": 0.0, "z": 3.8},
-      "dimensions": {"width_m": 0.35, "height_m": 1.6},
-      "material": {"type": "metal", "color": "brass", "finish": "brushed"},
+      "position": {
+        "x": 0.5,
+        "y": 0.0,
+        "z": 3.8
+      },
+      "dimensions": {
+        "width_m": 0.35,
+        "height_m": 1.6
+      },
+      "material": {
+        "type": "metal",
+        "color": "brass",
+        "finish": "brushed"
+      },
       "style": "modern",
       "confidence": 0.88,
       "editable": true,
@@ -149,11 +250,23 @@
       "entity_id": "rug_01",
       "type": "decor",
       "category": "rug",
-      "position": {"x": 2.1, "y": 0.0, "z": 2.5},
-      "dimensions": {"width_m": 2.0, "depth_m": 1.4},
-      "material": {"type": "fabric", "color": "gray and white", "finish": "woven", "texture": "geometric"},
+      "position": {
+        "x": 2.1,
+        "y": 0.0,
+        "z": 2.5
+      },
+      "dimensions": {
+        "width_m": 2.0,
+        "depth_m": 1.4
+      },
+      "material": {
+        "type": "fabric",
+        "color": "gray and white",
+        "finish": "woven",
+        "texture": "geometric"
+      },
       "style": "modern",
-      "confidence": 0.90,
+      "confidence": 0.9,
       "editable": true,
       "is_visible": true
     },
@@ -162,9 +275,20 @@
       "type": "decor",
       "category": "plant",
       "subcategory": "monstera",
-      "position": {"x": 3.8, "y": 0.0, "z": 3.9},
-      "dimensions": {"width_m": 0.5, "height_m": 0.8},
-      "material": {"type": "ceramic", "color": "white", "finish": "matte"},
+      "position": {
+        "x": 3.8,
+        "y": 0.0,
+        "z": 3.9
+      },
+      "dimensions": {
+        "width_m": 0.5,
+        "height_m": 0.8
+      },
+      "material": {
+        "type": "ceramic",
+        "color": "white",
+        "finish": "matte"
+      },
       "confidence": 0.87,
       "editable": true,
       "is_visible": true
@@ -173,9 +297,20 @@
       "entity_id": "cushion_01",
       "type": "decor",
       "category": "cushion",
-      "position": {"x": 1.5, "y": 0.85, "z": 3.4},
-      "dimensions": {"width_m": 0.45, "height_m": 0.45},
-      "material": {"type": "fabric", "color": "mustard", "finish": "velvet"},
+      "position": {
+        "x": 1.5,
+        "y": 0.85,
+        "z": 3.4
+      },
+      "dimensions": {
+        "width_m": 0.45,
+        "height_m": 0.45
+      },
+      "material": {
+        "type": "fabric",
+        "color": "mustard",
+        "finish": "velvet"
+      },
       "confidence": 0.85,
       "editable": true,
       "is_visible": true
@@ -184,9 +319,20 @@
       "entity_id": "pendant_light_01",
       "type": "lighting",
       "category": "pendant_light",
-      "position": {"x": 2.6, "y": 2.5, "z": 2.5},
-      "dimensions": {"width_m": 0.4, "height_m": 0.3},
-      "material": {"type": "metal", "color": "black", "finish": "matte"},
+      "position": {
+        "x": 2.6,
+        "y": 2.5,
+        "z": 2.5
+      },
+      "dimensions": {
+        "width_m": 0.4,
+        "height_m": 0.3
+      },
+      "material": {
+        "type": "metal",
+        "color": "black",
+        "finish": "matte"
+      },
       "style": "industrial",
       "confidence": 0.89,
       "editable": true,
@@ -194,13 +340,46 @@
     }
   ],
   "relationships": [
-    {"subject": "sofa_01", "relation": "facing", "object": "tv_unit_01"},
-    {"subject": "coffee_table_01", "relation": "in_front_of", "object": "sofa_01"},
-    {"subject": "sofa_01", "relation": "against", "object": "wall_east"},
-    {"subject": "lamp_01", "relation": "next_to", "object": "sofa_01"},
-    {"subject": "rug_01", "relation": "under", "object": "coffee_table_01"},
-    {"subject": "plant_01", "relation": "corner_of", "object": "wall_east"},
-    {"subject": "cushion_01", "relation": "on_top_of", "object": "sofa_01"},
-    {"subject": "pendant_light_01", "relation": "above", "object": "coffee_table_01"}
-  ]
+    {
+      "subject": "sofa_01",
+      "relation": "facing",
+      "object": "tv_unit_01"
+    },
+    {
+      "subject": "coffee_table_01",
+      "relation": "in_front_of",
+      "object": "sofa_01"
+    },
+    {
+      "subject": "sofa_01",
+      "relation": "against",
+      "object": "wall_east"
+    },
+    {
+      "subject": "lamp_01",
+      "relation": "next_to",
+      "object": "sofa_01"
+    },
+    {
+      "subject": "rug_01",
+      "relation": "under",
+      "object": "coffee_table_01"
+    },
+    {
+      "subject": "plant_01",
+      "relation": "corner_of",
+      "object": "wall_east"
+    },
+    {
+      "subject": "cushion_01",
+      "relation": "on_top_of",
+      "object": "sofa_01"
+    },
+    {
+      "subject": "pendant_light_01",
+      "relation": "above",
+      "object": "coffee_table_01"
+    }
+  ],
+  "demo": true
 }
