@@ -1,0 +1,4 @@
+interface:
+  display_name: "High Poly Modeling"
+  short_description: "Prepare a production model whose detail survives a measured rend"
+  default_prompt: "Use $scene-model-high for this architectural task and report the concrete result and verification."
