@@ -1,8 +1,8 @@
 # SpaceGen Engineering System — Progress & State
 
-**Last Updated:** 2026-10-20 17:37 IST  
-**Branch:** `feat/backend-safety-ci`  
-**Execution Scope:** Backend Safety, Cross-Platform Configuration, Traversal Remediation, Explicit Demo Fallbacks, Pytest & Ruff, CI Integration  
+**Last Updated:** 2026-10-20 18:05 IST  
+**Branch:** `feat/splat-rendering-decision`  
+**Execution Scope:** Splat & Pascal Co-Rendering Decision, Spark & WebGPU Incompatibility Analysis, Dual-Canvas Architecture, Depth Occlusion Proxy, Playwright E2E Verification  
 **Status:** COMPLETED (All Checks Verified with Empirical Proof)
 
 ---
@@ -15,9 +15,9 @@
 | **Clean Install** | `npm ci` | **PASS** | 548 packages audited (0 peer dependency conflicts, no `--legacy-peer-deps`) |
 | **Lint** | `npm run lint` | **PASS** | `eslint .` passed with 0 errors / 0 warnings |
 | **Typecheck** | `npm run typecheck` | **PASS** | `tsc --noEmit` passed with 0 errors |
-| **Unit Tests** | `npm run test` | **PASS** | 5/5 Vitest unit tests passed (1.43s) |
-| **Production Build** | `npm run build` | **PASS** | Next.js 16.4.0 (Turbopack) compiled cleanly in 4.7s |
-| **E2E Smoke Test** | `npm run test:e2e` | **PASS** | 1/1 Playwright smoke test passed in 6.1s (canvas rendered, 0 console errors) |
+| **Unit Tests** | `npm run test` | **PASS** | 12/12 Vitest unit tests passed (including 7 splat decision tests) |
+| **Production Build** | `npm run build` | **PASS** | Next.js 16.4.0 (Turbopack) compiled cleanly (including `/splat-prototype`) |
+| **E2E Smoke & Decision Tests** | `npm run test:e2e` | **PASS** | 2/2 Playwright tests passed in 7.3s (`editor-smoke.spec.ts` & `splat-decision.spec.ts`) |
 
 ### Backend (`backend/`)
 | Step | Command | Status | Result / Metrics |
@@ -25,11 +25,23 @@
 | **Dependencies** | `pip install -r requirements.txt` | **PASS** | `open3d`, `trimesh`, `plyfile`, `fastapi`, `pytest`, `ruff` installed |
 | **Linting** | `ruff check backend` | **PASS** | 0 errors, all checks passed |
 | **Formatting** | `ruff format --check backend` | **PASS** | 27 files verified formatted |
-| **Unit Tests** | `pytest backend/tests -v` | **PASS** | 13/13 tests passed in 0.92s |
+| **Unit Tests** | `pytest backend/tests -v` | **PASS** | 13/13 tests passed in 0.88s |
 
 ---
 
-## 2. Key Backend Safety & Architecture Fixes
+## 2. ADR 001: Splat Rendering Decision Summary
+- **Delivered ADR:** `docs/decisions/001-splat-rendering.md`
+- **Prototype Route:** `/splat-prototype` (`frontend/app/splat-prototype/page.tsx`)
+- **Visual Evidence:** `docs/decisions/splat-prototype-screenshot.png`
+- **Evaluation Outcome:**
+  - **Option (a) [Spark in WebGPURenderer]**: Crashes fatally (`renderer.properties` undefined, `getContext()` unsupported in WebGPU).
+  - **Option (b) [Force Pascal to WebGL + Spark]**: Incompatible (Three.js `forceWebGL` uses WebGLBackend with TSL NodeMaterials; breaks Spark raw GLSL and Pascal postprocessing).
+  - **Option (c) [Dual-Canvas Synced] (RECOMMENDED)**: Sustains 60 FPS on Hurstville 161K splats; loads `.sog`/`.spz`/`.ply`; supports OBB SDF box masking; solves depth occlusion using invisible scan proxy meshes (`colorWrite: false, depthWrite: true`).
+  - **Option (d) [Native WebGPU Splatter]**: Long-term migration target when TSL SplatNode matures; currently lacks `.sog` decoder and cross-platform compute sorting.
+
+---
+
+## 3. Key Backend Safety & Architecture Fixes (Prior Phase)
 
 1. **Dependency Splitting (`requirements.txt` vs `requirements-gpu.txt`):**
    - Added `open3d>=0.18.0`, `trimesh>=4.0.0`, `plyfile>=1.0.0`, `pytest>=8.0.0`, `pytest-asyncio>=0.23.0`, `ruff>=0.5.0` to `backend/requirements.txt`.
