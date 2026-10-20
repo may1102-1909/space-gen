@@ -115,9 +115,7 @@ def read_text_model(model_dir: Path) -> ColmapModel:
         if len(f) < 10:
             continue
         qw, qx, qy, qz, tx, ty, tz = (float(v) for v in f[1:8])
-        images.append(
-            ColmapImage(int(f[0]), int(f[8]), f[9], quat_to_rotation(qw, qx, qy, qz), np.array([tx, ty, tz]))
-        )
+        images.append(ColmapImage(int(f[0]), int(f[8]), f[9], quat_to_rotation(qw, qx, qy, qz), np.array([tx, ty, tz])))
     return ColmapModel(cameras, images)
 
 

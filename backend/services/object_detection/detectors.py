@@ -74,6 +74,20 @@ class FixtureDetector(Detector2D):
     def __init__(self, boxes: Mapping[str, Sequence[Detection2D]]):
         self._boxes = {k: list(v) for k, v in boxes.items()}
 
+    @classmethod
+    def from_json(cls, source: str | Path | Mapping[str, Any]) -> "FixtureDetector":
+        """Build from a JSON file path or dict: ``{image_name: [{"label", "score", "box": [x0, y0, x1, y1]}]}``."""
+        data = source if isinstance(source, Mapping) else json.loads(Path(source).read_text(encoding="utf-8"))
+        boxes: dict[str, list[Detection2D]] = {}
+        for name, items in data.items():
+            for item in items:
+                box = _clamp_box(*(float(v) for v in item["box"]))
+                if box:
+                    boxes.setdefault(name, []).append(
+                        Detection2D(str(item["label"]), float(item.get("score", 1.0)), box)
+                    )
+        return cls(boxes)
+
     def detect(self, frame: Frame, labels: Sequence[str]) -> list[Detection2D]:
         wanted = {label.lower() for label in labels}
         return [d for d in self._boxes.get(frame.name, []) if d.label.lower() in wanted]
@@ -172,7 +186,9 @@ class Owlv2Detector(Detector2D):
             import torch
             from transformers import Owlv2ForObjectDetection, Owlv2Processor
         except ImportError as exc:
-            raise DetectorUnavailable("OWLv2 needs torch and transformers (pip install -r requirements-gpu.txt)") from exc
+            raise DetectorUnavailable(
+                "OWLv2 needs torch and transformers (pip install -r requirements-gpu.txt)"
+            ) from exc
         self._torch = torch
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.threshold = threshold
