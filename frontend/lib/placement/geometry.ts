@@ -37,7 +37,8 @@ export function frontOf(yaw: number): Vec2 {
 }
 
 export function yawFacing(dx: number, dz: number): number {
-  const y = Math.atan2(dx, dz);
+  let y = Math.atan2(dx, dz);
+  if (y <= -Math.PI + 1e-9) y = Math.PI; // canonical range (-π, π]
   const r = Math.round(y * 1e9) / 1e9;
   return r === 0 ? 0 : r;
 }

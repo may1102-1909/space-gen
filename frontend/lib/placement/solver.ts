@@ -65,6 +65,8 @@ interface Pose {
   /** Signed lateral offset along the anchor side / wall, and the half-length available. */
   lateral?: number;
   halfSpan?: number;
+  /** Score multiplier for less natural anchor sides (e.g. a table's short ends for seating). */
+  sidePref?: number;
 }
 
 const WEIGHTS = { validity: 0.25, clearance: 0.2, anchor: 0.25, alignment: 0.1, symmetry: 0.2 };
@@ -141,10 +143,16 @@ function generatePoses(req: PlacementRequest, ctx: PlacementContext): { poses: P
       const yaw = yawFacing(-s.n[0], -s.n[1]);
       const pitch = w + 0.1;
       const slots = Math.max(1, Math.floor((2 * s.span) / pitch));
+      // Seating prefers the anchor's long sides; short ends are a fallback.
+      const longest = Math.max(a.obb.hx, a.obb.hz);
+      const elongated = longest - Math.min(a.obb.hx, a.obb.hz) > 0.05;
+      const sidePref = seatLike && elongated && s.span < longest - 1e-6 ? 0.85 : 1;
+      const offsets: number[] = [];
+      for (let i = 0; i < slots; i++) offsets.push((i - (slots - 1) / 2) * pitch);
+      if (slots % 2 === 0) offsets.push(0);
       for (const gap of gaps) {
         const dist = s.half + gap + hd;
-        for (let i = 0; i < slots; i++) {
-          const t = (i - (slots - 1) / 2) * pitch;
+        for (const t of offsets) {
           poses.push({
             x: a.obb.cx + s.n[0] * dist + s.along[0] * t,
             z: a.obb.cz + s.n[1] * dist + s.along[1] * t,
@@ -270,7 +278,9 @@ function staticScore(
   for (const w of warnings) reasons.push(`warning ${w.code}: ${w.message}`);
 
   const breakdown = { validity, clearance, anchor, alignment, symmetry };
-  const total = Object.entries(WEIGHTS).reduce((s, [k, wt]) => s + wt * breakdown[k as keyof typeof breakdown], 0);
+  const sidePref = pose.sidePref ?? 1;
+  if (sidePref < 1) reasons.push('short end of the anchor (less preferred for seating)');
+  const total = sidePref * Object.entries(WEIGHTS).reduce((s, [k, wt]) => s + wt * breakdown[k as keyof typeof breakdown], 0);
   return { total, breakdown, reasons };
 }
 
