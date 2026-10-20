@@ -15,6 +15,11 @@ $skills = Get-ChildItem ".agents/skills" -Directory
 foreach ($skill in $skills) {
     $SkillsChecked++
     $skillFile = Join-Path $skill.FullName "SKILL.md"
+    if (-not (Test-Path $skillFile)) {
+        # Vendored packs hold many skills in one directory tree; SKILL.md may sit at any depth.
+        $nested = Get-ChildItem $skill.FullName -Recurse -Filter "SKILL.md" -File -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($nested) { $skillFile = $nested.FullName }
+    }
     $hasErrors = $false
     
     # Check SKILL.md exists

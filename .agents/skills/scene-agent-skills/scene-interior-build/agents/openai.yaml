@@ -1,0 +1,4 @@
+interface:
+  display_name: "Interior Reconstruction"
+  short_description: "Build a coherent room beyond the hero image."
+  default_prompt: "Use $scene-interior-build for this architectural task and report the concrete result and verification."

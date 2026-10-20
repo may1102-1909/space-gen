@@ -1,0 +1,4 @@
+interface:
+  display_name: "Lighting and Atmosphere"
+  short_description: "Make lighting sources explain the image."
+  default_prompt: "Use $scene-lighting-atmosphere for this architectural task and report the concrete result and verification."

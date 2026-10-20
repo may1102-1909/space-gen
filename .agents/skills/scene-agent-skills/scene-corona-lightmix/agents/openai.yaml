@@ -1,0 +1,4 @@
+interface:
+  display_name: "Corona LightMix"
+  short_description: "Separate controllable lighting contributions."
+  default_prompt: "Use $scene-corona-lightmix for this architectural task and report the concrete result and verification."

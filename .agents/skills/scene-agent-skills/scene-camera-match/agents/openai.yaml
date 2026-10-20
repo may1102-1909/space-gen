@@ -1,0 +1,4 @@
+interface:
+  display_name: "Camera Match"
+  short_description: "Solve and validate camera position, rotation and field of view."
+  default_prompt: "Use $scene-camera-match for this architectural task and report the concrete result and verification."
