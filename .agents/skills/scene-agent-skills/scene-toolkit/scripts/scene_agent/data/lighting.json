@@ -1,0 +1,86 @@
+{
+  "daylight": {
+    "sun_elevation_degrees": [
+      25,
+      55
+    ],
+    "environment": "day sky or licensed HDRI",
+    "practicals_kelvin": [
+      3000,
+      4000
+    ],
+    "checkpoint": "One shadow direction; no clipped diffuse facade"
+  },
+  "overcast": {
+    "sun_elevation_degrees": null,
+    "environment": "overcast HDRI / broad sky",
+    "practicals_kelvin": [
+      3000,
+      3500
+    ],
+    "checkpoint": "Diffuse shadows, readable recesses"
+  },
+  "golden-hour": {
+    "sun_elevation_degrees": [
+      3,
+      12
+    ],
+    "environment": "low sun plus sky",
+    "practicals_kelvin": [
+      2700,
+      3200
+    ],
+    "checkpoint": "Warm direct light with cooler fill"
+  },
+  "blue-hour": {
+    "sun_elevation_degrees": [
+      -8,
+      -3
+    ],
+    "environment": "twilight sky / HDRI",
+    "practicals_kelvin": [
+      2700,
+      3200
+    ],
+    "checkpoint": "No direct sun disk contribution after sunset"
+  },
+  "night": {
+    "sun_elevation_degrees": null,
+    "environment": "dim night sky, practical sources dominant",
+    "practicals_kelvin": [
+      2400,
+      3500
+    ],
+    "checkpoint": "Fixture source geometry explains illumination"
+  },
+  "rain": {
+    "sun_elevation_degrees": null,
+    "environment": "clouded sky with restrained wet surface reflections",
+    "practicals_kelvin": [
+      2700,
+      3500
+    ],
+    "checkpoint": "Wetness changes roughness by mask; no mirror pavement everywhere"
+  },
+  "interior-day": {
+    "sun_elevation_degrees": [
+      15,
+      45
+    ],
+    "environment": "day sky through real apertures",
+    "practicals_kelvin": [
+      2700,
+      3500
+    ],
+    "checkpoint": "Window exposure, interior exposure and glass balance together"
+  },
+  "clay-studio": {
+    "sun_elevation_degrees": null,
+    "environment": "neutral large area key/fill",
+    "practicals_kelvin": [
+      5000,
+      6500
+    ],
+    "checkpoint": "Geometry judged without texture masking"
+  }
+}

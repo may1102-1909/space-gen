@@ -1,0 +1,4 @@
+interface:
+  display_name: "Archicad Bridge"
+  short_description: "Complete a verifiable IFC-to-Archicad handoff."
+  default_prompt: "Use $scene-archicad-bridge for this architectural task and report the concrete result and verification."

@@ -1,0 +1,203 @@
+axes:
+  section:
+    description: "Paper section the user is writing"
+    values:
+      - title
+      - abstract
+      - intro
+      - related-work
+      - method
+      - experiments
+      - contribution
+      - all
+      - topic
+      - knowledge
+    default: all
+  venue:
+    description: "Target publication venue"
+    values:
+      - cvpr
+      - siggraph
+      - neurips
+      - tvcg
+      - thesis
+      - top-journal
+      - chinese-journal
+      - cjc
+      - jos
+      - jcad
+      - aas
+      - scis
+      - crad
+      - jcis
+      - cjig
+      - pra
+      - caai
+      - vrih
+      - jskx
+      - jsjy
+      - txxb
+      - robot
+      - jsjyyj
+      - vciba
+      - ccf-intl
+      - all
+    default: all
+
+routing:
+  always_load:
+    - references/core-stance.md
+    - references/writing-patterns-from-top-papers.md
+  on_demand:
+    section:
+      title:
+        - references/writing-abstract-intro.md
+      abstract:
+        - references/writing-abstract-intro.md
+      intro:
+        - references/writing-abstract-intro.md
+      related-work:
+        - references/writing-related-method.md
+        - references/3dgs-paper-knowledge.md
+      method:
+        - references/writing-related-method.md
+      experiments:
+        - references/writing-experiments.md
+        - references/3dgs-paper-knowledge.md
+      contribution:
+        - references/writing-experiments.md
+      topic:
+        - references/3dgs-domain-venues.md
+      knowledge:
+        - references/3dgs-paper-knowledge.md
+      all:
+        - references/writing-abstract-intro.md
+        - references/writing-related-method.md
+        - references/writing-experiments.md
+        - references/3dgs-domain-venues.md
+    venue:
+      top-journal:
+        - references/venue-formats.md
+        - references/top-journal-strategy.md
+        - references/ccf-international-journals.md
+      chinese-journal:
+        - references/venue-formats.md
+        - references/writing-chinese-journal.md
+        - references/ccf-journal-catalog.md
+      cjc:
+        - references/venue-formats.md
+        - references/writing-chinese-journal.md
+        - references/cjc-format.md
+        - references/ccf-journal-catalog.md
+      jos:
+        - references/venue-formats.md
+        - references/writing-chinese-journal.md
+        - references/jos-format.md
+        - references/ccf-journal-catalog.md
+      jcad:
+        - references/venue-formats.md
+        - references/writing-chinese-journal.md
+        - references/jcad-format.md
+        - references/ccf-journal-catalog.md
+      aas:
+        - references/venue-formats.md
+        - references/writing-chinese-journal.md
+        - references/aas-format.md
+        - references/ccf-journal-catalog.md
+      scis:
+        - references/venue-formats.md
+        - references/writing-chinese-journal.md
+        - references/scis-format.md
+        - references/ccf-journal-catalog.md
+      crad:
+        - references/venue-formats.md
+        - references/writing-chinese-journal.md
+        - references/crad-format.md
+        - references/ccf-journal-catalog.md
+      jcis:
+        - references/venue-formats.md
+        - references/writing-chinese-journal.md
+        - references/jcis-format.md
+        - references/ccf-journal-catalog.md
+      cjig:
+        - references/venue-formats.md
+        - references/writing-chinese-journal.md
+        - references/cjig-format.md
+        - references/ccf-journal-catalog.md
+      pra:
+        - references/venue-formats.md
+        - references/writing-chinese-journal.md
+        - references/pra-format.md
+        - references/ccf-journal-catalog.md
+      caai:
+        - references/venue-formats.md
+        - references/writing-chinese-journal.md
+        - references/caai-format.md
+        - references/ccf-journal-catalog.md
+      vrih:
+        - references/venue-formats.md
+        - references/writing-chinese-journal.md
+        - references/vrih-format.md
+        - references/ccf-journal-catalog.md
+      jskx:
+        - references/venue-formats.md
+        - references/writing-chinese-journal.md
+        - references/jskx-format.md
+        - references/ccf-journal-catalog.md
+      jsjy:
+        - references/venue-formats.md
+        - references/writing-chinese-journal.md
+        - references/jsjy-format.md
+        - references/ccf-journal-catalog.md
+      txxb:
+        - references/venue-formats.md
+        - references/writing-chinese-journal.md
+        - references/txxb-format.md
+        - references/ccf-journal-catalog.md
+      robot:
+        - references/venue-formats.md
+        - references/writing-chinese-journal.md
+        - references/robot-format.md
+        - references/ccf-journal-catalog.md
+      jsjyyj:
+        - references/venue-formats.md
+        - references/writing-chinese-journal.md
+        - references/jsjyyj-format.md
+        - references/ccf-journal-catalog.md
+      vciba:
+        - references/venue-formats.md
+        - references/writing-chinese-journal.md
+        - references/vciba-format.md
+        - references/ccf-journal-catalog.md
+      cvpr:
+        - references/venue-formats.md
+        - references/ccf-international-journals.md
+      siggraph:
+        - references/venue-formats.md
+        - references/ccf-international-journals.md
+      neurips:
+        - references/venue-formats.md
+        - references/ccf-international-journals.md
+      tvcg:
+        - references/venue-formats.md
+        - references/ccf-international-journals.md
+      thesis:
+        - references/venue-formats.md
+      all:
+        - references/venue-formats.md
+      ccf-intl:
+        - references/venue-formats.md
+        - references/ccf-international-journals.md
+  references:
+    always_load:
+      - references/symbols-terminology.md
+      - references/writing-patterns-from-top-papers.md
+    on_demand:
+      - references/review-integrity.md
+      - references/markdown-draft-format-audit.md
+      - references/paper-evaluation-framework.md
+      - references/top-paper-patterns.md
+      - references/reviewer-perspective.md
+      - references/latex-source-hygiene.md
+      - references/experiment-claim-verification.md
+      - references/3dgs-citation-audit.md

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Plan to BIM"
+  short_description: "Turn plan evidence into semantic, checkable building elements."
+  default_prompt: "Use $scene-plan-to-bim for this architectural task and report the concrete result and verification."

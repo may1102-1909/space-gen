@@ -1,0 +1,31 @@
+# Three.js AI Skills — Skill Index
+# Format: skill-name | summary | trigger keywords
+# This file helps AI agents discover which skill is relevant for a given task.
+
+threejs-core | Sets up Three.js renderer, WebGL context, scene, camera, and animation loop | three.js, threejs, WebGL, 3D scene, renderer, render loop, requestAnimationFrame, scene setup, canvas, WebGLRenderer
+
+threejs-geometry | Creates and manipulates geometry — primitives, BufferGeometry, custom vertices, normals, UVs | geometry, BufferGeometry, BoxGeometry, SphereGeometry, vertices, normals, UVs, mesh topology, custom shape, indexed geometry
+
+threejs-materials | Configures PBR materials and texture maps — MeshStandardMaterial, MeshPhysicalMaterial, roughness, metalness | material, texture, PBR, roughness, metalness, normal map, emissive, transparent, MeshStandardMaterial, MeshPhysicalMaterial, shader, opacity
+
+threejs-lighting | Sets up lights and shadows — DirectionalLight, PointLight, SpotLight, RectAreaLight, HDRI | light, lighting, shadow, DirectionalLight, PointLight, SpotLight, ambient, HDRI, environment map, RectAreaLight, shadow map
+
+threejs-camera | Configures cameras and controls — PerspectiveCamera, OrthographicCamera, OrbitControls, FlyControls | camera, OrbitControls, FlyControls, PointerLockControls, perspective, orthographic, first person, viewport, FOV, zoom
+
+threejs-animation | Animates objects using AnimationMixer, keyframes, morph targets, bones, and GSAP | animation, AnimationMixer, AnimationClip, keyframe, morph target, skeleton, bones, GSAP, tween, play animation, timeline
+
+threejs-physics | Integrates cannon-es, Rapier, or Ammo.js physics — rigid bodies, constraints, collisions | physics, cannon-es, rapier, ammo.js, rigid body, collision, gravity, constraint, joint, character controller, physics simulation
+
+threejs-shaders | Writes custom GLSL shaders — ShaderMaterial, uniforms, vertex/fragment effects, noise, fresnel | shader, GLSL, ShaderMaterial, uniform, vertex shader, fragment shader, noise, fresnel, dissolve, GPU effect, custom material
+
+threejs-postprocessing | Adds post-processing effects — EffectComposer, bloom, SSAO, depth of field, custom passes | post-processing, bloom, glow, EffectComposer, SSAO, depth of field, vignette, chromatic aberration, UnrealBloom, render pass
+
+threejs-loaders | Loads 3D assets — GLTFLoader, DRACOLoader, TextureLoader, FontLoader, LoadingManager | GLTFLoader, load model, GLTF, GLB, DRACOLoader, TextureLoader, LoadingManager, async load, asset, DRACO, KTX2
+
+threejs-react | Integrates Three.js in React with React Three Fiber, drei, and R3F hooks | React Three Fiber, R3F, drei, useFrame, useThree, Canvas, 3D React, @react-three, useGLTF, useAnimations
+
+threejs-performance | Optimizes FPS — instancing, draw calls, LOD, geometry merging, texture compression, profiling | performance, fps, draw calls, instancing, InstancedMesh, LOD, profiling, optimization, Stats, slow, lag
+
+threejs-xr | Sets up WebXR — VR, AR, controllers, hand tracking, hit testing | WebXR, VR, AR, VRButton, ARButton, XRSession, controller, hand tracking, immersive, augmented reality, virtual reality
+
+threejs-audio | Adds spatial and non-spatial audio — AudioListener, PositionalAudio, AudioAnalyser | audio, sound, PositionalAudio, AudioListener, AudioAnalyser, spatial audio, 3D sound, music visualization, Web Audio

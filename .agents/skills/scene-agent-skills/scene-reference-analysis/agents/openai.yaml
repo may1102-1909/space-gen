@@ -1,0 +1,4 @@
+interface:
+  display_name: "Reference Analysis"
+  short_description: "Turn reference pixels into a traceable scene brief."
+  default_prompt: "Use $scene-reference-analysis for this architectural task and report the concrete result and verification."

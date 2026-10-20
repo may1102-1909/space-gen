@@ -1,0 +1,4 @@
+interface:
+  display_name: "Topology and Spatial Audit"
+  short_description: "Find structural defects that a pretty hero render can hide."
+  default_prompt: "Use $scene-topology-audit for this architectural task and report the concrete result and verification."

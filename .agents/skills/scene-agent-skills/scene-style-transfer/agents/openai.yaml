@@ -1,0 +1,4 @@
+interface:
+  display_name: "Render Style Transfer"
+  short_description: "Apply art direction without silently redesigning the building."
+  default_prompt: "Use $scene-style-transfer for this architectural task and report the concrete result and verification."
