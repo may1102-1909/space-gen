@@ -66,7 +66,8 @@ export function createMaskRegionForNode(
  * on the scan node in a single Pascal temporal transaction.
  *
  * This ensures that undoing the action restores the original item AND
- * removes the mask in a single undo step.
+ * removes the mask in a single undo step. Without a scan node, the item is
+ * replaced and no mask is created.
  */
 export function replaceItemWithMask(
   current: ItemNode,
@@ -76,7 +77,7 @@ export function replaceItemWithMask(
     feather?: number;
     ghost?: boolean;
   } = {}
-): { replacedNode: ItemNode; maskRegion: MaskRegion } {
+): { replacedNode: ItemNode; maskRegion: MaskRegion | null } {
   const scene = useScene.getState();
   const nodes = scene.nodes as Record<string, any>;
 
@@ -125,38 +126,14 @@ export function replaceItemWithMask(
         },
       ],
     });
-  } else {
-    // If no scan node found, atomically create a default scan node with the mask attached
-    const scanId = options.scanNodeId || `scan_${crypto.randomUUID()}`;
-    const newScanNode = {
-      id: scanId,
-      type: 'scan',
-      name: 'Room scan',
-      url: '/Hurstville_Museum_Gallery.sog',
-      visible: true,
-      opacity: 100,
-      position: [0, 0, 0],
-      rotation: [0, 0, 0],
-      scale: 1,
-      layers: { model: false },
-      metadata: {
-        format: 'sog',
-        maskRegions: [maskRegion],
-      },
-    };
-
-    scene.applyNodeChanges({
-      create: [{ node: newScanNode as any, parentId: null as any }],
-      update: [
-        {
-          id: current.id as AnyNodeId,
-          data: updatedItemData,
-        },
-      ],
-    });
+    return { replacedNode: updatedItemData, maskRegion };
   }
 
-  return { replacedNode: updatedItemData, maskRegion };
+  // Without a scan there are no splats to hide: replace the item only, with no mask.
+  scene.applyNodeChanges({
+    update: [{ id: current.id as AnyNodeId, data: replaced as any }],
+  });
+  return { replacedNode: replaced, maskRegion: null };
 }
 
 /**

@@ -83,6 +83,11 @@ export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
   const frameCountRef = useRef(0);
   const lastFpsTimeRef = useRef(performance.now());
   const currentFpsRef = useRef(60);
+  // Render on demand: a full splat redraw is expensive (seconds per frame under software GL),
+  // so frames are drawn only when the camera, size, mesh or edits change, or Spark reports
+  // an async sort/update finished via onDirty.
+  const needsRenderRef = useRef(true);
+  const lastCameraKeyRef = useRef('');
 
   // 1. Initialize WebGL2 & Spark Renderer once on mount
   useEffect(() => {
@@ -123,6 +128,9 @@ export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
         premultipliedAlpha: true,
         sortRadial: true,
         enableLod: false,
+        onDirty: () => {
+          needsRenderRef.current = true;
+        },
       });
       sparkRef.current = spark;
       // SparkRenderer is a THREE.Mesh whose render hooks run only while it is in the scene graph.
@@ -137,9 +145,37 @@ export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
     const renderLoop = (time: number) => {
       animId = requestAnimationFrame(renderLoop);
 
-      // FPS tracking
-      frameCountRef.current++;
+      if (rendererRef.current && sceneRef.current && cameraRef.current && sparkRef.current) {
+        const state = cameraStateRef?.current || legacyCameraStateRef.current;
+        if (state) {
+          const key = `${state.position}|${state.quaternion}|${state.fov}|${state.aspect}|${state.near}|${state.far}`;
+          if (key !== lastCameraKeyRef.current) {
+            lastCameraKeyRef.current = key;
+            const camera = cameraRef.current;
+            camera.position.set(...state.position);
+            camera.quaternion.set(...state.quaternion);
+            camera.fov = state.fov;
+            camera.near = state.near;
+            camera.far = state.far;
+            camera.aspect = state.aspect;
+            camera.updateProjectionMatrix();
+            camera.updateMatrixWorld();
+            needsRenderRef.current = true;
+          }
+        }
+        if (needsRenderRef.current) {
+          needsRenderRef.current = false;
+          sparkRef.current.render(sceneRef.current, cameraRef.current);
+          frameCountRef.current++;
+        }
+      }
+
+      // FPS tracking (rendered frames only; idle periods keep the last measured value)
       if (time - lastFpsTimeRef.current >= 500) {
+        if (frameCountRef.current === 0) {
+          lastFpsTimeRef.current = time;
+          return;
+        }
         currentFpsRef.current = Math.round(
           (frameCountRef.current * 1000) / (time - lastFpsTimeRef.current)
         );
@@ -155,22 +191,6 @@ export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
           });
         }
       }
-
-      if (rendererRef.current && sceneRef.current && cameraRef.current && sparkRef.current) {
-        const state = cameraStateRef?.current || legacyCameraStateRef.current;
-        if (state) {
-          const camera = cameraRef.current;
-          camera.position.set(...state.position);
-          camera.quaternion.set(...state.quaternion);
-          camera.fov = state.fov;
-          camera.near = state.near;
-          camera.far = state.far;
-          camera.aspect = state.aspect;
-          camera.updateProjectionMatrix();
-          camera.updateMatrixWorld();
-        }
-        sparkRef.current.render(sceneRef.current, cameraRef.current);
-      }
     };
 
     animId = requestAnimationFrame(renderLoop);
@@ -182,6 +202,7 @@ export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
       cameraRef.current.aspect = w / h;
       cameraRef.current.updateProjectionMatrix();
       rendererRef.current.setSize(w, h);
+      needsRenderRef.current = true;
     };
 
     window.addEventListener('resize', handleResize);
@@ -219,6 +240,7 @@ export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
       previous.dispose();
       splatMeshRef.current = null;
       loadedCountRef.current = 0;
+      needsRenderRef.current = true;
     }
     if (!scanUrl) {
       pickerCallbackRef.current?.(null);
@@ -231,6 +253,7 @@ export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
         raycastable: true,
         onLoad: (mesh: SplatMeshType) => {
           if (cancelled) return;
+          needsRenderRef.current = true;
           loadedCountRef.current = mesh.numSplats || 0;
           onMetricsUpdate?.({
             fps: currentFpsRef.current,
@@ -259,6 +282,7 @@ export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
       });
       splatMeshRef.current = splatMesh;
       scene.add(splatMesh);
+      needsRenderRef.current = true;
       setMeshVersion((v) => v + 1);
     } catch (err: any) {
       setErrorMsg(`Could not load scan: ${err.message}`);
@@ -278,6 +302,7 @@ export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
   useEffect(() => {
     const mesh = splatMeshRef.current;
     if (!mesh) return;
+    needsRenderRef.current = true;
     mesh.visible = visible;
     if (!scanToScene || scanToScene.length !== 16) return;
     const matrix = new THREE.Matrix4().set(...scanToScene as [
@@ -352,9 +377,11 @@ export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
 
     splatMesh.edits = nextEdits.length > 0 ? nextEdits : null;
     activeEditsRef.current = nextEdits;
+    needsRenderRef.current = true;
 
     return () => {
       activeEditsRef.current = [];
+      needsRenderRef.current = true;
       if (splatMeshRef.current === splatMesh) {
         splatMesh.edits = null;
       }
