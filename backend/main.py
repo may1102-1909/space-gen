@@ -2,7 +2,15 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from config import settings
-from routes import chat, generation, projects, reconstruction, room_structure, scenes
+from routes import (
+    chat,
+    generation,
+    object_detection,
+    projects,
+    reconstruction,
+    room_structure,
+    scenes,
+)
 
 app = FastAPI(title="SpaceGen AI", version="0.1.0")
 
@@ -22,6 +30,7 @@ app.include_router(chat.router)
 app.include_router(generation.router)
 app.include_router(reconstruction.router)
 app.include_router(room_structure.router)
+app.include_router(object_detection.router)
 
 
 @app.get("/health")

@@ -2,3 +2,6 @@
 torch>=2.1.0
 gsplat>=1.0.0
 nerfstudio>=1.1.0
+
+# Open-vocabulary object detection (OWLv2); CPU works but is slow
+transformers>=4.44.0
