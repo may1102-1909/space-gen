@@ -1,0 +1,142 @@
+{
+  "$defs": {
+    "BoundingBox3D": {
+      "properties": {
+        "min": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Min",
+          "type": "array"
+        },
+        "max": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Max",
+          "type": "array"
+        }
+      },
+      "required": [
+        "min",
+        "max"
+      ],
+      "title": "BoundingBox3D",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "url": {
+      "title": "Url",
+      "type": "string"
+    },
+    "format": {
+      "enum": [
+        "sog",
+        "spz",
+        "ply",
+        "splat"
+      ],
+      "title": "Format",
+      "type": "string"
+    },
+    "scanToScene": {
+      "maxItems": 16,
+      "minItems": 16,
+      "prefixItems": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "number"
+        }
+      ],
+      "title": "Scantoscene",
+      "type": "array"
+    },
+    "scaleSource": {
+      "enum": [
+        "none",
+        "user_measurement",
+        "sensor"
+      ],
+      "title": "Scalesource",
+      "type": "string"
+    },
+    "bounds": {
+      "$ref": "#/$defs/BoundingBox3D"
+    }
+  },
+  "required": [
+    "url",
+    "format",
+    "scanToScene",
+    "scaleSource",
+    "bounds"
+  ],
+  "title": "ScanAsset",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

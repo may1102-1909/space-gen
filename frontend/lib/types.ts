@@ -66,6 +66,7 @@ export interface ReconstructionJob {
   frames_dir?: string
   scene_path?: string
   splat_url?: string
+  mesh_url?: string
 }
 
 export interface ObjectTransform {

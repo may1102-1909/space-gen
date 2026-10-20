@@ -1,0 +1,4 @@
+interface:
+  display_name: "Corona Scene Setup"
+  short_description: "Set predictable render limits and keep user scene state reviewab"
+  default_prompt: "Use $scene-corona-setup for this architectural task and report the concrete result and verification."

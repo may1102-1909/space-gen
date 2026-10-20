@@ -1,0 +1,95 @@
+{
+  "$defs": {
+    "ProposalAssetDimensions": {
+      "properties": {
+        "width": {
+          "exclusiveMinimum": 0.0,
+          "title": "Width",
+          "type": "number"
+        },
+        "height": {
+          "exclusiveMinimum": 0.0,
+          "title": "Height",
+          "type": "number"
+        },
+        "depth": {
+          "exclusiveMinimum": 0.0,
+          "title": "Depth",
+          "type": "number"
+        }
+      },
+      "required": [
+        "width",
+        "height",
+        "depth"
+      ],
+      "title": "ProposalAssetDimensions",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "source": {
+      "enum": [
+        "catalog",
+        "upload",
+        "generated"
+      ],
+      "title": "Source",
+      "type": "string"
+    },
+    "url": {
+      "title": "Url",
+      "type": "string"
+    },
+    "format": {
+      "enum": [
+        "glb",
+        "gltf"
+      ],
+      "title": "Format",
+      "type": "string"
+    },
+    "dimensions": {
+      "$ref": "#/$defs/ProposalAssetDimensions"
+    },
+    "categories": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Categories",
+      "type": "array"
+    },
+    "thumbnail": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Thumbnail"
+    }
+  },
+  "required": [
+    "id",
+    "name",
+    "source",
+    "url",
+    "format",
+    "dimensions",
+    "categories"
+  ],
+  "title": "AssetRef",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

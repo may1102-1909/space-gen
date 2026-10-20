@@ -1,0 +1,4 @@
+interface:
+  display_name: "Very High Poly Modeling"
+  short_description: "Spend detail only where the closeup demonstrates a deficit."
+  default_prompt: "Use $scene-model-ultra for this architectural task and report the concrete result and verification."

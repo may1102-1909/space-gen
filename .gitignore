@@ -1,6 +1,7 @@
 # Dependencies
 node_modules/
 venv/
+.venv/
 __pycache__/
 *.pyc
 .next/
@@ -47,3 +48,10 @@ npm-debug.log*
 *.tsbuildinfo
 backend/data/jobs.json
 
+# Test outputs
+test-results/
+playwright-report/
+frontend/test-results/
+frontend/playwright-report/
+.pytest_cache/
+backend/.pytest_cache/

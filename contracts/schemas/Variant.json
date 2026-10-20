@@ -1,0 +1,54 @@
+{
+  "properties": {
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "description": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Description"
+    },
+    "sceneSnapshot": {
+      "additionalProperties": true,
+      "title": "Scenesnapshot",
+      "type": "object"
+    },
+    "createdAt": {
+      "title": "Createdat",
+      "type": "string"
+    },
+    "parentVariantId": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Parentvariantid"
+    }
+  },
+  "required": [
+    "id",
+    "name",
+    "sceneSnapshot",
+    "createdAt"
+  ],
+  "title": "Variant",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

@@ -1,4 +1,7 @@
 import { useScene, AnyNode, AnyNodeId } from '@pascal-app/core';
+import { replaceItemAsset } from './itemEditing';
+import { createMaskRegionForNode } from '../splat/splatMasking';
+import type { MaskRegion } from '@/lib/contracts';
 
 export interface SplatExclusionBox {
   id: string;
@@ -50,6 +53,7 @@ export interface EditableSceneSummary {
     visible: boolean;
     opacity: number;
     exclusionBoxes: SplatExclusionBox[];
+    maskRegions: MaskRegion[];
   }>;
 }
 
@@ -144,18 +148,22 @@ export function getEditableSceneSummary(): EditableSceneSummary {
         });
         break;
 
-      case 'item':
+      case 'item': {
+        const itemNode = node as any;
+        const dims = itemNode.asset?.dimensions || itemNode.dimensions || [0.8, 0.8, 0.8];
+        const src = itemNode.asset?.src || itemNode.modelUrl;
         items.push({
           id: node.id,
           name: node.name || 'Item',
-          category: (node as any).category,
-          position: (node as any).position || [0, 0, 0],
-          rotation: (node as any).rotation || [0, 0, 0],
-          dimensions: (node as any).dimensions,
-          modelUrl: (node as any).modelUrl,
-          levelId: (node as any).parentId || null,
+          category: itemNode.category || itemNode.asset?.category,
+          position: itemNode.position || [0, 0, 0],
+          rotation: itemNode.rotation || [0, 0, 0],
+          dimensions: dims,
+          modelUrl: src,
+          levelId: itemNode.parentId || null,
         });
         break;
+      }
 
       case 'scan':
         scans.push({
@@ -165,6 +173,7 @@ export function getEditableSceneSummary(): EditableSceneSummary {
           visible: (node as any).visible ?? true,
           opacity: (node as any).opacity ?? 100,
           exclusionBoxes: (node as any).metadata?.exclusionBoxes || [],
+          maskRegions: (node as any).metadata?.maskRegions || [],
         });
         break;
     }
@@ -213,16 +222,40 @@ export function applySceneActions(actions: SceneAction[]): void {
       }
 
       case 'replace_asset': {
-        const patch: Record<string, any> = {
-          modelUrl: act.newModelUrl,
-        };
-        if (act.newName) patch.name = act.newName;
-        if (act.dimensions) patch.dimensions = act.dimensions;
-        if (act.materialStyle) patch.materialStyle = act.materialStyle;
+        const existingNode = (scene.nodes as Record<string, any>)[act.nodeId];
+        if (!existingNode || existingNode.type !== 'item') break;
+        const dims = act.dimensions || existingNode.asset?.dimensions || [1, 1, 1];
+        const mask = createMaskRegionForNode(existingNode);
+        const replaced = replaceItemAsset(existingNode, {
+          id: existingNode.asset?.id,
+          name: act.newName || existingNode.asset?.name || existingNode.name || 'Item',
+          category: existingNode.asset?.category || existingNode.category || 'item',
+          src: act.newModelUrl,
+          dimensions: dims,
+        });
         updates.push({
           id: act.nodeId as AnyNodeId,
-          data: patch as any,
+          data: {
+            ...replaced,
+            metadata: {
+              ...(existingNode.metadata || {}),
+              maskRegionId: mask.id,
+            },
+          } as any,
         });
+        const targetScan = Object.values(scene.nodes).find((n) => n?.type === 'scan') as any;
+        if (targetScan) {
+          const currentMasks: MaskRegion[] = targetScan.metadata?.maskRegions || [];
+          updates.push({
+            id: targetScan.id as AnyNodeId,
+            data: {
+              metadata: {
+                ...targetScan.metadata,
+                maskRegions: [...currentMasks.filter((m) => m.itemId !== existingNode.id), mask],
+              },
+            } as any,
+          });
+        }
         break;
       }
 

@@ -4,19 +4,20 @@ mesh_extractor.py
 Converts 3D Gaussian Splatting point clouds (.ply / .splat) into solid polygon meshes (.glb)
 and partitions them into independent semantic objects (bed, sofa, room_shell) for 6-DOF manipulation.
 """
+
 from __future__ import annotations
 
 import io
 import json
+import zipfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-import zipfile
 
 import numpy as np
 import open3d as o3d
+import trimesh
 from PIL import Image
 from plyfile import PlyData
-import trimesh
 
 
 def extract_points_and_colors_from_sog(
@@ -115,7 +116,9 @@ def extract_points_and_colors_from_ply(
         c0 = 0.28209479177387814
         colors = np.clip(0.5 + c0 * f_dc, 0.0, 1.0).astype(np.float64)
     elif "red" in v and "green" in v and "blue" in v:
-        colors = (np.stack([v["red"][indices], v["green"][indices], v["blue"][indices]], axis=-1) / 255.0).astype(np.float64)
+        colors = (np.stack([v["red"][indices], v["green"][indices], v["blue"][indices]], axis=-1) / 255.0).astype(
+            np.float64
+        )
     else:
         colors = np.full((len(pts), 3), 0.7, dtype=np.float64)
 
@@ -225,40 +228,46 @@ def convert_splat_to_mesh(
                 sub_verts = np.asarray(sub_mesh.vertices)
                 sub_faces = np.asarray(sub_mesh.triangles)
                 sub_colors = np.asarray(sub_mesh.vertex_colors)
-                sub_rgba = (np.column_stack([sub_colors, np.ones(len(sub_colors))]) * 255).astype(np.uint8) if len(sub_colors) == len(sub_verts) else None
+                sub_rgba = (
+                    (np.column_stack([sub_colors, np.ones(len(sub_colors))]) * 255).astype(np.uint8)
+                    if len(sub_colors) == len(sub_verts)
+                    else None
+                )
 
                 local_verts = sub_verts - np.array([pos["x"], pos["y"], pos["z"]])
                 sub_tm = trimesh.Trimesh(vertices=local_verts, faces=sub_faces, vertex_colors=sub_rgba, process=False)
                 sub_path = output_dir / f"{entity_id}.glb"
                 sub_path.write_bytes(sub_tm.export(file_type="glb"))
 
-                segmented_objects.append({
-                    "entity_id": entity_id,
-                    "name": obj.get("name", entity_id),
-                    "category": obj.get("category", "furniture"),
-                    "position": pos,
-                    "dimensions": dim,
-                    "mesh_file": f"{entity_id}.glb",
-                    "triangles": len(sub_faces),
-                    "vertices": len(sub_verts),
-                })
+                segmented_objects.append(
+                    {
+                        "entity_id": entity_id,
+                        "name": obj.get("name", entity_id),
+                        "category": obj.get("category", "furniture"),
+                        "position": pos,
+                        "dimensions": dim,
+                        "mesh_file": f"{entity_id}.glb",
+                        "triangles": len(sub_faces),
+                        "vertices": len(sub_verts),
+                    }
+                )
 
     # 6. Generate Planar Floor Infill Mesh
     floor_margin = 0.5
     floor_min_x, floor_max_x = float(min_bound[0] - floor_margin), float(max_bound[0] + floor_margin)
     floor_min_z, floor_max_z = float(min_bound[2] - floor_margin), float(max_bound[2] + floor_margin)
 
-    floor_verts = np.array([
-        [floor_min_x, floor_y, floor_min_z],
-        [floor_max_x, floor_y, floor_min_z],
-        [floor_max_x, floor_y, floor_max_z],
-        [floor_min_x, floor_y, floor_max_z],
-    ], dtype=np.float64)
+    floor_verts = np.array(
+        [
+            [floor_min_x, floor_y, floor_min_z],
+            [floor_max_x, floor_y, floor_min_z],
+            [floor_max_x, floor_y, floor_max_z],
+            [floor_min_x, floor_y, floor_max_z],
+        ],
+        dtype=np.float64,
+    )
 
-    floor_faces = np.array([
-        [0, 1, 2],
-        [0, 2, 3]
-    ], dtype=np.int64)
+    floor_faces = np.array([[0, 1, 2], [0, 2, 3]], dtype=np.int64)
 
     floor_tm = trimesh.Trimesh(vertices=floor_verts, faces=floor_faces, process=False)
     floor_glb_path = output_dir / "floor_infill.glb"

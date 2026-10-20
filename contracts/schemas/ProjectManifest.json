@@ -1,0 +1,878 @@
+{
+  "$defs": {
+    "AssetRef": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "source": {
+          "enum": [
+            "catalog",
+            "upload",
+            "generated"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "url": {
+          "title": "Url",
+          "type": "string"
+        },
+        "format": {
+          "enum": [
+            "glb",
+            "gltf"
+          ],
+          "title": "Format",
+          "type": "string"
+        },
+        "dimensions": {
+          "$ref": "#/$defs/ProposalAssetDimensions"
+        },
+        "categories": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Categories",
+          "type": "array"
+        },
+        "thumbnail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Thumbnail"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "source",
+        "url",
+        "format",
+        "dimensions",
+        "categories"
+      ],
+      "title": "AssetRef",
+      "type": "object"
+    },
+    "BoundingBox3D": {
+      "properties": {
+        "min": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Min",
+          "type": "array"
+        },
+        "max": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Max",
+          "type": "array"
+        }
+      },
+      "required": [
+        "min",
+        "max"
+      ],
+      "title": "BoundingBox3D",
+      "type": "object"
+    },
+    "DetectionInterpretation": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "category": {
+          "title": "Category",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "obb": {
+          "$ref": "#/$defs/OrientedBoundingBox"
+        },
+        "confidence": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "maskRegionId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Maskregionid"
+        },
+        "status": {
+          "enum": [
+            "auto",
+            "verified",
+            "corrected",
+            "rejected"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "provenance": {
+          "enum": [
+            "auto",
+            "user"
+          ],
+          "title": "Provenance",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "category",
+        "label",
+        "obb",
+        "confidence",
+        "status",
+        "provenance"
+      ],
+      "title": "DetectionInterpretation",
+      "type": "object"
+    },
+    "EditRecord": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "timestamp": {
+          "title": "Timestamp",
+          "type": "string"
+        },
+        "proposalId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Proposalid"
+        },
+        "op": {
+          "enum": [
+            "replace",
+            "add",
+            "move",
+            "remove"
+          ],
+          "title": "Op",
+          "type": "string"
+        },
+        "targetNodeId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Targetnodeid"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "userComment": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Usercomment"
+        }
+      },
+      "required": [
+        "id",
+        "timestamp",
+        "op",
+        "description"
+      ],
+      "title": "EditRecord",
+      "type": "object"
+    },
+    "FloorPlane": {
+      "properties": {
+        "normal": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Normal",
+          "type": "array"
+        },
+        "constant": {
+          "title": "Constant",
+          "type": "number"
+        },
+        "provenance": {
+          "enum": [
+            "auto",
+            "user"
+          ],
+          "title": "Provenance",
+          "type": "string"
+        }
+      },
+      "required": [
+        "normal",
+        "constant",
+        "provenance"
+      ],
+      "title": "FloorPlane",
+      "type": "object"
+    },
+    "MaskRegion": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "obb": {
+          "$ref": "#/$defs/OrientedBoundingBox"
+        },
+        "feather": {
+          "minimum": 0.0,
+          "title": "Feather",
+          "type": "number"
+        },
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "detectionId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Detectionid"
+        },
+        "itemId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Itemid"
+        },
+        "ghost": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": false,
+          "title": "Ghost"
+        },
+        "opacity": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Opacity"
+        }
+      },
+      "required": [
+        "id",
+        "obb",
+        "feather",
+        "enabled"
+      ],
+      "title": "MaskRegion",
+      "type": "object"
+    },
+    "OpeningInterpretation": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "wallId": {
+          "title": "Wallid",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "door",
+            "window",
+            "opening"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "offset": {
+          "minimum": 0.0,
+          "title": "Offset",
+          "type": "number"
+        },
+        "width": {
+          "exclusiveMinimum": 0.0,
+          "title": "Width",
+          "type": "number"
+        },
+        "height": {
+          "exclusiveMinimum": 0.0,
+          "title": "Height",
+          "type": "number"
+        },
+        "sill": {
+          "minimum": 0.0,
+          "title": "Sill",
+          "type": "number"
+        },
+        "confidence": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "provenance": {
+          "enum": [
+            "auto",
+            "user"
+          ],
+          "title": "Provenance",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "wallId",
+        "kind",
+        "offset",
+        "width",
+        "height",
+        "sill",
+        "confidence",
+        "provenance"
+      ],
+      "title": "OpeningInterpretation",
+      "type": "object"
+    },
+    "OrientedBoundingBox": {
+      "properties": {
+        "center": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Center",
+          "type": "array"
+        },
+        "size": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Size",
+          "type": "array"
+        },
+        "yaw": {
+          "title": "Yaw",
+          "type": "number"
+        }
+      },
+      "required": [
+        "center",
+        "size",
+        "yaw"
+      ],
+      "title": "OrientedBoundingBox",
+      "type": "object"
+    },
+    "ProposalAssetDimensions": {
+      "properties": {
+        "width": {
+          "exclusiveMinimum": 0.0,
+          "title": "Width",
+          "type": "number"
+        },
+        "height": {
+          "exclusiveMinimum": 0.0,
+          "title": "Height",
+          "type": "number"
+        },
+        "depth": {
+          "exclusiveMinimum": 0.0,
+          "title": "Depth",
+          "type": "number"
+        }
+      },
+      "required": [
+        "width",
+        "height",
+        "depth"
+      ],
+      "title": "ProposalAssetDimensions",
+      "type": "object"
+    },
+    "RoomInterpretation": {
+      "properties": {
+        "provenance": {
+          "enum": [
+            "auto",
+            "user"
+          ],
+          "title": "Provenance",
+          "type": "string"
+        },
+        "floor": {
+          "$ref": "#/$defs/FloorPlane"
+        },
+        "ceilingHeight": {
+          "exclusiveMinimum": 0.0,
+          "title": "Ceilingheight",
+          "type": "number"
+        },
+        "outline": {
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "type": "array"
+          },
+          "title": "Outline",
+          "type": "array"
+        },
+        "walls": {
+          "items": {
+            "$ref": "#/$defs/WallInterpretation"
+          },
+          "title": "Walls",
+          "type": "array"
+        },
+        "openings": {
+          "items": {
+            "$ref": "#/$defs/OpeningInterpretation"
+          },
+          "title": "Openings",
+          "type": "array"
+        },
+        "detections": {
+          "items": {
+            "$ref": "#/$defs/DetectionInterpretation"
+          },
+          "title": "Detections",
+          "type": "array"
+        }
+      },
+      "required": [
+        "provenance",
+        "floor",
+        "ceilingHeight",
+        "outline",
+        "walls",
+        "openings",
+        "detections"
+      ],
+      "title": "RoomInterpretation",
+      "type": "object"
+    },
+    "ScanAsset": {
+      "properties": {
+        "url": {
+          "title": "Url",
+          "type": "string"
+        },
+        "format": {
+          "enum": [
+            "sog",
+            "spz",
+            "ply",
+            "splat"
+          ],
+          "title": "Format",
+          "type": "string"
+        },
+        "scanToScene": {
+          "maxItems": 16,
+          "minItems": 16,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Scantoscene",
+          "type": "array"
+        },
+        "scaleSource": {
+          "enum": [
+            "none",
+            "user_measurement",
+            "sensor"
+          ],
+          "title": "Scalesource",
+          "type": "string"
+        },
+        "bounds": {
+          "$ref": "#/$defs/BoundingBox3D"
+        }
+      },
+      "required": [
+        "url",
+        "format",
+        "scanToScene",
+        "scaleSource",
+        "bounds"
+      ],
+      "title": "ScanAsset",
+      "type": "object"
+    },
+    "Variant": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "sceneSnapshot": {
+          "additionalProperties": true,
+          "title": "Scenesnapshot",
+          "type": "object"
+        },
+        "createdAt": {
+          "title": "Createdat",
+          "type": "string"
+        },
+        "parentVariantId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parentvariantid"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "sceneSnapshot",
+        "createdAt"
+      ],
+      "title": "Variant",
+      "type": "object"
+    },
+    "WallInterpretation": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "start": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Start",
+          "type": "array"
+        },
+        "end": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "End",
+          "type": "array"
+        },
+        "height": {
+          "exclusiveMinimum": 0.0,
+          "title": "Height",
+          "type": "number"
+        },
+        "thickness": {
+          "exclusiveMinimum": 0.0,
+          "title": "Thickness",
+          "type": "number"
+        },
+        "confidence": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "provenance": {
+          "enum": [
+            "auto",
+            "user"
+          ],
+          "title": "Provenance",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "start",
+        "end",
+        "height",
+        "thickness",
+        "confidence",
+        "provenance"
+      ],
+      "title": "WallInterpretation",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "schemaVersion": {
+      "title": "Schemaversion",
+      "type": "string"
+    },
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "scan": {
+      "$ref": "#/$defs/ScanAsset"
+    },
+    "interpretation": {
+      "$ref": "#/$defs/RoomInterpretation"
+    },
+    "maskRegions": {
+      "items": {
+        "$ref": "#/$defs/MaskRegion"
+      },
+      "title": "Maskregions",
+      "type": "array"
+    },
+    "sceneSnapshot": {
+      "additionalProperties": true,
+      "title": "Scenesnapshot",
+      "type": "object"
+    },
+    "assets": {
+      "items": {
+        "$ref": "#/$defs/AssetRef"
+      },
+      "title": "Assets",
+      "type": "array"
+    },
+    "history": {
+      "items": {
+        "$ref": "#/$defs/EditRecord"
+      },
+      "title": "History",
+      "type": "array"
+    },
+    "variants": {
+      "items": {
+        "$ref": "#/$defs/Variant"
+      },
+      "title": "Variants",
+      "type": "array"
+    },
+    "activeVariantId": {
+      "title": "Activevariantid",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "id",
+    "name",
+    "scan",
+    "interpretation",
+    "maskRegions",
+    "sceneSnapshot",
+    "assets",
+    "history",
+    "variants",
+    "activeVariantId"
+  ],
+  "title": "ProjectManifest",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

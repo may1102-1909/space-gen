@@ -1,0 +1,4 @@
+interface:
+  display_name: "Corona Materials"
+  short_description: "Build physically scaled, inspectable materials."
+  default_prompt: "Use $scene-corona-materials for this architectural task and report the concrete result and verification."

@@ -19,9 +19,14 @@ CREATE TABLE IF NOT EXISTS projects (
     user_id UUID REFERENCES users(id) ON DELETE CASCADE,
     name VARCHAR(255) NOT NULL,
     description TEXT,
+    manifest JSONB,
+    revision BIGINT NOT NULL DEFAULT 1,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS manifest JSONB;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS revision BIGINT NOT NULL DEFAULT 1;
 
 -- 3. Captures (raw uploaded video sessions)
 CREATE TABLE IF NOT EXISTS captures (
@@ -129,6 +134,7 @@ CREATE TABLE IF NOT EXISTS scene_edits (
 );
 
 -- Indexes for ultra-fast query performance
+CREATE INDEX IF NOT EXISTS idx_projects_user_id ON projects(user_id);
 CREATE INDEX IF NOT EXISTS idx_scenes_project_id ON scenes(project_id);
 CREATE INDEX IF NOT EXISTS idx_scene_objects_scene_id ON scene_objects(scene_id);
 CREATE INDEX IF NOT EXISTS idx_ai_jobs_job_id ON ai_jobs(job_id);

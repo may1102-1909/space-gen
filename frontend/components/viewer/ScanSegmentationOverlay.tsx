@@ -5,6 +5,7 @@ import { useScene } from '@pascal-app/core';
 import { useViewer } from '@pascal-app/viewer';
 import { SAMPLE_ROOM_SCAN_MANIFEST, RawScanObject } from '@/lib/pascal/scanConverter';
 import { addExclusionVolumeToScan } from '@/lib/splat/splatCropManager';
+import type { MaskRegion } from '@/lib/contracts';
 import { Box, Sparkles, Eraser, RefreshCw, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -40,13 +41,26 @@ export function ScanSegmentationOverlay({ onReplaceWithAI }: ScanSegmentationOve
         category: obj.category,
         position: obj.center,
         rotation: obj.rotation || [0, 0, 0],
+        scale: [1, 1, 1],
         dimensions: obj.dimensions,
         modelUrl: obj.modelUrl || `/samples/models/${obj.category === 'sofa' ? 'sofa.glb' : obj.category === 'chair' ? 'chair.glb' : 'coffee_table.glb'}`,
+        asset: {
+          id: `asset_${itemId}`,
+          category: obj.category,
+          name: obj.label,
+          thumbnail: '',
+          source: 'library',
+          src: obj.modelUrl || `/samples/models/${obj.category === 'sofa' ? 'sofa.glb' : obj.category === 'chair' ? 'chair.glb' : 'coffee_table.glb'}`,
+          dimensions: obj.dimensions,
+          offset: [0, 0, 0],
+          rotation: [0, 0, 0],
+          scale: [1, 1, 1],
+        },
       },
       levelId
     );
 
-    // 2. Add SuperSplat exclusion volume
+    // 2. Add SuperSplat exclusion volume & MaskRegion
     addExclusionVolumeToScan(scanNode.id, {
       id: `box_erase_${obj.id}`,
       type: 'box',
@@ -57,10 +71,34 @@ export function ScanSegmentationOverlay({ onReplaceWithAI }: ScanSegmentationOve
       label: `Erased ${obj.label}`,
     });
 
+    const existingMasks: MaskRegion[] = Array.isArray(scanNode.metadata?.maskRegions)
+      ? (scanNode.metadata.maskRegions as MaskRegion[])
+      : [];
+    const maskRegion: MaskRegion = {
+      id: `mask_${obj.id}`,
+      obb: {
+        center: obj.center,
+        size: [obj.dimensions[0] * 1.05, obj.dimensions[1] * 1.05, obj.dimensions[2] * 1.05],
+        yaw: obj.rotation ? obj.rotation[1] : 0,
+      },
+      feather: 0.05,
+      enabled: true,
+      detectionId: obj.id,
+      itemId,
+      ghost: false,
+    };
+    (scene.updateNode as any)(scanNode.id, {
+      metadata: {
+        ...scanNode.metadata,
+        maskRegions: [...existingMasks.filter((m) => m.id !== maskRegion.id), maskRegion],
+      },
+    });
+
     setExtractedObjectIds((prev) => new Set(prev).add(obj.id));
   };
 
   const handleEraseOnly = (obj: RawScanObject) => {
+    const scene = useScene.getState();
     addExclusionVolumeToScan(scanNode.id, {
       id: `box_erase_manual_${obj.id}`,
       type: 'box',
@@ -69,6 +107,27 @@ export function ScanSegmentationOverlay({ onReplaceWithAI }: ScanSegmentationOve
       rotation: obj.rotation,
       mode: 'exclude',
       label: `Erased ${obj.label}`,
+    });
+    const existingMasks: MaskRegion[] = Array.isArray(scanNode.metadata?.maskRegions)
+      ? (scanNode.metadata.maskRegions as MaskRegion[])
+      : [];
+    const maskRegion: MaskRegion = {
+      id: `mask_manual_${obj.id}`,
+      obb: {
+        center: obj.center,
+        size: [obj.dimensions[0] * 1.05, obj.dimensions[1] * 1.05, obj.dimensions[2] * 1.05],
+        yaw: obj.rotation ? obj.rotation[1] : 0,
+      },
+      feather: 0.05,
+      enabled: true,
+      detectionId: obj.id,
+      ghost: false,
+    };
+    (scene.updateNode as any)(scanNode.id, {
+      metadata: {
+        ...scanNode.metadata,
+        maskRegions: [...existingMasks.filter((m) => m.id !== maskRegion.id), maskRegion],
+      },
     });
     setExtractedObjectIds((prev) => new Set(prev).add(obj.id));
   };

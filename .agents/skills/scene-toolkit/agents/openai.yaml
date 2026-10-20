@@ -1,0 +1,4 @@
+interface:
+  display_name: "Scene Toolkit"
+  short_description: "Choose the deliverable and discover actual host capabilities."
+  default_prompt: "Use $scene-toolkit for this architectural task and report the concrete result and verification."

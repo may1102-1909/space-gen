@@ -1,0 +1,443 @@
+{
+  "schemaVersion": "1.0.0",
+  "id": "proj_living_room_01",
+  "name": "Modern Living & Dining Room",
+  "scan": {
+    "url": "/Hurstville_Museum_Gallery.sog",
+    "format": "sog",
+    "scanToScene": [
+      1.0, 0.0, 0.0, 0.0,
+      0.0, 1.0, 0.0, 0.0,
+      0.0, 0.0, 1.0, 0.0,
+      0.0, 0.0, 0.0, 1.0
+    ],
+    "scaleSource": "sensor",
+    "bounds": {
+      "min": [-0.5, 0.0, -0.5],
+      "max": [8.5, 2.8, 6.5]
+    }
+  },
+  "interpretation": {
+    "provenance": "auto",
+    "floor": {
+      "normal": [0.0, 1.0, 0.0],
+      "constant": 0.0,
+      "provenance": "auto"
+    },
+    "ceilingHeight": 2.8,
+    "outline": [
+      [0.0, 0.0],
+      [8.0, 0.0],
+      [8.0, 6.0],
+      [0.0, 6.0]
+    ],
+    "walls": [
+      {
+        "id": "wall_north",
+        "start": [0.0, 0.0, 0.0],
+        "end": [8.0, 0.0, 0.0],
+        "height": 2.8,
+        "thickness": 0.2,
+        "confidence": 0.98,
+        "provenance": "auto"
+      },
+      {
+        "id": "wall_east",
+        "start": [8.0, 0.0, 0.0],
+        "end": [8.0, 0.0, 6.0],
+        "height": 2.8,
+        "thickness": 0.2,
+        "confidence": 0.95,
+        "provenance": "auto"
+      },
+      {
+        "id": "wall_south",
+        "start": [8.0, 0.0, 6.0],
+        "end": [0.0, 0.0, 6.0],
+        "height": 2.8,
+        "thickness": 0.2,
+        "confidence": 0.97,
+        "provenance": "auto"
+      },
+      {
+        "id": "wall_west",
+        "start": [0.0, 0.0, 6.0],
+        "end": [0.0, 0.0, 0.0],
+        "height": 2.8,
+        "thickness": 0.2,
+        "confidence": 0.96,
+        "provenance": "auto"
+      }
+    ],
+    "openings": [
+      {
+        "id": "door_main",
+        "wallId": "wall_south",
+        "kind": "door",
+        "offset": 2.0,
+        "width": 0.9,
+        "height": 2.1,
+        "sill": 0.0,
+        "confidence": 0.95,
+        "provenance": "auto"
+      },
+      {
+        "id": "door_balcony",
+        "wallId": "wall_east",
+        "kind": "door",
+        "offset": 1.5,
+        "width": 1.2,
+        "height": 2.2,
+        "sill": 0.0,
+        "confidence": 0.92,
+        "provenance": "auto"
+      },
+      {
+        "id": "window_north",
+        "wallId": "wall_north",
+        "kind": "window",
+        "offset": 3.0,
+        "width": 2.0,
+        "height": 1.4,
+        "sill": 0.9,
+        "confidence": 0.96,
+        "provenance": "auto"
+      }
+    ],
+    "detections": [
+      {
+        "id": "det_sofa_01",
+        "category": "sofa",
+        "label": "3-Seater Modern Sofa",
+        "obb": {
+          "center": [4.0, 0.45, 4.5],
+          "size": [2.2, 0.9, 0.95],
+          "yaw": 0.0
+        },
+        "confidence": 0.94,
+        "maskRegionId": "mask_sofa_01",
+        "status": "verified",
+        "provenance": "auto"
+      },
+      {
+        "id": "det_chair_left",
+        "category": "chair",
+        "label": "Lounge Armchair Left",
+        "obb": {
+          "center": [2.2, 0.42, 4.2],
+          "size": [0.85, 0.85, 0.85],
+          "yaw": 0.45
+        },
+        "confidence": 0.89,
+        "maskRegionId": "mask_chair_left",
+        "status": "verified",
+        "provenance": "auto"
+      },
+      {
+        "id": "det_chair_right",
+        "category": "chair",
+        "label": "Lounge Armchair Right",
+        "obb": {
+          "center": [5.8, 0.42, 4.2],
+          "size": [0.85, 0.85, 0.85],
+          "yaw": -0.45
+        },
+        "confidence": 0.91,
+        "maskRegionId": "mask_chair_right",
+        "status": "verified",
+        "provenance": "auto"
+      },
+      {
+        "id": "det_coffee_table",
+        "category": "table",
+        "label": "Oak Coffee Table",
+        "obb": {
+          "center": [4.0, 0.25, 3.2],
+          "size": [1.2, 0.5, 0.7],
+          "yaw": 0.0
+        },
+        "confidence": 0.93,
+        "maskRegionId": "mask_coffee_table",
+        "status": "verified",
+        "provenance": "auto"
+      },
+      {
+        "id": "det_tv_console",
+        "category": "storage",
+        "label": "Low-profile TV Media Console",
+        "obb": {
+          "center": [4.0, 0.3, 0.4],
+          "size": [2.0, 0.6, 0.45],
+          "yaw": 0.0
+        },
+        "confidence": 0.88,
+        "maskRegionId": "mask_tv_console",
+        "status": "auto",
+        "provenance": "auto"
+      },
+      {
+        "id": "det_dining_table",
+        "category": "table",
+        "label": "Dining Table 6-Seater",
+        "obb": {
+          "center": [6.5, 0.38, 2.0],
+          "size": [1.6, 0.76, 0.9],
+          "yaw": 1.5708
+        },
+        "confidence": 0.92,
+        "maskRegionId": "mask_dining_table",
+        "status": "auto",
+        "provenance": "auto"
+      }
+    ]
+  },
+  "maskRegions": [
+    {
+      "id": "mask_sofa_01",
+      "obb": {
+        "center": [4.0, 0.45, 4.5],
+        "size": [2.2, 0.9, 0.95],
+        "yaw": 0.0
+      },
+      "feather": 0.05,
+      "enabled": true
+    },
+    {
+      "id": "mask_chair_left",
+      "obb": {
+        "center": [2.2, 0.42, 4.2],
+        "size": [0.85, 0.85, 0.85],
+        "yaw": 0.45
+      },
+      "feather": 0.05,
+      "enabled": true
+    },
+    {
+      "id": "mask_chair_right",
+      "obb": {
+        "center": [5.8, 0.42, 4.2],
+        "size": [0.85, 0.85, 0.85],
+        "yaw": -0.45
+      },
+      "feather": 0.05,
+      "enabled": true
+    },
+    {
+      "id": "mask_coffee_table",
+      "obb": {
+        "center": [4.0, 0.25, 3.2],
+        "size": [1.2, 0.5, 0.7],
+        "yaw": 0.0
+      },
+      "feather": 0.05,
+      "enabled": true
+    },
+    {
+      "id": "mask_tv_console",
+      "obb": {
+        "center": [4.0, 0.3, 0.4],
+        "size": [2.0, 0.6, 0.45],
+        "yaw": 0.0
+      },
+      "feather": 0.05,
+      "enabled": true
+    },
+    {
+      "id": "mask_dining_table",
+      "obb": {
+        "center": [6.5, 0.38, 2.0],
+        "size": [1.6, 0.76, 0.9],
+        "yaw": 1.5708
+      },
+      "feather": 0.05,
+      "enabled": true
+    }
+  ],
+  "sceneSnapshot": {
+    "site_1": {
+      "id": "site_1",
+      "type": "site",
+      "name": "Site"
+    },
+    "building_1": {
+      "id": "building_1",
+      "type": "building",
+      "name": "Apartment Building",
+      "parentId": "site_1"
+    },
+    "level_1": {
+      "id": "level_1",
+      "type": "level",
+      "name": "Ground Level",
+      "parentId": "building_1",
+      "elevation": 0.0,
+      "height": 2.8
+    },
+    "slab_1": {
+      "id": "slab_1",
+      "type": "slab",
+      "name": "Floor Slab",
+      "parentId": "level_1",
+      "polygon": [
+        [0.0, 0.0],
+        [8.0, 0.0],
+        [8.0, 6.0],
+        [0.0, 6.0]
+      ]
+    },
+    "item_sofa_01": {
+      "id": "item_sofa_01",
+      "type": "item",
+      "name": "3-Seater Modern Sofa",
+      "parentId": "level_1",
+      "asset": {
+        "src": "/assets/models/sofa.glb"
+      },
+      "position": [4.0, 0.0, 4.5]
+    },
+    "item_chair_left": {
+      "id": "item_chair_left",
+      "type": "item",
+      "name": "Lounge Armchair Left",
+      "parentId": "level_1",
+      "asset": {
+        "src": "/assets/models/chair.glb"
+      },
+      "position": [2.2, 0.0, 4.2]
+    },
+    "item_chair_right": {
+      "id": "item_chair_right",
+      "type": "item",
+      "name": "Lounge Armchair Right",
+      "parentId": "level_1",
+      "asset": {
+        "src": "/assets/models/chair.glb"
+      },
+      "position": [5.8, 0.0, 4.2]
+    },
+    "item_coffee_table": {
+      "id": "item_coffee_table",
+      "type": "item",
+      "name": "Oak Coffee Table",
+      "parentId": "level_1",
+      "asset": {
+        "src": "/assets/models/coffee_table.glb"
+      },
+      "position": [4.0, 0.0, 3.2]
+    },
+    "item_tv_console": {
+      "id": "item_tv_console",
+      "type": "item",
+      "name": "Low-profile TV Media Console",
+      "parentId": "level_1",
+      "asset": {
+        "src": "/assets/models/tv_console.glb"
+      },
+      "position": [4.0, 0.0, 0.4]
+    },
+    "item_dining_table": {
+      "id": "item_dining_table",
+      "type": "item",
+      "name": "Dining Table 6-Seater",
+      "parentId": "level_1",
+      "asset": {
+        "src": "/assets/models/dining_table.glb"
+      },
+      "position": [6.5, 0.0, 2.0]
+    }
+  },
+  "assets": [
+    {
+      "id": "asset_sofa_01",
+      "name": "Modern 3-Seater Fabric Sofa",
+      "source": "catalog",
+      "url": "/assets/models/sofa.glb",
+      "format": "glb",
+      "dimensions": {
+        "width": 2.2,
+        "height": 0.9,
+        "depth": 0.95
+      },
+      "categories": ["seating", "living_room"],
+      "thumbnail": "/assets/thumbnails/sofa.png"
+    },
+    {
+      "id": "asset_chair_01",
+      "name": "Comfort Lounge Armchair",
+      "source": "catalog",
+      "url": "/assets/models/chair.glb",
+      "format": "glb",
+      "dimensions": {
+        "width": 0.85,
+        "height": 0.85,
+        "depth": 0.85
+      },
+      "categories": ["seating", "living_room"],
+      "thumbnail": "/assets/thumbnails/chair.png"
+    },
+    {
+      "id": "asset_coffee_table_01",
+      "name": "Solid Oak Coffee Table",
+      "source": "catalog",
+      "url": "/assets/models/coffee_table.glb",
+      "format": "glb",
+      "dimensions": {
+        "width": 1.2,
+        "height": 0.5,
+        "depth": 0.7
+      },
+      "categories": ["table", "living_room"],
+      "thumbnail": "/assets/thumbnails/coffee_table.png"
+    },
+    {
+      "id": "asset_tv_console_01",
+      "name": "Low Profile TV Media Unit",
+      "source": "catalog",
+      "url": "/assets/models/tv_console.glb",
+      "format": "glb",
+      "dimensions": {
+        "width": 2.0,
+        "height": 0.6,
+        "depth": 0.45
+      },
+      "categories": ["storage", "media"],
+      "thumbnail": "/assets/thumbnails/tv_console.png"
+    },
+    {
+      "id": "asset_dining_table_01",
+      "name": "Rectangular 6-Seater Dining Table",
+      "source": "catalog",
+      "url": "/assets/models/dining_table.glb",
+      "format": "glb",
+      "dimensions": {
+        "width": 1.6,
+        "height": 0.76,
+        "depth": 0.9
+      },
+      "categories": ["table", "dining_room"],
+      "thumbnail": "/assets/thumbnails/dining_table.png"
+    }
+  ],
+  "history": [
+    {
+      "id": "rec_init_01",
+      "timestamp": "2026-10-20T12:00:00Z",
+      "proposalId": null,
+      "op": "add",
+      "targetNodeId": null,
+      "description": "Initial scan interpretation ingested and converted to Pascal nodes.",
+      "userComment": "Initial baseline project generated from Hurstville scan."
+    }
+  ],
+  "variants": [
+    {
+      "id": "var_baseline",
+      "name": "As-Scanned Baseline",
+      "description": "Original room layout extracted directly from point cloud and splat.",
+      "sceneSnapshot": {},
+      "createdAt": "2026-10-20T12:00:00Z",
+      "parentVariantId": null
+    }
+  ],
+  "activeVariantId": "var_baseline"
+}

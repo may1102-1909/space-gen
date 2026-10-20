@@ -1,13 +1,14 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
-import dynamic from 'next/dynamic';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import * as THREE from 'three';
+import { useGLTF } from '@react-three/drei';
+import { useFrame, useThree } from '@react-three/fiber';
 import {
   Viewer,
   SceneEnvironment,
   WallSystem,
   ItemSystem,
-  ScanSystem,
   ZoneSystem,
   CeilingSystem,
   DoorSystem,
@@ -15,15 +16,189 @@ import {
   LevelSystem,
   useViewer,
 } from '@pascal-app/viewer';
-import { useScene } from '@pascal-app/core';
 import { ensurePascalInitialized } from '@/lib/pascal/initPascal';
 import { seedScannedRoom } from '@/lib/pascal/seedScannedRoom';
+import { useScene } from '@pascal-app/core';
+import { SplatBackgroundCanvas, type SplatCameraState } from '@/components/splat-prototype/SplatBackgroundCanvas';
+import { ScanAlignmentTool } from './ScanAlignmentTool';
+import type { Matrix4, Vector3 } from '@/lib/contracts/primitives';
+import type { MaskRegion } from '@/lib/contracts';
 import { EditorToolbar, ActiveTool } from '@/components/layout/EditorToolbar';
 import { ScanSegmentationOverlay } from './ScanSegmentationOverlay';
 import { ScanToEditableModal } from '../capture/ScanToEditableModal';
 import { AIPlacementPreview } from './AIPlacementPreview';
+import { TransformGizmo } from './TransformGizmo';
 import { useSpaceGenStore } from '@/lib/store';
 import { Loader2 } from 'lucide-react';
+
+type ScanPicker = (clientX: number, clientY: number) => Vector3 | null;
+
+function ScanCameraBridge({
+  cameraStateRef,
+  isPicking,
+  pickerRef,
+  onPick,
+  scanId,
+}: {
+  cameraStateRef: React.MutableRefObject<SplatCameraState | null>;
+  isPicking: boolean;
+  pickerRef: React.MutableRefObject<ScanPicker | null>;
+  onPick: (point: Vector3) => void;
+  scanId: string | null;
+}) {
+  const { camera, size, gl } = useThree();
+  const focusedScanRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!scanId || focusedScanRef.current === scanId) return;
+    focusedScanRef.current = scanId;
+    const perspective = camera as THREE.PerspectiveCamera;
+    perspective.position.set(0, 1.6, 5);
+    perspective.lookAt(0, 1, 0);
+    perspective.updateProjectionMatrix();
+  }, [camera, scanId]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      (window as any).__setEditorCamera = (
+        position: [number, number, number],
+        target: [number, number, number] = [2.0, 0.45, -0.75]
+      ) => {
+        const perspective = camera as THREE.PerspectiveCamera;
+        perspective.position.set(...position);
+        perspective.lookAt(...target);
+        perspective.updateProjectionMatrix();
+        perspective.updateMatrixWorld();
+      };
+    }
+    return () => {
+      if (typeof window !== 'undefined') {
+        delete (window as any).__setEditorCamera;
+      }
+    };
+  }, [camera]);
+
+  useFrame(() => {
+    if ((camera as THREE.PerspectiveCamera).isPerspectiveCamera) {
+      const perspective = camera as THREE.PerspectiveCamera;
+      cameraStateRef.current = {
+        position: [perspective.position.x, perspective.position.y, perspective.position.z],
+        quaternion: [perspective.quaternion.x, perspective.quaternion.y, perspective.quaternion.z, perspective.quaternion.w],
+        fov: perspective.fov,
+        aspect: size.width / Math.max(size.height, 1),
+        near: perspective.near,
+        far: perspective.far,
+      };
+    }
+  });
+
+  useEffect(() => {
+    if (!isPicking) return;
+    const canvas = gl.domElement;
+    const handlePointerDown = (event: PointerEvent) => {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const point = pickerRef.current?.(event.clientX, event.clientY);
+      if (point) onPick(point);
+    };
+    canvas.addEventListener('pointerdown', handlePointerDown, true);
+    return () => canvas.removeEventListener('pointerdown', handlePointerDown, true);
+  }, [gl, isPicking, onPick, pickerRef]);
+
+  return null;
+}
+
+
+function ScanDepthMesh({
+  meshUrl,
+  scanToScene,
+}: {
+  meshUrl: string;
+  scanToScene: Matrix4;
+}) {
+  const { scene } = useGLTF(meshUrl);
+  const proxyScene = React.useMemo(() => {
+    const clone = scene.clone(true);
+    clone.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) {
+        const mesh = child as THREE.Mesh;
+        mesh.material = new THREE.MeshBasicMaterial({
+          colorWrite: false,
+          depthWrite: true,
+          side: THREE.DoubleSide,
+        });
+      }
+    });
+    return clone;
+  }, [scene]);
+
+  const groupRef = useRef<THREE.Group>(null);
+  useEffect(() => {
+    if (!groupRef.current || !scanToScene || scanToScene.length !== 16) return;
+    const matrix = new THREE.Matrix4().set(...scanToScene as [
+      number, number, number, number, number, number, number, number,
+      number, number, number, number, number, number, number, number,
+    ]);
+    groupRef.current.matrixAutoUpdate = false;
+    groupRef.current.matrix.copy(matrix);
+    groupRef.current.matrixWorldNeedsUpdate = true;
+  }, [scanToScene]);
+
+  return <primitive ref={groupRef} object={proxyScene} />;
+}
+
+function ScanDepthOcclusionProxy({
+  meshUrl,
+  scanToScene,
+  enabled = true,
+}: {
+  meshUrl?: string | null;
+  scanToScene: Matrix4;
+  enabled?: boolean;
+}) {
+  if (!enabled || !meshUrl) return null;
+  return (
+    <React.Suspense fallback={null}>
+      <ScanDepthMesh meshUrl={meshUrl} scanToScene={scanToScene} />
+    </React.Suspense>
+  );
+}
+
+function MaskRegionVisualizer({
+  maskRegions,
+  selectedId,
+}: {
+  maskRegions: MaskRegion[];
+  selectedId?: string | null;
+}) {
+  if (!maskRegions || maskRegions.length === 0) return null;
+  return (
+    <group>
+      {maskRegions.map((mask) => {
+        if (!mask.enabled) return null;
+        const isSelected = selectedId && (mask.itemId === selectedId || mask.id === selectedId);
+        return (
+          <group
+            key={mask.id}
+            position={[mask.obb.center[0], mask.obb.center[1], mask.obb.center[2]]}
+            rotation={[0, mask.obb.yaw || 0, 0]}
+          >
+            <mesh>
+              <boxGeometry args={[mask.obb.size[0], mask.obb.size[1], mask.obb.size[2]]} />
+              <meshBasicMaterial
+                wireframe
+                color={isSelected ? '#38bdf8' : mask.ghost ? '#fbbf24' : '#10b981'}
+                transparent
+                opacity={isSelected ? 0.75 : mask.ghost ? 0.35 : 0.15}
+                depthWrite={false}
+              />
+            </mesh>
+          </group>
+        );
+      })}
+    </group>
+  );
+}
 
 interface SceneViewerProps {
   objects?: any[];
@@ -31,26 +206,50 @@ interface SceneViewerProps {
   onSelectObject?: (id: string | null) => void;
 }
 
+const IDENTITY_MATRIX: Matrix4 = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+const NO_MASK_REGIONS: MaskRegion[] = [];
+
 export function SceneViewer({ selectedId, onSelectObject }: SceneViewerProps) {
   const [isReady, setIsReady] = useState(false);
   const [initError, setInitError] = useState<string | null>(null);
   const [activeTool, setActiveTool] = useState<ActiveTool>('select');
   const [isConvertModalOpen, setIsConvertModalOpen] = useState(false);
+  const [isAligningScan, setIsAligningScan] = useState(false);
+  const [isPickingScanPoint, setIsPickingScanPoint] = useState(false);
+
+  const cameraStateRef = useRef<SplatCameraState | null>(null);
+  const pickerRef = useRef<ScanPicker | null>(null);
+  const pointHandlerRef = useRef<((point: Vector3) => void) | null>(null);
+  const scanNode = useScene((state) => Object.values(state.nodes).find((node: any) => node?.type === 'scan') as any);
+  // Stable fallbacks: fresh literals here would re-run the splat alignment/mask effects every render.
+  const scanToScene: Matrix4 = scanNode?.metadata?.scanToScene || IDENTITY_MATRIX;
+  const maskRegions: MaskRegion[] = scanNode?.metadata?.maskRegions || NO_MASK_REGIONS;
+  const handlePickerReady = useCallback((picker: ScanPicker | null) => {
+    pickerRef.current = picker;
+  }, []);
+  const handleScanPoint = useCallback((point: Vector3) => {
+    pointHandlerRef.current?.(point);
+  }, []);
+  const registerPointHandler = useCallback((handler: ((point: Vector3) => void) | null) => {
+    pointHandlerRef.current = handler;
+  }, []);
 
   const selectedIds = useViewer((state) => state.selection.selectedIds);
-  const setSelection = useViewer((state) => state.setSelection);
+  const showScans = useViewer((state) => state.showScans);
   const setSelectedObjectId = useSpaceGenStore((state) => state.setSelectedObjectId);
 
-  // 1. Client-side bootstrap of Pascal nodes and default mock scanned room
+  // Initialize Pascal without injecting demo content. Project loading owns scene contents.
   useEffect(() => {
     let mounted = true;
 
     async function init() {
       try {
         await ensurePascalInitialized();
-        seedScannedRoom();
         if (mounted) {
           setIsReady(true);
+          if (typeof window !== 'undefined') {
+            (window as any).__seedScannedRoom = (options?: { forceReset?: boolean }) => seedScannedRoom(options);
+          }
         }
       } catch (err: any) {
         console.error('[SceneViewer] Failed to initialize Pascal workspace:', err);
@@ -101,7 +300,33 @@ export function SceneViewer({ selectedId, onSelectObject }: SceneViewerProps) {
         activeTool={activeTool}
         onSelectTool={setActiveTool}
         onOpenConvertModal={() => setIsConvertModalOpen(true)}
+        isAligningScan={isAligningScan}
+        onToggleScanAlignment={() => {
+          setIsAligningScan((current) => !current);
+          setIsPickingScanPoint(false);
+        }}
       />
+
+      {isAligningScan && (
+        <ScanAlignmentTool
+          scanId={scanNode?.id || null}
+          scanToScene={scanToScene}
+          scanPointFromScenePoint={(point) => {
+            const inverse = new THREE.Matrix4().set(...scanToScene as [
+              number, number, number, number, number, number, number, number,
+              number, number, number, number, number, number, number, number,
+            ]).invert();
+            const local = new THREE.Vector3(...point).applyMatrix4(inverse);
+            return [local.x, local.y, local.z];
+          }}
+          onPickModeChange={setIsPickingScanPoint}
+          onPointHandlerChange={registerPointHandler}
+          onClose={() => {
+            setIsAligningScan(false);
+            setIsPickingScanPoint(false);
+          }}
+        />
+      )}
 
       {/* SuperSplat Overlay for Segmented Objects */}
       <ScanSegmentationOverlay />
@@ -116,11 +341,35 @@ export function SceneViewer({ selectedId, onSelectObject }: SceneViewerProps) {
       <AIPlacementPreview />
 
       {/* Pascal Full 3D Viewport with Boolean CSG & Scan Overlays */}
-      <Viewer perf={false} useBvh={true}>
+      <SplatBackgroundCanvas
+        cameraStateRef={cameraStateRef}
+        scanUrl={scanNode?.url || null}
+        scanToScene={scanToScene}
+        maskRegions={maskRegions}
+        visible={showScans && scanNode?.visible !== false}
+        onPickerReady={handlePickerReady}
+      />
+      <Viewer perf={false} useBvh={true} transparent>
+        <TransformGizmo />
+        <MaskRegionVisualizer
+          maskRegions={maskRegions}
+          selectedId={selectedId || selectedIds[0] || null}
+        />
+        <ScanCameraBridge
+          cameraStateRef={cameraStateRef}
+          isPicking={isPickingScanPoint}
+          pickerRef={pickerRef}
+          onPick={handleScanPoint}
+          scanId={scanNode?.id || null}
+        />
+        <ScanDepthOcclusionProxy
+          meshUrl={scanNode?.metadata?.meshUrl || scanNode?.metadata?.proxyMeshUrl}
+          scanToScene={scanToScene}
+          enabled={showScans && scanNode?.visible !== false}
+        />
         <SceneEnvironment />
         <WallSystem />
         <ItemSystem />
-        <ScanSystem />
         <ZoneSystem />
         <CeilingSystem />
         <DoorSystem />

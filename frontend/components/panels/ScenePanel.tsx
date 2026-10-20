@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useScene } from '@pascal-app/core';
 import { useViewer } from '@pascal-app/viewer';
 import { useSpaceGenStore } from '@/lib/store';
@@ -18,8 +18,23 @@ import {
   Sliders,
   DoorOpen,
   Frame,
+  Plus,
+  Upload,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { api } from '@/lib/api';
+import type { FurnitureItem } from '@/lib/types';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { createItemNode, normalizeGlbBounds, replaceItemAsset, fetchCatalogItems } from '@/lib/pascal/itemEditing';
+import { seedScannedRoom } from '@/lib/pascal/seedScannedRoom';
+import {
+  replaceItemWithMask,
+  toggleMaskGhostMode,
+  updateMaskRegion,
+  resizeMaskRegion,
+  removeMaskRegion,
+} from '@/lib/splat/splatMasking';
+import type { MaskRegion } from '@/lib/contracts';
 
 export function ScenePanel() {
   const nodes = useScene((state) => state.nodes);
@@ -27,9 +42,31 @@ export function ScenePanel() {
   const setSelection = useViewer((state) => state.setSelection);
   const selectedObjectId = useSpaceGenStore((state) => state.selectedObjectId);
   const setSelectedObjectId = useSpaceGenStore((state) => state.setSelectedObjectId);
+  const [catalog, setCatalog] = useState<FurnitureItem[]>([]);
+  const [catalogOpen, setCatalogOpen] = useState(false);
+  const [assetError, setAssetError] = useState<string | null>(null);
+  const uploadRef = useRef<HTMLInputElement>(null);
 
   const activeId = selectedIds[0] || selectedObjectId || null;
   const selectedNode = activeId ? (nodes as Record<string, any>)[activeId] : null;
+  const scanNode = Object.values(nodes).find((n) => n?.type === 'scan') as any;
+  const maskRegions: MaskRegion[] = scanNode?.metadata?.maskRegions || [];
+  const linkedMask = maskRegions.find(
+    (m) => m.itemId === activeId || m.id === selectedNode?.metadata?.maskRegionId
+  );
+  const [positionDraft, setPositionDraft] = useState<[string, string, string]>(['0', '0', '0']);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      (window as any).__seedScannedRoom = (options?: { forceReset?: boolean }) => seedScannedRoom(options);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (selectedNode?.type === 'item') {
+      setPositionDraft((selectedNode.position || [0, 0, 0]).map((value: number) => String(value)) as [string, string, string]);
+    }
+  }, [activeId, selectedNode?.position?.[0], selectedNode?.position?.[1], selectedNode?.position?.[2]]);
 
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
     new Set(['items', 'walls', 'scans', 'zones'])
@@ -61,6 +98,68 @@ export function ScenePanel() {
     (useScene.getState().deleteNode as any)(activeId);
     setSelection({ selectedIds: [] });
     setSelectedObjectId(null);
+  };
+
+  const commitAsset = (asset: { id?: string; name: string; category: string; src: string; dimensions: [number, number, number]; source?: 'library' | 'mine' }) => {
+    const scene = useScene.getState();
+    const resolvedSrc = (typeof window !== 'undefined' && asset.src.startsWith('/'))
+      ? `${window.location.origin}${asset.src}`
+      : asset.src;
+    const assetPayload = { ...asset, src: resolvedSrc };
+
+    const currentActiveId = activeId || useViewer.getState().selection.selectedIds[0] || useSpaceGenStore.getState().selectedObjectId;
+    const currentSelectedNode = currentActiveId ? ((scene.nodes as Record<string, any>)[currentActiveId] || selectedNode) : selectedNode;
+
+    if (currentSelectedNode?.type === 'item') {
+      replaceItemWithMask(currentSelectedNode as any, assetPayload);
+    } else {
+      const levelId = Object.values(scene.nodes).find((node) => node?.type === 'level')?.id;
+      const node = { ...createItemNode(assetPayload), parentId: levelId || null };
+      scene.applyNodeChanges({ create: [{ node: node as any, parentId: levelId as any }] });
+      setSelectedObjectId(node.id);
+      setSelection({ selectedIds: [node.id as any] });
+    }
+    setCatalogOpen(false);
+  };
+
+  const openCatalog = async () => {
+    setAssetError(null);
+    try {
+      const items = catalog.length ? catalog : await fetchCatalogItems();
+      setCatalog(items);
+      setCatalogOpen(true);
+    } catch (error) {
+      setAssetError(error instanceof Error ? error.message : 'Catalog could not be loaded');
+    }
+  };
+
+  const uploadGlb = async (file?: File) => {
+    if (!file) return;
+    setAssetError(null);
+    try {
+      const url = URL.createObjectURL(file);
+      const gltf = await new GLTFLoader().loadAsync(url);
+      const bounds = new (await import('three')).Box3().setFromObject(gltf.scene);
+      const min = bounds.min.toArray() as [number, number, number];
+      const max = bounds.max.toArray() as [number, number, number];
+      const measured = normalizeGlbBounds(min, max);
+      gltf.scene.scale.set(measured.unitScale, measured.unitScale, measured.unitScale);
+      gltf.scene.position.set(
+        measured.offset[0] * measured.unitScale,
+        measured.offset[1] * measured.unitScale,
+        measured.offset[2] * measured.unitScale
+      );
+      const { GLTFExporter } = await import('three/examples/jsm/exporters/GLTFExporter.js');
+      const normalizedBlob = await new Promise<Blob>((resolve, reject) => new GLTFExporter().parse(gltf.scene, (result) => {
+        if (result instanceof ArrayBuffer) resolve(new Blob([result], { type: 'model/gltf-binary' }));
+        else reject(new Error('GLB normalization did not produce a binary GLB'));
+      }, reject, { binary: true }));
+      const normalizedUrl = URL.createObjectURL(normalizedBlob);
+      URL.revokeObjectURL(url);
+      commitAsset({ name: file.name.replace(/\.glb$/i, ''), category: 'custom', src: normalizedUrl, dimensions: measured.dimensions, source: 'mine' });
+    } catch (error) {
+      setAssetError(error instanceof Error ? error.message : 'GLB could not be measured');
+    }
   };
 
   // Group nodes by category
@@ -108,6 +207,22 @@ export function ScenePanel() {
             </p>
           </div>
         </div>
+      </div>
+
+      <div className="p-2 border-b border-border/60 space-y-2">
+        <div className="flex gap-1.5">
+          <button onClick={openCatalog} className="flex-1 flex items-center justify-center gap-1.5 rounded-md bg-accent/15 px-2 py-1.5 text-[11px] text-accent-light hover:bg-accent/25">
+            <Plus size={12} /> {selectedNode?.type === 'item' ? 'Replace / Add Catalog Item' : 'Add Catalog Item'}
+          </button>
+          <button onClick={() => uploadRef.current?.click()} className="flex items-center gap-1.5 rounded-md border border-border px-2 py-1.5 text-[11px] hover:bg-surface-elevated">
+            <Upload size={12} /> GLB
+          </button>
+          <input ref={uploadRef} type="file" accept=".glb,model/gltf-binary" className="hidden" onChange={(event) => void uploadGlb(event.target.files?.[0])} />
+        </div>
+        {assetError && <p role="alert" className="text-[10px] text-red-400">{assetError}</p>}
+        {catalogOpen && <div className="max-h-32 overflow-y-auto rounded border border-border">
+          {catalog.map((item) => <button key={item.id} onClick={() => commitAsset({ id: item.id, name: item.name, category: item.category, src: api.normalizeModelUrl(item.url) || item.url, dimensions: [item.dimensions.width_m, item.dimensions.height_m, item.dimensions.depth_m || item.dimensions.width_m] })} className="block w-full px-2 py-1.5 text-left text-[11px] hover:bg-surface-elevated">{item.name} · {item.dimensions.width_m} × {item.dimensions.height_m} × {item.dimensions.depth_m || item.dimensions.width_m} m</button>)}
+        </div>}
       </div>
 
       {/* Hierarchical Node Tree */}
@@ -350,14 +465,10 @@ export function ScenePanel() {
                   <input
                     type="number"
                     step="0.1"
-                    value={selectedNode.position?.[0] ?? 0}
-                    onChange={(e) =>
-                      handleUpdateNodeProp('position', [
-                        parseFloat(e.target.value) || 0,
-                        selectedNode.position?.[1] ?? 0,
-                        selectedNode.position?.[2] ?? 0,
-                      ])
-                    }
+                    aria-label="Pos X (m)"
+                    value={positionDraft[0]}
+                    onChange={(e) => setPositionDraft([e.target.value, positionDraft[1], positionDraft[2]])}
+                    onBlur={() => handleUpdateNodeProp('position', [parseFloat(positionDraft[0]) || 0, selectedNode.position?.[1] ?? 0, selectedNode.position?.[2] ?? 0])}
                     className="w-full bg-surface border border-border rounded px-1.5 py-1 text-xs font-mono"
                   />
                 </div>
@@ -366,14 +477,10 @@ export function ScenePanel() {
                   <input
                     type="number"
                     step="0.1"
-                    value={selectedNode.position?.[1] ?? 0}
-                    onChange={(e) =>
-                      handleUpdateNodeProp('position', [
-                        selectedNode.position?.[0] ?? 0,
-                        parseFloat(e.target.value) || 0,
-                        selectedNode.position?.[2] ?? 0,
-                      ])
-                    }
+                    aria-label="Pos Y (m)"
+                    value={positionDraft[1]}
+                    onChange={(e) => setPositionDraft([positionDraft[0], e.target.value, positionDraft[2]])}
+                    onBlur={() => handleUpdateNodeProp('position', [selectedNode.position?.[0] ?? 0, Math.max(0, parseFloat(positionDraft[1]) || 0), selectedNode.position?.[2] ?? 0])}
                     className="w-full bg-surface border border-border rounded px-1.5 py-1 text-xs font-mono"
                   />
                 </div>
@@ -382,25 +489,117 @@ export function ScenePanel() {
                   <input
                     type="number"
                     step="0.1"
-                    value={selectedNode.position?.[2] ?? 0}
-                    onChange={(e) =>
-                      handleUpdateNodeProp('position', [
-                        selectedNode.position?.[0] ?? 0,
-                        selectedNode.position?.[1] ?? 0,
-                        parseFloat(e.target.value) || 0,
-                      ])
-                    }
+                    aria-label="Pos Z (m)"
+                    value={positionDraft[2]}
+                    onChange={(e) => setPositionDraft([positionDraft[0], positionDraft[1], e.target.value])}
+                    onBlur={() => handleUpdateNodeProp('position', [selectedNode.position?.[0] ?? 0, selectedNode.position?.[1] ?? 0, parseFloat(positionDraft[2]) || 0])}
                     className="w-full bg-surface border border-border rounded px-1.5 py-1 text-xs font-mono"
                   />
                 </div>
               </div>
 
-              {selectedNode.dimensions && (
+              {(selectedNode.asset?.dimensions || selectedNode.dimensions) && (
                 <div className="flex items-center gap-2 text-[10px] text-text-muted font-mono bg-surface p-1.5 rounded border border-border/50">
                   <Maximize2 size={11} className="text-text-secondary" />
                   <span>
-                    Size: {selectedNode.dimensions[0]}m × {selectedNode.dimensions[1]}m × {selectedNode.dimensions[2]}m
+                    Size: {(selectedNode.asset?.dimensions || selectedNode.dimensions)[0]}m × {(selectedNode.asset?.dimensions || selectedNode.dimensions)[1]}m × {(selectedNode.asset?.dimensions || selectedNode.dimensions)[2]}m
                   </span>
+                </div>
+              )}
+
+              {/* Linked Splat Mask Controls */}
+              {linkedMask && scanNode && (
+                <div className="mt-2 pt-2 border-t border-border/60 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-semibold text-accent-light flex items-center gap-1.5">
+                      <BoxSelect size={12} /> Splat Mask
+                    </span>
+                    <span className={`text-[9px] px-1.5 py-0.5 rounded font-mono ${linkedMask.ghost ? 'bg-amber-500/20 text-amber-300' : 'bg-emerald-500/20 text-emerald-300'}`}>
+                      {linkedMask.ghost ? 'Ghost (25%)' : 'Masked (0%)'}
+                    </span>
+                  </div>
+
+                  {/* Toggle Ghost Mode */}
+                  <button
+                    type="button"
+                    aria-label="Toggle Ghost Mode"
+                    onClick={() => toggleMaskGhostMode(scanNode.id, linkedMask.id)}
+                    className={`w-full py-1.5 px-2 rounded text-[11px] font-medium border transition-colors flex items-center justify-center gap-1.5 ${
+                      linkedMask.ghost
+                        ? 'bg-amber-500/15 border-amber-500/40 text-amber-300 hover:bg-amber-500/25'
+                        : 'bg-surface-elevated border-border text-text-secondary hover:text-text-primary hover:border-accent'
+                    }`}
+                  >
+                    <Eye size={12} />
+                    <span>{linkedMask.ghost ? 'Show Original: On (Ghost Mode)' : 'Show Original (Ghost Mode)'}</span>
+                  </button>
+
+                  {/* Mask Resize Controls */}
+                  <div className="space-y-1">
+                    <label className="text-[10px] text-text-muted block">Mask Size (m)</label>
+                    <div className="grid grid-cols-3 gap-1">
+                      <div>
+                        <span className="text-[9px] text-text-muted block">W</span>
+                        <input
+                          type="number"
+                          step="0.05"
+                          aria-label="Mask Width (m)"
+                          value={linkedMask.obb.size[0]}
+                          onChange={(e) => {
+                            const val = parseFloat(e.target.value) || 0.1;
+                            resizeMaskRegion(scanNode.id, linkedMask.id, [val, linkedMask.obb.size[1], linkedMask.obb.size[2]]);
+                          }}
+                          className="w-full bg-surface border border-border rounded px-1 py-0.5 text-[11px] font-mono"
+                        />
+                      </div>
+                      <div>
+                        <span className="text-[9px] text-text-muted block">H</span>
+                        <input
+                          type="number"
+                          step="0.05"
+                          aria-label="Mask Height (m)"
+                          value={linkedMask.obb.size[1]}
+                          onChange={(e) => {
+                            const val = parseFloat(e.target.value) || 0.1;
+                            resizeMaskRegion(scanNode.id, linkedMask.id, [linkedMask.obb.size[0], val, linkedMask.obb.size[2]]);
+                          }}
+                          className="w-full bg-surface border border-border rounded px-1 py-0.5 text-[11px] font-mono"
+                        />
+                      </div>
+                      <div>
+                        <span className="text-[9px] text-text-muted block">D</span>
+                        <input
+                          type="number"
+                          step="0.05"
+                          aria-label="Mask Depth (m)"
+                          value={linkedMask.obb.size[2]}
+                          onChange={(e) => {
+                            const val = parseFloat(e.target.value) || 0.1;
+                            resizeMaskRegion(scanNode.id, linkedMask.id, [linkedMask.obb.size[0], linkedMask.obb.size[1], val]);
+                          }}
+                          className="w-full bg-surface border border-border rounded px-1 py-0.5 text-[11px] font-mono"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Mask Feather Falloff Control */}
+                  <div className="flex items-center justify-between text-[10px] text-text-muted">
+                    <span>Feather Falloff:</span>
+                    <input
+                      type="range"
+                      min="0"
+                      max="0.2"
+                      step="0.01"
+                      aria-label="Mask Feather (m)"
+                      value={linkedMask.feather ?? 0.05}
+                      onChange={(e) => {
+                        updateMaskRegion(scanNode.id, linkedMask.id, { feather: parseFloat(e.target.value) || 0 });
+                      }}
+                      className="w-20 h-1.5 bg-surface rounded accent-accent"
+                    />
+                    <span className="font-mono text-text-primary text-[10px]">{(linkedMask.feather ?? 0.05).toFixed(2)}m</span>
+                  </div>
                 </div>
               )}
             </div>
@@ -437,6 +636,45 @@ export function ScenePanel() {
                 <span className="font-mono text-text-primary">
                   {selectedNode.metadata?.exclusionBoxes?.length || 0}
                 </span>
+              </div>
+
+              {/* Mask Regions List */}
+              <div className="pt-2 border-t border-border/50 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold text-text-secondary">
+                    Mask Regions ({selectedNode.metadata?.maskRegions?.length || 0})
+                  </span>
+                </div>
+                {((selectedNode.metadata?.maskRegions || []) as MaskRegion[]).map((mask) => (
+                  <div key={mask.id} className="p-2 rounded-lg bg-surface border border-border/60 text-[10px] space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono text-text-primary truncate">{mask.id}</span>
+                      <button
+                        type="button"
+                        aria-label={`Toggle Ghost ${mask.id}`}
+                        onClick={() => toggleMaskGhostMode(selectedNode.id, mask.id)}
+                        className={`px-1.5 py-0.5 rounded text-[9px] border transition-colors ${
+                          mask.ghost
+                            ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                            : 'bg-surface-elevated text-text-muted border-border hover:text-text-primary'
+                        }`}
+                      >
+                        {mask.ghost ? 'Ghost (25%)' : 'Masked (0%)'}
+                      </button>
+                    </div>
+                    <div className="text-[9px] text-text-muted font-mono flex items-center justify-between">
+                      <span>Size: {mask.obb.size.map((v) => v.toFixed(2)).join(' × ')}m</span>
+                      <button
+                        type="button"
+                        title="Delete mask"
+                        onClick={() => removeMaskRegion(selectedNode.id, mask.id)}
+                        className="text-text-muted hover:text-red-400 p-0.5 rounded"
+                      >
+                        <Trash2 size={11} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           )}

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Batch Scene Variants"
+  short_description: "Produce comparable alternatives and avoid uncontrolled combinato"
+  default_prompt: "Use $scene-batch-variants for this architectural task and report the concrete result and verification."

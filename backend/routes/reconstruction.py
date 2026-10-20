@@ -3,6 +3,7 @@
 Persists reconstruction jobs and serves 3D Gaussian Splat (.ply, .spz, .ksplat)
 artifacts for real-time browser rendering.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -17,53 +18,92 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
+
+from config import settings
 from db.database import db
 
 router = APIRouter(prefix="/api/reconstruction", tags=["reconstruction"])
 ROOT = Path(__file__).resolve().parents[1]
-DATA_ROOT = Path("D:/spacegen_data/reconstruction")
-try:
-    DATA_ROOT.mkdir(parents=True, exist_ok=True)
-except Exception:
-    DATA_ROOT = ROOT / "data" / "reconstruction"
-    DATA_ROOT.mkdir(parents=True, exist_ok=True)
+DATA_ROOT = settings.reconstruction_root
+DATA_ROOT.mkdir(parents=True, exist_ok=True)
+CATALOG_DIR = (settings.data_dir / "furniture_catalog").resolve()
+SUPPORTED_3D_EXTS = {".sog", ".splat", ".ply", ".spz", ".ksplat", ".glb", ".gltf", ".obj"}
 
+# Dynamically add configured tool paths to PATH without hardcoded OS paths
+if settings.tool_paths:
+    _current_path = os.environ.get("PATH", "")
+    _path_parts = _current_path.split(os.pathsep)
+    for _tp in settings.tool_paths:
+        if _tp.exists() and str(_tp) not in _path_parts:
+            _path_parts.insert(0, str(_tp))
+    os.environ["PATH"] = os.pathsep.join(_path_parts)
 
-# Auto-register known local paths for COLMAP, ffmpeg, and Nerfstudio
-_EXTRA_PATHS = [
-    Path("C:/colmap"),
-    Path("C:/colmap/bin"),
-    Path.home() / "colmap",
-    Path.home() / "colmap" / "bin",
-    Path.home() / "miniconda3" / "envs" / "nerfstudio" / "Library" / "bin",
-    Path.home() / "miniconda3" / "envs" / "nerfstudio" / "Library" / "usr" / "bin",
-    Path.home() / "miniconda3" / "envs" / "nerfstudio" / "Library" / "mingw-w64" / "bin",
-    Path.home() / "miniconda3" / "envs" / "nerfstudio" / "Scripts",
-    Path.home() / "miniconda3" / "envs" / "nerfstudio",
-    Path.home() / "Anaconda3" / "envs" / "nerfstudio" / "Library" / "bin",
-    Path.home() / "Anaconda3" / "envs" / "nerfstudio" / "Scripts",
-]
-
-_current_path = os.environ.get("PATH", "")
-_path_parts = _current_path.split(os.pathsep)
-for _p in _EXTRA_PATHS:
-    if _p.exists() and str(_p) not in _path_parts:
-        _path_parts.insert(0, str(_p))
-os.environ["PATH"] = os.pathsep.join(_path_parts)
 os.environ["PYTHONIOENCODING"] = "utf-8"
 os.environ["PYTHONUTF8"] = "1"
 
 
+def _validate_path_component(component: str, field_name: str = "identifier") -> str:
+    """Ensure an identifier or path component does not contain directory traversal sequences."""
+    if not component:
+        raise HTTPException(status_code=400, detail=f"Empty {field_name}")
+    if "\x00" in component or "/" in component or "\\" in component or ".." in component:
+        raise HTTPException(status_code=400, detail=f"Access denied: Invalid {field_name} (path traversal rejected)")
+    return component
+
+
+def _safe_resolve_child(base_dir: Path, requested_path: str) -> Path:
+    """
+    Resolve requested_path relative to base_dir, strictly ensuring that the
+    resolved path remains within base_dir and does not escape.
+    Rejects directory traversal attempts with HTTP 400.
+    """
+    if not requested_path or "\x00" in requested_path:
+        raise HTTPException(status_code=400, detail="Invalid path")
+
+    # Reject traversal sequences early
+    normalized = requested_path.replace("\\", "/")
+    segments = [s for s in normalized.split("/") if s]
+    if any(s == ".." for s in segments):
+        raise HTTPException(status_code=400, detail="Access denied: Directory traversal rejected")
+
+    base = base_dir.resolve()
+    target = (base / requested_path).resolve()
+    try:
+        target.relative_to(base)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Access denied: Path traversal detected")
+
+    return target
+
+
 def _find_tool(name: str) -> str | None:
-    """Find a binary in PATH or known local install directories."""
+    """Find a binary in configured paths, system PATH, or configured binary directories."""
+    # 1. Configured explicit path
+    if name == "colmap" and settings.colmap_path and Path(settings.colmap_path).exists():
+        return str(Path(settings.colmap_path).resolve())
+    if name == "ffmpeg" and settings.ffmpeg_path and Path(settings.ffmpeg_path).exists():
+        return str(Path(settings.ffmpeg_path).resolve())
+    if "ns-" in name and settings.nerfstudio_path and Path(settings.nerfstudio_path).exists():
+        candidate = Path(settings.nerfstudio_path)
+        if candidate.is_file() and candidate.name.startswith(name):
+            return str(candidate.resolve())
+        if candidate.is_dir():
+            for ext in [".exe", ".bat", ".cmd", ""]:
+                target = candidate / f"{name}{ext}"
+                if target.exists():
+                    return str(target.resolve())
+
+    # 2. Check system PATH
     found = shutil.which(name)
     if found:
         return found
-    for _p in _EXTRA_PATHS:
+
+    # 3. Check extra tool directories from settings
+    for directory in settings.tool_paths:
         for ext in [".exe", ".bat", ".cmd", ""]:
-            candidate = _p / f"{name}{ext}"
+            candidate = directory / f"{name}{ext}"
             if candidate.exists():
-                return str(candidate)
+                return str(candidate.resolve())
     return None
 
 
@@ -99,7 +139,13 @@ def _run(command: list[str], cwd: Path, job_id: str, step: str) -> None:
 
 def _worker(job_id: str, video_path: Path, job_dir: Path, mode: str = "fast") -> None:
     try:
-        _update(job_id, status="running", progress=12, step="Extracting keyframes", log="Extracting keyframes for reconstruction…")
+        _update(
+            job_id,
+            status="running",
+            progress=12,
+            step="Extracting keyframes",
+            log="Extracting keyframes for reconstruction…",
+        )
         frames = job_dir / "frames"
         script = ROOT / "scripts" / "process_video.py"
         fps_val = "2" if mode == "fast" else "3"
@@ -108,43 +154,92 @@ def _worker(job_id: str, video_path: Path, job_dir: Path, mode: str = "fast") ->
         max_iters = "6000" if mode == "fast" else "15000"
 
         if script.exists():
-            _run([sys.executable, str(script), str(video_path), str(frames), "--fps", fps_val, "--min-frames", min_frames, "--quality-threshold", thresh], ROOT, job_id, "Extracting keyframes")
+            _run(
+                [
+                    sys.executable,
+                    str(script),
+                    str(video_path),
+                    str(frames),
+                    "--fps",
+                    fps_val,
+                    "--min-frames",
+                    min_frames,
+                    "--quality-threshold",
+                    thresh,
+                ],
+                ROOT,
+                job_id,
+                "Extracting keyframes",
+            )
 
         ns_process = _find_tool("ns-process-data")
         ns_train = _find_tool("ns-train")
         ns_export = _find_tool("ns-export")
         if not (ns_process and ns_train):
-            _update(job_id, status="ready_for_training", progress=38,
-                    step="Frames ready — install Nerfstudio or use Cloud GPU",
-                    log="Keyframes extracted. Ready for Gaussian Splatting training.",
-                    frames_dir=str(frames))
+            _update(
+                job_id,
+                status="ready_for_training",
+                progress=38,
+                step="Frames ready — install Nerfstudio or use Cloud GPU",
+                log="Keyframes extracted. Ready for Gaussian Splatting training.",
+                frames_dir=str(frames),
+            )
             return
 
         processed = job_dir / "processed"
-        _update(job_id, progress=45, step="Estimating camera poses", log="Running fast sequential feature extraction & bundle adjustment…")
-        _run([
-            ns_process, "images",
-            "--data", str(frames),
-            "--output-dir", str(processed),
-            "--camera-type", "perspective",
-            "--matching-method", "sequential",
-            "--num-downscales", "2",
-        ], ROOT, job_id, "Estimating camera poses")
-        
+        _update(
+            job_id,
+            progress=45,
+            step="Estimating camera poses",
+            log="Running fast sequential feature extraction & bundle adjustment…",
+        )
+        _run(
+            [
+                ns_process,
+                "images",
+                "--data",
+                str(frames),
+                "--output-dir",
+                str(processed),
+                "--camera-type",
+                "perspective",
+                "--matching-method",
+                "sequential",
+                "--num-downscales",
+                "2",
+            ],
+            ROOT,
+            job_id,
+            "Estimating camera poses",
+        )
+
         output = job_dir / "output"
-        _update(job_id, progress=58, step="Training Gaussian Splatting", log=f"Training splatfacto on GPU ({max_iters} steps)…")
-        
-        # Optimized gsplat flags for RTX 3050 6GB: fast, smooth, high-fidelity, no OOM
+        _update(
+            job_id,
+            progress=58,
+            step="Training Gaussian Splatting",
+            log=f"Training splatfacto on GPU ({max_iters} steps)…",
+        )
+
         train_cmd = [
-            ns_train, "splatfacto",
-            "--data", str(processed),
-            "--output-dir", str(output),
-            "--max-num-iterations", max_iters,
-            "--pipeline.model.num-downscales", "1" if mode == "quality" else "2",
-            "--pipeline.model.sh-degree", "2" if mode == "quality" else "1",
-            "--pipeline.model.cull-alpha-thresh", "0.005",
-            "--pipeline.model.camera-optimizer.mode", "off",
-            "--viewer.quit-on-train-completion", "True",
+            ns_train,
+            "splatfacto",
+            "--data",
+            str(processed),
+            "--output-dir",
+            str(output),
+            "--max-num-iterations",
+            max_iters,
+            "--pipeline.model.num-downscales",
+            "1" if mode == "quality" else "2",
+            "--pipeline.model.sh-degree",
+            "2" if mode == "quality" else "1",
+            "--pipeline.model.cull-alpha-thresh",
+            "0.005",
+            "--pipeline.model.camera-optimizer.mode",
+            "off",
+            "--viewer.quit-on-train-completion",
+            "True",
         ]
         _run(train_cmd, ROOT, job_id, "Training Gaussian Splatting")
 
@@ -153,20 +248,49 @@ def _worker(job_id: str, video_path: Path, job_dir: Path, mode: str = "fast") ->
             configs = sorted(output.glob("**/config.yml"), key=lambda p: p.stat().st_mtime, reverse=True)
             if configs:
                 _update(job_id, progress=88, step="Exporting scene", log="Packaging the trained splat for the viewer…")
-                _run([ns_export, "gaussian-splat", "--load-config", str(configs[0]), "--output-dir", str(export_dir)], ROOT, job_id, "Exporting scene")
-                
-                # gsplat compression: Generate ultra-fast streamable .splat file (up to 8x smaller)
+                _run(
+                    [ns_export, "gaussian-splat", "--load-config", str(configs[0]), "--output-dir", str(export_dir)],
+                    ROOT,
+                    job_id,
+                    "Exporting scene",
+                )
+
                 exported_ply = export_dir / "splat.ply"
                 if exported_ply.exists():
-                    _update(job_id, progress=95, step="Compressing splat", log="Optimizing splat stream for 60-144 FPS web viewing…")
+                    _update(
+                        job_id,
+                        progress=95,
+                        step="Compressing splat",
+                        log="Optimizing splat stream for 60-144 FPS web viewing…",
+                    )
                     try:
                         export_script = ROOT / "scripts" / "export_gsplat.py"
                         if export_script.exists():
-                            subprocess.run([sys.executable, str(export_script), "--input", str(exported_ply), "--output-dir", str(export_dir), "--format", "all"], check=True, timeout=60)
+                            subprocess.run(
+                                [
+                                    sys.executable,
+                                    str(export_script),
+                                    "--input",
+                                    str(exported_ply),
+                                    "--output-dir",
+                                    str(export_dir),
+                                    "--format",
+                                    "all",
+                                ],
+                                check=True,
+                                timeout=60,
+                            )
                     except Exception as e:
                         print(f"gsplat compression warning: {e}")
 
-        _update(job_id, status="completed", progress=100, step="Scene ready", log="Gaussian Splatting scene completed.", scene_path=str(export_dir))
+        _update(
+            job_id,
+            status="completed",
+            progress=100,
+            step="Scene ready",
+            log="Gaussian Splatting scene completed.",
+            scene_path=str(export_dir),
+        )
     except Exception as exc:
         _update(job_id, status="failed", step="Reconstruction failed", log=str(exc))
 
@@ -183,12 +307,12 @@ async def create_reconstruction_job(video: UploadFile = File(...), mode: str = "
     video_path = job_dir / f"capture{suffix}"
     with video_path.open("wb") as target:
         shutil.copyfileobj(video.file, target)
-    
+
     job_data = {
-        "job_id": job_id, 
-        "status": "queued", 
+        "job_id": job_id,
+        "status": "queued",
         "progress": 4,
-        "step": "Queued", 
+        "step": "Queued",
         "log": f"Video uploaded ({mode} mode) — waiting for worker…",
         "video_path": str(video_path),
         "mode": mode,
@@ -205,26 +329,37 @@ async def upload_existing_model(model: UploadFile = File(...)):
     suffix = Path(model.filename or "model.ply").suffix.lower()
     if suffix not in allowed:
         raise HTTPException(400, f"Unsupported 3D model format. Allowed: {', '.join(allowed)}")
-    
+
     job_id = f"import_{uuid.uuid4().hex[:8]}"
     job_dir = DATA_ROOT / job_id
     export_dir = job_dir / "export"
     export_dir.mkdir(parents=True, exist_ok=True)
-    
+
     target_filename = "splat.ply" if suffix == ".ply" else f"scene{suffix}"
     target_path = export_dir / target_filename
     with target_path.open("wb") as out:
         shutil.copyfileobj(model.file, out)
-        
+
     size_mb = round(target_path.stat().st_size / (1024 * 1024), 1)
 
-    # Auto-compress with gsplat if uploaded file is a Gaussian Splat PLY
     splat_url = f"/api/reconstruction/jobs/{job_id}/model/{target_filename}"
     if suffix == ".ply":
         try:
             export_script = ROOT / "scripts" / "export_gsplat.py"
             if export_script.exists():
-                subprocess.run([sys.executable, str(export_script), "--input", str(target_path), "--output-dir", str(export_dir), "--format", "all"], timeout=30)
+                subprocess.run(
+                    [
+                        sys.executable,
+                        str(export_script),
+                        "--input",
+                        str(target_path),
+                        "--output-dir",
+                        str(export_dir),
+                        "--format",
+                        "all",
+                    ],
+                    timeout=30,
+                )
                 if (export_dir / "scene.splat").exists():
                     splat_url = f"/api/reconstruction/jobs/{job_id}/model/scene.splat"
         except Exception as e:
@@ -237,7 +372,7 @@ async def upload_existing_model(model: UploadFile = File(...)):
         "step": "Model ready",
         "log": f"Imported {model.filename} ({size_mb} MB) successfully.",
         "scene_path": str(export_dir),
-        "splat_url": splat_url
+        "splat_url": splat_url,
     }
     db.save_job(job_id, job_data)
     return job_data
@@ -247,7 +382,6 @@ async def upload_existing_model(model: UploadFile = File(...)):
 async def list_available_models():
     """List all available 3D Gaussian Splat and mesh models stored on disk."""
     models = []
-    supported_exts = {".sog", ".splat", ".ply", ".spz", ".ksplat", ".glb", ".gltf", ".obj"}
     if DATA_ROOT.exists():
         job_dirs = sorted([d for d in DATA_ROOT.iterdir() if d.is_dir()], key=lambda d: d.stat().st_mtime, reverse=True)
         for d in job_dirs:
@@ -256,30 +390,40 @@ async def list_available_models():
                 export_dir = d
 
             found_file = None
-            # Check preferred candidate names first (prefer lightweight streamable scene.splat or scene.sog)
-            for candidate_name in ["scene.sog", "scene.splat", "splat.ply", "scene.spz", "scene.ksplat", "scene.glb", "scene.gltf", "scene.obj", "point_cloud.ply"]:
+            for candidate_name in [
+                "scene.sog",
+                "scene.splat",
+                "splat.ply",
+                "scene.spz",
+                "scene.ksplat",
+                "scene.glb",
+                "scene.gltf",
+                "scene.obj",
+                "point_cloud.ply",
+            ]:
                 target_file = export_dir / candidate_name
                 if target_file.exists():
                     found_file = target_file
                     break
-            
-            # If not found by candidate name, search for any supported 3D file
+
             if not found_file and export_dir.exists():
                 for f in export_dir.iterdir():
-                    if f.is_file() and f.suffix.lower() in supported_exts:
+                    if f.is_file() and f.suffix.lower() in SUPPORTED_3D_EXTS:
                         found_file = f
                         break
 
             if found_file:
                 size_mb = round(found_file.stat().st_size / (1024 * 1024), 1)
-                models.append({
-                    "job_id": d.name,
-                    "filename": found_file.name,
-                    "size_mb": size_mb,
-                    "format": found_file.suffix.replace(".", ""),
-                    "url": f"/api/reconstruction/jobs/{d.name}/model/{found_file.name}",
-                    "modified": found_file.stat().st_mtime,
-                })
+                models.append(
+                    {
+                        "job_id": d.name,
+                        "filename": found_file.name,
+                        "size_mb": size_mb,
+                        "format": found_file.suffix.replace(".", ""),
+                        "url": f"/api/reconstruction/jobs/{d.name}/model/{found_file.name}",
+                        "modified": found_file.stat().st_mtime,
+                    }
+                )
     return models
 
 
@@ -289,15 +433,20 @@ async def get_latest_reconstruction_job():
     job = db.get_latest_job()
     if job and job.get("status") == "completed":
         return job
-    
-    # Check DATA_ROOT for existing completed jobs
-    supported_exts = {".sog", ".splat", ".ply", ".spz", ".ksplat", ".glb", ".gltf", ".obj"}
+
     if DATA_ROOT.exists():
         job_dirs = sorted([d for d in DATA_ROOT.iterdir() if d.is_dir()], key=lambda d: d.stat().st_mtime, reverse=True)
         for d in job_dirs:
             for sdir in [d / "export", d]:
                 if sdir.exists():
-                    for candidate in ["scene.sog", "scene.splat", "splat.ply", "scene_mesh.glb", "scene.spz", "scene.obj"]:
+                    for candidate in [
+                        "scene.sog",
+                        "scene.splat",
+                        "splat.ply",
+                        "scene_mesh.glb",
+                        "scene.spz",
+                        "scene.obj",
+                    ]:
                         cf = sdir / candidate
                         if cf.exists() and cf.is_file():
                             return {
@@ -316,45 +465,58 @@ async def get_latest_reconstruction_job():
 
 @router.api_route("/jobs/{job_id}/model", methods=["GET", "HEAD"])
 async def get_reconstruction_model_default(job_id: str):
+    _validate_path_component(job_id, "job_id")
     return _resolve_and_serve_model(job_id, None)
 
 
 @router.api_route("/jobs/{job_id}/model/{filename:path}", methods=["GET", "HEAD"])
 async def get_reconstruction_model(job_id: str, filename: str):
+    _validate_path_component(job_id, "job_id")
     return _resolve_and_serve_model(job_id, filename)
 
 
 def _resolve_and_serve_model(job_id: str, filename: Optional[str] = None):
     """Serve the exported 3D Gaussian Splat (.sog, .ply, .spz, .splat) or mesh (.glb, .obj) for a reconstruction job."""
-    job_dir = DATA_ROOT / job_id
+    _validate_path_component(job_id, "job_id")
+    job_dir = (DATA_ROOT / job_id).resolve()
     if not job_dir.exists():
-        fallback_dir = ROOT / "data" / "reconstruction" / job_id
+        fallback_dir = (ROOT / "data" / "reconstruction" / job_id).resolve()
         if fallback_dir.exists():
             job_dir = fallback_dir
 
     export_dir = job_dir / "export"
     search_dirs = [export_dir, job_dir]
 
-    # 1. If explicit filename requested, try finding it directly
+    # 1. If explicit filename requested, safely resolve and ensure it remains inside search dir
     if filename:
         for sdir in search_dirs:
-            target = sdir / filename
+            target = _safe_resolve_child(sdir, filename)
             if target.exists() and target.is_file():
                 return _create_model_response(target)
+        raise HTTPException(404, f"3D model file {filename} not found for job {job_id}")
 
     # 2. Check standard candidate names (prefer fast streamable scene.splat or scene.sog)
     for sdir in search_dirs:
-        for candidate_name in ["scene.sog", "scene.splat", "splat.ply", "scene.spz", "scene.ksplat", "scene.glb", "scene.gltf", "scene.obj", "point_cloud.ply"]:
+        for candidate_name in [
+            "scene.sog",
+            "scene.splat",
+            "splat.ply",
+            "scene.spz",
+            "scene.ksplat",
+            "scene.glb",
+            "scene.gltf",
+            "scene.obj",
+            "point_cloud.ply",
+        ]:
             candidate = sdir / candidate_name
-            if candidate.exists():
+            if candidate.exists() and candidate.is_file():
                 return _create_model_response(candidate)
 
     # 3. Check for any supported 3D file in export or job directory
-    supported_exts = {".sog", ".ply", ".spz", ".ksplat", ".splat", ".glb", ".gltf", ".obj"}
     for sdir in search_dirs:
         if sdir.exists():
             for f in sdir.iterdir():
-                if f.is_file() and f.suffix.lower() in supported_exts:
+                if f.is_file() and f.suffix.lower() in SUPPORTED_3D_EXTS:
                     return _create_model_response(f)
 
     raise HTTPException(404, f"3D model file not found for job {job_id}")
@@ -387,6 +549,7 @@ def _create_model_response(file_path: Path) -> FileResponse:
 
 @router.get("/jobs/{job_id}")
 async def get_reconstruction_job(job_id: str):
+    _validate_path_component(job_id, "job_id")
     job = db.get_job(job_id)
     if job:
         return job
@@ -404,9 +567,6 @@ async def get_reconstruction_job(job_id: str):
             "splat_url": f"/api/reconstruction/jobs/{job_id}/model",
         }
     raise HTTPException(404, "Reconstruction job not found")
-
-
-CATALOG_DIR = ROOT / "data" / "furniture_catalog"
 
 
 @router.post("/convert-upload-to-mesh")
@@ -433,6 +593,7 @@ async def convert_uploaded_file_to_mesh(file: UploadFile = File(...)):
         shutil.copyfileobj(file.file, out)
 
     from services.mesh_extractor import convert_splat_to_mesh
+
     try:
         manifest = await asyncio.to_thread(convert_splat_to_mesh, target_path, mesh_dir)
         job_data = {
@@ -463,10 +624,12 @@ async def convert_uploaded_file_to_mesh(file: UploadFile = File(...)):
 @router.post("/jobs/{job_id}/convert-to-mesh")
 async def convert_job_to_mesh(job_id: str):
     """Convert an existing Gaussian Splat job (.sog, .ply) into an editable solid polygon mesh (.glb)."""
+    _validate_path_component(job_id, "job_id")
     from services.mesh_extractor import convert_splat_to_mesh
-    job_dir = DATA_ROOT / job_id
+
+    job_dir = (DATA_ROOT / job_id).resolve()
     if not job_dir.exists():
-        fallback = ROOT / "data" / "reconstruction" / job_id
+        fallback = (ROOT / "data" / "reconstruction" / job_id).resolve()
         if fallback.exists():
             job_dir = fallback
         else:
@@ -511,7 +674,8 @@ async def convert_job_to_mesh(job_id: str):
 @router.api_route("/jobs/{job_id}/mesh", methods=["GET", "HEAD"])
 async def get_job_mesh_manifest(job_id: str):
     """Get the mesh manifest or default scene_mesh.glb for a job."""
-    job_dir = DATA_ROOT / job_id
+    _validate_path_component(job_id, "job_id")
+    job_dir = (DATA_ROOT / job_id).resolve()
     mesh_dir = job_dir / "mesh"
     manifest_file = mesh_dir / "mesh_manifest.json"
     if manifest_file.exists():
@@ -526,9 +690,10 @@ async def get_job_mesh_manifest(job_id: str):
 @router.api_route("/jobs/{job_id}/mesh/{filename:path}", methods=["GET", "HEAD"])
 async def get_job_mesh_file(job_id: str, filename: str):
     """Serve a specific sub-mesh or scene_mesh.glb for a job."""
-    job_dir = DATA_ROOT / job_id
+    _validate_path_component(job_id, "job_id")
+    job_dir = (DATA_ROOT / job_id).resolve()
     mesh_dir = job_dir / "mesh"
-    target = mesh_dir / filename
+    target = _safe_resolve_child(mesh_dir, filename)
     if target.exists() and target.is_file():
         return _create_model_response(target)
     raise HTTPException(404, f"Mesh file {filename} not found.")
@@ -547,7 +712,7 @@ async def get_furniture_catalog():
 @router.api_route("/furniture-catalog/{filename:path}", methods=["GET", "HEAD"])
 async def get_furniture_catalog_model(filename: str):
     """Serve a GLB 3D model from the furniture catalog."""
-    target = CATALOG_DIR / filename
+    target = _safe_resolve_child(CATALOG_DIR, filename)
     if target.exists() and target.is_file():
         return _create_model_response(target)
     raise HTTPException(404, f"Furniture model {filename} not found.")
@@ -559,8 +724,10 @@ async def export_modified_scene(job_id: str, payload: dict):
     Accepts client overrides (moved objects, rotations, scales, replacements)
     and combines them into a final consolidated downloadable GLB.
     """
+    _validate_path_component(job_id, "job_id")
     import trimesh
-    job_dir = DATA_ROOT / job_id
+
+    job_dir = (DATA_ROOT / job_id).resolve()
     mesh_dir = job_dir / "mesh"
     master_mesh_path = mesh_dir / "scene_mesh.glb"
     if not master_mesh_path.exists():
@@ -569,11 +736,11 @@ async def export_modified_scene(job_id: str, payload: dict):
     scene = trimesh.load(str(master_mesh_path), force="scene")
     overrides = payload.get("overrides", {})
 
-    for entity_id, trans in overrides.items():
+    for _entity_id, trans in overrides.items():
         replacement_url = trans.get("replacement_url")
         if replacement_url:
             fname = Path(replacement_url).name
-            rep_path = CATALOG_DIR / fname
+            rep_path = _safe_resolve_child(CATALOG_DIR, fname)
             if rep_path.exists():
                 rep_scene = trimesh.load(str(rep_path), force="scene")
                 pos = trans.get("position", [0, 0, 0])
@@ -585,5 +752,5 @@ async def export_modified_scene(job_id: str, payload: dict):
     return {
         "status": "success",
         "url": f"/api/reconstruction/jobs/{job_id}/mesh/modified_scene.glb",
-        "size_mb": round(out_file.stat().st_size / (1024 * 1024), 2)
+        "size_mb": round(out_file.stat().st_size / (1024 * 1024), 2),
     }

@@ -3,13 +3,42 @@
 import { useAppStore } from '@/lib/store'
 import { Undo, Redo, Share2, Download, Play, Video, Zap, ChevronDown, Box } from 'lucide-react'
 import Link from 'next/link'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { VideoCaptureModal } from '@/components/capture/VideoCaptureModal'
 import { motion } from 'framer-motion'
+import { useScene } from '@pascal-app/core'
+import { undoSceneAction, redoSceneAction } from '@/lib/pascal/sceneBridge'
 
 export function EditorLayout({ children }: { children: React.ReactNode }) {
   const { scene } = useAppStore()
+  useScene((state) => state.nodes);
+  const temporal = (useScene as any).temporal?.getState?.();
+  const canUndo = (temporal?.pastStates?.length || 0) > 0;
+  const canRedo = (temporal?.futureStates?.length || 0) > 0;
   const [captureOpen, setCaptureOpen] = useState(false)
+
+  // Global keyboard shortcuts for Undo (Ctrl+Z) and Redo (Ctrl+Y / Ctrl+Shift+Z)
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      const target = e.target as HTMLElement | null
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+        return
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault()
+        if (e.shiftKey) {
+          redoSceneAction()
+        } else {
+          undoSceneAction()
+        }
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+        e.preventDefault()
+        redoSceneAction()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [])
   
   return (
     <div className="flex flex-col h-full w-full bg-background overflow-hidden">
@@ -49,10 +78,10 @@ export function EditorLayout({ children }: { children: React.ReactNode }) {
         <div className="flex items-center gap-2">
           {/* Undo/Redo */}
           <div className="flex items-center gap-0.5 border-r border-border pr-2 mr-1">
-            <button className="p-2 hover:bg-surface-elevated rounded-lg text-text-muted hover:text-text-primary transition-colors" title="Undo (Ctrl+Z)">
+            <button onClick={undoSceneAction} disabled={!canUndo} className="p-2 hover:bg-surface-elevated rounded-lg text-text-muted hover:text-text-primary transition-colors disabled:opacity-30 disabled:pointer-events-none" title="Undo (Ctrl+Z)">
               <Undo size={16} />
             </button>
-            <button className="p-2 hover:bg-surface-elevated rounded-lg text-text-muted hover:text-text-primary transition-colors" title="Redo (Ctrl+Y)">
+            <button onClick={redoSceneAction} disabled={!canRedo} className="p-2 hover:bg-surface-elevated rounded-lg text-text-muted hover:text-text-primary transition-colors disabled:opacity-30 disabled:pointer-events-none" title="Redo (Ctrl+Y)">
               <Redo size={16} />
             </button>
           </div>

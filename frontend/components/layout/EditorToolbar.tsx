@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useViewer, type WallMode } from '@pascal-app/viewer';
 import { useScene } from '@pascal-app/core';
 import { useSpaceGenStore } from '@/lib/store';
@@ -20,6 +20,7 @@ import {
   Undo2,
   Redo2,
   Sparkles,
+  Crosshair,
 } from 'lucide-react';
 
 export type ActiveTool =
@@ -35,9 +36,11 @@ interface EditorToolbarProps {
   activeTool: ActiveTool;
   onSelectTool: (tool: ActiveTool) => void;
   onOpenConvertModal?: () => void;
+  isAligningScan?: boolean;
+  onToggleScanAlignment?: () => void;
 }
 
-export function EditorToolbar({ activeTool, onSelectTool, onOpenConvertModal }: EditorToolbarProps) {
+export function EditorToolbar({ activeTool, onSelectTool, onOpenConvertModal, isAligningScan, onToggleScanAlignment }: EditorToolbarProps) {
   const levelMode = useViewer((state) => state.levelMode);
   const setLevelMode = useViewer((state) => state.setLevelMode);
   const wallMode = useViewer((state) => state.wallMode);
@@ -47,6 +50,25 @@ export function EditorToolbar({ activeTool, onSelectTool, onOpenConvertModal }: 
 
   const canUndo = (useScene as any).temporal?.getState?.()?.pastStates?.length > 0;
   const canRedo = (useScene as any).temporal?.getState?.()?.futureStates?.length > 0;
+
+  useEffect(() => {
+    const handleHistoryShortcut = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target?.tagName || '')) return;
+      const key = event.key.toLowerCase();
+      if (key === 'z') {
+        event.preventDefault();
+        if (event.shiftKey) redoSceneAction();
+        else undoSceneAction();
+      } else if (key === 'y') {
+        event.preventDefault();
+        redoSceneAction();
+      }
+    };
+    window.addEventListener('keydown', handleHistoryShortcut);
+    return () => window.removeEventListener('keydown', handleHistoryShortcut);
+  }, []);
 
   const cycleLevelMode = () => {
     if (levelMode === 'stacked') setLevelMode('exploded');
@@ -171,6 +193,21 @@ export function EditorToolbar({ activeTool, onSelectTool, onOpenConvertModal }: 
           >
             <Sparkles size={13} className="text-accent-light" />
             <span>Convert Scan</span>
+          </button>
+        )}
+
+        {onToggleScanAlignment && (
+          <button
+            title="Align scan to the floor, real-world scale, and room axes"
+            onClick={onToggleScanAlignment}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all border ${
+              isAligningScan
+                ? 'bg-accent text-white border-accent'
+                : 'bg-surface-elevated/60 hover:bg-surface-elevated text-text-secondary border-border'
+            }`}
+          >
+            <Crosshair size={14} />
+            <span>Align Scan</span>
           </button>
         )}
 

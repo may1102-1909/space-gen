@@ -7,7 +7,7 @@ Room context:
 
 PRESERVE EXACTLY (do not modify):
 - Room architecture: walls, floor, ceiling
-- Camera perspective and position  
+- Camera perspective and position
 - Window and door locations
 - Room proportions and scale
 - Lighting direction
