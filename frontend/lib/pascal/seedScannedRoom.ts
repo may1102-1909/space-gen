@@ -321,5 +321,12 @@ export function seedScannedRoom(options?: SeedRoomOptions): boolean {
     'level_main'
   );
 
+  // Clear any temporal history created during the seed initialization
+  // so that the initial room state is the clean baseline for user undo/redo.
+  const temporal = (useScene as any).temporal;
+  if (temporal && typeof temporal.getState === 'function') {
+    temporal.getState().clear();
+  }
+
   return true;
 }

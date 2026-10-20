@@ -195,6 +195,9 @@ export const api = {
     if (url.startsWith('blob:') || url.startsWith('http://') || url.startsWith('https://')) {
       return url
     }
+    if (typeof window !== 'undefined' && (url.startsWith('/samples/') || url.startsWith('/catalog/'))) {
+      return `${window.location.origin}${url}`
+    }
     return `${API_BASE}${url.startsWith('/') ? '' : '/'}${url}`
   },
 

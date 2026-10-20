@@ -1,97 +1,67 @@
 'use client'
 
-import React, { useEffect, useRef } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { TransformControls } from '@react-three/drei'
 import * as THREE from 'three'
-import { useAppStore } from '@/lib/store'
+import { sceneRegistry, useScene } from '@pascal-app/core'
+import { useSpaceGenStore } from '@/lib/store'
 
-interface TransformGizmoProps {
-  targetRef: React.RefObject<THREE.Object3D>
-  onDragChange?: (isDragging: boolean) => void
-}
-
-export function TransformGizmo({ targetRef, onDragChange }: TransformGizmoProps) {
+export function TransformGizmo() {
   const transformRef = useRef<any>(null)
-  const {
-    selectedObjectId,
-    gizmoMode,
-    setGizmoMode,
-    setSelectedObjectId,
-    updateObjectTransform,
-    deleteObject,
-  } = useAppStore()
+  const [target, setTarget] = useState<THREE.Object3D | null>(null)
+  const selectedObjectId = useSpaceGenStore((state) => state.selectedObjectId)
+  const gizmoMode = useSpaceGenStore((state) => state.gizmoMode)
+  const setGizmoMode = useSpaceGenStore((state) => state.setGizmoMode)
+  const setSelectedObjectId = useSpaceGenStore((state) => state.setSelectedObjectId)
 
-  // Keyboard hotkeys: W (translate), E (rotate), R (scale), Esc (deselect), Delete (remove)
+  useEffect(() => {
+    setTarget(null)
+    if (!selectedObjectId || (useScene.getState().nodes as Record<string, any>)[selectedObjectId]?.type !== 'item') return
+    let attempts = 0
+    const findRegisteredItem = () => {
+      const object = sceneRegistry.nodes.get(selectedObjectId)
+      if (object) setTarget(object)
+      else if (attempts++ < 30) requestAnimationFrame(findRegisteredItem)
+    }
+    findRegisteredItem()
+  }, [selectedObjectId])
+
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (!selectedObjectId) return
-      // Ignore when user is typing in chat/input
       const target = e.target as HTMLElement
-      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return
-
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return
       const key = e.key.toLowerCase()
-      if (key === 'w') {
+      if (key === 'w') { e.preventDefault(); setGizmoMode('translate') }
+      else if (key === 'e') { e.preventDefault(); setGizmoMode('rotate') }
+      else if (key === 'r') { e.preventDefault(); setGizmoMode('scale') }
+      else if (key === 'escape') { e.preventDefault(); setSelectedObjectId(null) }
+      else if (key === 'delete' || key === 'backspace') {
         e.preventDefault()
-        setGizmoMode('translate')
-      } else if (key === 'e') {
-        e.preventDefault()
-        setGizmoMode('rotate')
-      } else if (key === 'r') {
-        e.preventDefault()
-        setGizmoMode('scale')
-      } else if (key === 'escape') {
-        e.preventDefault()
+        useScene.getState().deleteNode(selectedObjectId as any)
         setSelectedObjectId(null)
-      } else if (key === 'delete' || key === 'backspace') {
-        e.preventDefault()
-        deleteObject(selectedObjectId)
       }
     }
-
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [selectedObjectId, setGizmoMode, setSelectedObjectId, deleteObject])
+  }, [selectedObjectId, setGizmoMode, setSelectedObjectId])
 
-  // Attach controls to target ref
   useEffect(() => {
-    if (!transformRef.current || !targetRef.current) return
+    if (!transformRef.current || !target) return
     const controls = transformRef.current
-
     function handleDraggingChange(event: any) {
-      onDragChange?.(event.value)
+      if (event.value || !target || !selectedObjectId) return
+      const object = target
+      useScene.getState().updateNode(selectedObjectId as any, {
+        position: [object.position.x, Math.max(0, object.position.y), object.position.z],
+        rotation: [object.rotation.x, object.rotation.y, object.rotation.z],
+        scale: [object.scale.x, object.scale.y, object.scale.z],
+      } as any)
     }
-
-    function handleChange() {
-      if (!targetRef.current || !selectedObjectId) return
-      const pos = targetRef.current.position
-      const rot = targetRef.current.rotation
-      const sc = targetRef.current.scale
-
-      updateObjectTransform(selectedObjectId, {
-        position: [pos.x, pos.y, pos.z],
-        rotation: [rot.x, rot.y, rot.z],
-        scale: [sc.x, sc.y, sc.z],
-      })
-    }
-
     controls.addEventListener('dragging-changed', handleDraggingChange)
-    controls.addEventListener('change', handleChange)
+    return () => controls.removeEventListener('dragging-changed', handleDraggingChange)
+  }, [target, selectedObjectId])
 
-    return () => {
-      controls.removeEventListener('dragging-changed', handleDraggingChange)
-      controls.removeEventListener('change', handleChange)
-    }
-  }, [targetRef, selectedObjectId, updateObjectTransform, onDragChange])
-
-  if (!selectedObjectId || !targetRef.current) return null
-
-  return (
-    <TransformControls
-      ref={transformRef}
-      object={targetRef.current}
-      mode={gizmoMode}
-      size={0.85}
-      space="local"
-    />
-  )
+  if (!selectedObjectId || !target) return null
+  return <TransformControls ref={transformRef} object={target} mode={gizmoMode} size={0.85} space="local" />
 }

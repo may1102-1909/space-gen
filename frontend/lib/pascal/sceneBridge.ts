@@ -1,4 +1,5 @@
 import { useScene, AnyNode, AnyNodeId } from '@pascal-app/core';
+import { replaceItemAsset } from './itemEditing';
 
 export interface SplatExclusionBox {
   id: string;
@@ -218,25 +219,18 @@ export function applySceneActions(actions: SceneAction[]): void {
 
       case 'replace_asset': {
         const existingNode = (scene.nodes as Record<string, any>)[act.nodeId];
-        const prevAsset = existingNode?.asset || {};
-        const dims = act.dimensions || prevAsset.dimensions || existingNode?.dimensions || [1, 1, 1];
-        const patch: Record<string, any> = {
-          modelUrl: act.newModelUrl,
+        if (!existingNode || existingNode.type !== 'item') break;
+        const dims = act.dimensions || existingNode.asset?.dimensions || [1, 1, 1];
+        const replaced = replaceItemAsset(existingNode, {
+          id: existingNode.asset?.id,
+          name: act.newName || existingNode.asset?.name || existingNode.name || 'Item',
+          category: existingNode.asset?.category || existingNode.category || 'item',
+          src: act.newModelUrl,
           dimensions: dims,
-          asset: {
-            ...prevAsset,
-            id: prevAsset.id || `asset_${act.nodeId}`,
-            src: act.newModelUrl,
-            name: act.newName || prevAsset.name || existingNode?.name || 'Item',
-            category: prevAsset.category || existingNode?.category || 'item',
-            dimensions: dims,
-          },
-        };
-        if (act.newName) patch.name = act.newName;
-        if (act.materialStyle) patch.materialStyle = act.materialStyle;
+        });
         updates.push({
           id: act.nodeId as AnyNodeId,
-          data: patch as any,
+          data: replaced as any,
         });
         break;
       }

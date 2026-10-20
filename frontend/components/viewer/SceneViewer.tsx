@@ -25,6 +25,7 @@ import { EditorToolbar, ActiveTool } from '@/components/layout/EditorToolbar';
 import { ScanSegmentationOverlay } from './ScanSegmentationOverlay';
 import { ScanToEditableModal } from '../capture/ScanToEditableModal';
 import { AIPlacementPreview } from './AIPlacementPreview';
+import { TransformGizmo } from './TransformGizmo';
 import { useSpaceGenStore } from '@/lib/store';
 import { Loader2 } from 'lucide-react';
 
@@ -284,6 +285,7 @@ export function SceneViewer({ selectedId, onSelectObject }: SceneViewerProps) {
         onPickerReady={handlePickerReady}
       />
       <Viewer perf={false} useBvh={true} transparent>
+        <TransformGizmo />
         <ScanCameraBridge
           cameraStateRef={cameraStateRef}
           isPicking={isPickingScanPoint}
