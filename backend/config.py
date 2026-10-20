@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     gemini_image_model: str = "gemini-2.5-flash"
     gemini_reasoning_model: str = "gemini-2.5-pro"
     cors_origins: str = "http://localhost:3000"
+    project_asset_max_bytes: int = 100 * 1024 * 1024
 
     # Cross-platform data directory (defaults to backend/data)
     data_dir: Path = Path(__file__).resolve().parent / "data"
