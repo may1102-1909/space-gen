@@ -1,4 +1,15 @@
-import { EditableSceneSummary } from '@/lib/pascal/sceneBridge';
+import type { RoomInterpretation } from '@/lib/contracts';
+import type { EditableSceneSummary } from '@/lib/pascal/sceneBridge';
+import type { ItemNode } from '@/lib/pascal/itemEditing';
+import {
+  buildContext,
+  inferCategory,
+  normalizeCategory,
+  solveInContext,
+  validateSubject,
+  type PlacementContext,
+  type ScoredPlacement,
+} from '@/lib/placement';
 
 export interface CandidatePlacement {
   id: string;
@@ -15,21 +26,79 @@ export interface CandidatePlacement {
 }
 
 /**
- * Calculates perpendicular distance from point (px, pz) to line segment (x1, z1)-(x2, z2).
+ * Legacy entry points kept for existing callers (chat panel, store, tests).
+ * The geometry and scoring live in `@/lib/placement`; this file only adapts
+ * `EditableSceneSummary` to the placement context and back.
  */
-function distanceToLineSegment(
-  px: number,
-  pz: number,
-  x1: number,
-  z1: number,
-  x2: number,
-  z2: number
-): number {
-  const l2 = (x2 - x1) ** 2 + (z2 - z1) ** 2;
-  if (l2 === 0) return Math.hypot(px - x1, pz - z1);
-  let t = ((px - x1) * (x2 - x1) + (pz - z1) * (z2 - z1)) / l2;
-  t = Math.max(0, Math.min(1, t));
-  return Math.hypot(px - (x1 + t * (x2 - x1)), pz - (z1 + t * (z2 - z1)));
+
+/** Rooms narrower than this (m) in either axis are treated as unenclosed (no outline check). */
+const MIN_ENCLOSED_SPAN = 1;
+
+function synthesizeInterpretation(scene: EditableSceneSummary): RoomInterpretation {
+  const walls = scene.walls.map((w) => ({
+    id: w.id,
+    start: [w.start[0], 0, w.start[1]] as [number, number, number],
+    end: [w.end[0], 0, w.end[1]] as [number, number, number],
+    height: w.height > 0 ? w.height : 2.5,
+    thickness: w.thickness > 0 ? w.thickness : 0.1,
+    confidence: 1,
+    provenance: 'user' as const,
+  }));
+
+  // Bounding box of the walls only; an unenclosed layout gets no outline rather than a degenerate one.
+  let outline: Array<[number, number]> = [];
+  if (walls.length >= 3) {
+    const xs = walls.flatMap((w) => [w.start[0], w.end[0]]);
+    const zs = walls.flatMap((w) => [w.start[2], w.end[2]]);
+    const [x0, x1, z0, z1] = [Math.min(...xs), Math.max(...xs), Math.min(...zs), Math.max(...zs)];
+    if (x1 - x0 >= MIN_ENCLOSED_SPAN && z1 - z0 >= MIN_ENCLOSED_SPAN) {
+      outline = [[x0, z0], [x1, z0], [x1, z1], [x0, z1]];
+    }
+  }
+
+  return {
+    provenance: 'user',
+    floor: { normal: [0, 1, 0], constant: 0, provenance: 'user' },
+    ceilingHeight: Math.max(2.5, ...walls.map((w) => w.height)),
+    outline,
+    walls,
+    openings: [],
+    detections: [],
+  };
+}
+
+function summaryItemsToNodes(scene: EditableSceneSummary): ItemNode[] {
+  return scene.items.map(
+    (i) =>
+      ({
+        id: i.id,
+        type: 'item',
+        name: i.name,
+        visible: true,
+        position: i.position,
+        rotation: i.rotation ?? [0, 0, 0],
+        scale: [1, 1, 1],
+        asset: {
+          category: i.category ?? '',
+          src: i.modelUrl ?? i.name,
+          dimensions: i.dimensions ?? [0.8, 0.8, 0.8],
+        },
+      }) as unknown as ItemNode
+  );
+}
+
+const contexts = new WeakMap<EditableSceneSummary, PlacementContext>();
+
+function contextFor(scene: EditableSceneSummary): PlacementContext {
+  let ctx = contexts.get(scene);
+  if (!ctx) {
+    ctx = buildContext(summaryItemsToNodes(scene), synthesizeInterpretation(scene), {
+      includeDetections: false,
+      // Openings are not part of the summary, so the legacy API can only reason about obstacles.
+    });
+    contexts.set(scene, ctx);
+  }
+  return ctx;
 }
 
 /**
@@ -39,42 +108,27 @@ export function checkCollision(
   pos: [number, number, number],
   dims: [number, number, number],
   scene: EditableSceneSummary,
-  ignoreItemId?: string
+  ignoreItemId?: string,
+  rotationY = 0
 ): { collides: boolean; reason?: string } {
-  const [px, , pz] = pos;
-  const radius = Math.max(dims[0], dims[2]) / 2;
-
-  // 1. Check walls
-  for (const wall of scene.walls) {
-    const dist = distanceToLineSegment(
-      px,
-      pz,
-      wall.start[0],
-      wall.start[1],
-      wall.end[0],
-      wall.end[1]
-    );
-    const minClearance = wall.thickness / 2 + radius + 0.15;
-    if (dist < minClearance) {
-      return { collides: true, reason: `Clips wall "${wall.name}"` };
+  const ctx = contextFor(scene);
+  const probe: PlacementContext = ignoreItemId
+    ? { ...ctx, obstacles: ctx.obstacles.filter((o) => o.id !== ignoreItemId) }
+    : ctx;
+  const violations = validateSubject(
+    { id: '__candidate__', category: 'furniture', x: pos[0], y: pos[1], z: pos[2], yaw: rotationY, dims },
+    probe
+  );
+  for (const v of violations) {
+    if (v.code === 'OVERLAP_WALL') {
+      const name = scene.walls.find((w) => w.id === v.nodeIds[1])?.name ?? v.nodeIds[1];
+      return { collides: true, reason: `Clips wall "${name}"` };
+    }
+    if (v.code === 'OVERLAP_ITEM') {
+      const name = scene.items.find((i) => i.id === v.nodeIds[1])?.name ?? v.nodeIds[1];
+      return { collides: true, reason: `Overlaps item "${name}"` };
     }
   }
-
-  // 2. Check existing furniture items
-  for (const item of scene.items) {
-    if (ignoreItemId && item.id === ignoreItemId) continue;
-    const [ix, , iz] = item.position;
-    const iDims = item.dimensions || [0.8, 0.8, 0.8];
-    const dx = Math.abs(px - ix);
-    const dz = Math.abs(pz - iz);
-    const minX = (dims[0] + iDims[0]) / 2 + 0.05;
-    const minZ = (dims[2] + iDims[2]) / 2 + 0.05;
-
-    if (dx < minX && dz < minZ) {
-      return { collides: true, reason: `Overlaps item "${item.name}"` };
-    }
-  }
-
   return { collides: false };
 }
 
@@ -88,34 +142,31 @@ export function findNearestValidPosition(
   maxRadius: number = 0.8,
   step: number = 0.1
 ): [number, number, number] {
-  if (!checkCollision(initialPos, dims, scene).collides) {
-    return initialPos;
-  }
+  if (!checkCollision(initialPos, dims, scene).collides) return initialPos;
 
   const [ix, iy, iz] = initialPos;
-  let currentR = step;
-
-  while (currentR <= maxRadius) {
-    const numPoints = Math.max(8, Math.round((2 * Math.PI * currentR) / step));
+  for (let r = step; r <= maxRadius + 1e-9; r += step) {
+    const numPoints = Math.max(8, Math.round((2 * Math.PI * r) / step));
     for (let i = 0; i < numPoints; i++) {
       const angle = (i / numPoints) * 2 * Math.PI;
-      const testX = Number((ix + currentR * Math.cos(angle)).toFixed(2));
-      const testZ = Number((iz + currentR * Math.sin(angle)).toFixed(2));
-      const candidatePos: [number, number, number] = [testX, iy, testZ];
-
-      if (!checkCollision(candidatePos, dims, scene).collides) {
-        return candidatePos;
-      }
+      const candidate: [number, number, number] = [
+        Number((ix + r * Math.cos(angle)).toFixed(2)),
+        iy,
+        Number((iz + r * Math.sin(angle)).toFixed(2)),
+      ];
+      if (!checkCollision(candidate, dims, scene).collides) return candidate;
     }
-    currentR += step;
   }
-
-  // Fallback to initial position if no spot found within search radius
   return initialPos;
 }
 
+const SIDE_ORDER: Record<string, number> = { north: 0, south: 1, east: 2, west: 3 };
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+const nz = (n: number) => (Object.is(n, -0) ? 0 : n);
+
 /**
  * Synthesizes design-coherent smart placements for uploaded or catalog 3D models.
+ * Delegates to the placement solver and returns its best layout as pending candidates.
  */
 export function solveSmartPlacements(
   modelUrl: string,
@@ -125,161 +176,42 @@ export function solveSmartPlacements(
   userPrompt: string,
   scene: EditableSceneSummary
 ): CandidatePlacement[] {
-  const p = userPrompt.toLowerCase();
-  const results: CandidatePlacement[] = [];
-
-  // Parse quantity requested (e.g. "place 4 chairs", "place 2", default 2)
-  const countMatch = p.match(/\b([1-8])\b/);
+  const countMatch = userPrompt.toLowerCase().match(/\b([1-8])\b/);
   const count = countMatch ? parseInt(countMatch[1], 10) : 2;
+  const cat = normalizeCategory(category) || inferCategory(modelName);
 
-  // Pattern 1: Dining Chairs around Dining Table
-  const diningTable = scene.items.find(
-    (i) => i.category === 'dining_table' || i.name.toLowerCase().includes('dining')
+  const ctx = contextFor(scene);
+  const layouts = solveInContext(
+    { asset: { url: modelUrl, name: modelName, category: cat, dimensions }, count, topK: 1 },
+    ctx
   );
+  const best = layouts[0];
+  if (!best) return [];
 
-  if (category === 'chair' && diningTable && (p.includes('dining') || p.includes('table') || count >= 2)) {
-    const [tx, , tz] = diningTable.position;
-    const tDims = diningTable.dimensions || [1.8, 0.75, 0.9];
-    const halfWidth = tDims[0] / 2;
-    const halfDepth = tDims[2] / 2;
-    const tuckOffset = dimensions[2] / 2 + 0.18; // 0.18m clearance
-
-    if (count === 2) {
-      // 2 chairs on opposite long sides
-      const positions: Array<{ pos: [number, number, number]; rot: [number, number, number]; label: string }> = [
-        {
-          pos: [tx, 0, tz - halfDepth - tuckOffset],
-          rot: [0, 0, 0],
-          label: 'Dining Chair North',
-        },
-        {
-          pos: [tx, 0, tz + halfDepth + tuckOffset],
-          rot: [0, Math.PI, 0],
-          label: 'Dining Chair South',
-        },
-      ];
-
-      for (const item of positions) {
-        const validatedPos = findNearestValidPosition(item.pos, dimensions, scene);
-        results.push({
-          id: `candidate_chair_${Date.now()}_${results.length}`,
-          name: `${modelName} (${item.label})`,
-          category: 'chair',
-          modelUrl,
-          position: validatedPos,
-          rotation: item.rot,
-          dimensions,
-          confidence: 0.96,
-          reasoning: `Symmetrically aligned with dining table facing center with 0.18m clearance.`,
-          status: 'pending',
-        });
-      }
-    } else {
-      // 4 or 6 chairs arranged symmetrically along long sides
-      const pairs = Math.min(Math.floor(count / 2), 3);
-      const spacing = pairs > 1 ? (halfWidth * 1.2) / (pairs - 1) : 0;
-      const startX = pairs > 1 ? tx - halfWidth * 0.6 : tx;
-
-      for (let i = 0; i < pairs; i++) {
-        const xOffset = startX + i * spacing;
-
-        // North chair
-        const northPos: [number, number, number] = [xOffset, 0, tz - halfDepth - tuckOffset];
-        results.push({
-          id: `candidate_chair_${Date.now()}_n${i}`,
-          name: `${modelName} (North #${i + 1})`,
-          category: 'chair',
-          modelUrl,
-          position: findNearestValidPosition(northPos, dimensions, scene),
-          rotation: [0, 0, 0],
-          dimensions,
-          confidence: 0.95,
-          reasoning: `Placed along north edge of dining table with inward orientation.`,
-          status: 'pending',
-        });
-
-        // South chair
-        const southPos: [number, number, number] = [xOffset, 0, tz + halfDepth + tuckOffset];
-        results.push({
-          id: `candidate_chair_${Date.now()}_s${i}`,
-          name: `${modelName} (South #${i + 1})`,
-          category: 'chair',
-          modelUrl,
-          position: findNearestValidPosition(southPos, dimensions, scene),
-          rotation: [0, Math.PI, 0],
-          dimensions,
-          confidence: 0.95,
-          reasoning: `Placed along south edge of dining table with inward orientation.`,
-          status: 'pending',
-        });
-      }
-    }
-
-    return results;
-  }
-
-  // Pattern 2: Accent / Reading Chairs around Living Room Coffee Table or Sofa
-  const sofa = scene.items.find((i) => i.category === 'sofa' || i.name.toLowerCase().includes('sofa'));
-  const coffeeTable = scene.items.find(
-    (i) => i.category === 'coffee_table' || i.name.toLowerCase().includes('coffee')
+  const placements: ScoredPlacement[] = [...best.placements].sort(
+    (a, b) => (SIDE_ORDER[a.side ?? ''] ?? 9) - (SIDE_ORDER[b.side ?? ''] ?? 9)
   );
-
-  if (category === 'chair' && (sofa || coffeeTable)) {
-    const anchor = coffeeTable || sofa!;
-    const [ax, , az] = anchor.position;
-
-    const angleOffset = Math.PI / 4; // 45-degree angle to conversational group
-    const radius = 1.4; // 1.4m conversational distance
-
-    for (let i = 0; i < count; i++) {
-      const sign = i % 2 === 0 ? 1 : -1;
-      const rawPos: [number, number, number] = [
-        Number((ax + sign * radius * 0.8).toFixed(2)),
-        0,
-        Number((az + (i >= 2 ? -1 : 1) * radius * 0.6).toFixed(2)),
-      ];
-
-      // Angle toward table/sofa center
-      const rotY = Math.atan2(ax - rawPos[0], az - rawPos[2]);
-
-      results.push({
-        id: `candidate_accent_${Date.now()}_${i}`,
-        name: `${modelName} (Accent #${i + 1})`,
-        category: 'chair',
-        modelUrl,
-        position: findNearestValidPosition(rawPos, dimensions, scene),
-        rotation: [0, rotY, 0],
-        dimensions,
-        confidence: 0.92,
-        reasoning: `Positioned at 20° conversational toe-in toward central seating group.`,
-        status: 'pending',
-      });
-    }
-
-    return results;
-  }
-
-  // Pattern 3: General Smart Placement in open zone areas
-  for (let i = 0; i < count; i++) {
-    const rawPos: [number, number, number] = [
-      Number(((i - count / 2 + 0.5) * 1.2).toFixed(2)),
-      0,
-      Number(((i % 2 === 0 ? 1 : -1) * 1.0).toFixed(2)),
-    ];
-
-    results.push({
-      id: `candidate_general_${Date.now()}_${i}`,
-      name: `${modelName} #${i + 1}`,
-      category,
+  const stamp = Date.now();
+  return placements.map((p, i) => {
+    const anchor = p.anchorId ? ctx.obstacles.find((o) => o.id === p.anchorId) : undefined;
+    const isDining = anchor?.category === 'dining_table' || /dining/i.test(anchor?.name ?? '');
+    const label =
+      p.strategy === 'anchor' && anchor && p.side
+        ? `${isDining ? 'Dining Chair' : anchor.name} ${cap(p.side)}`
+        : p.strategy === 'wall'
+          ? `Wall #${i + 1}`
+          : `Open floor #${i + 1}`;
+    return {
+      id: `candidate_${cat}_${stamp}_${i}`,
+      name: `${modelName} (${label})`,
+      category: cat,
       modelUrl,
-      position: findNearestValidPosition(rawPos, dimensions, scene),
-      rotation: [0, 0, 0],
+      position: [nz(p.position[0]), nz(p.position[1]), nz(p.position[2])],
+      rotation: [0, nz(p.rotationY), 0],
       dimensions,
-      confidence: 0.88,
-      reasoning: `Positioned in open floor area with 0.8m walkway clearance.`,
-      status: 'pending',
-    });
-  }
-
-  return results;
+      confidence: Math.round(Math.min(0.99, Math.max(0.1, p.score)) * 100) / 100,
+      reasoning: p.reasons.join('; '),
+      status: 'pending' as const,
+    };
+  });
 }
