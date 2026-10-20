@@ -14,6 +14,7 @@ Exits with code 0 on success, code 1 on schema drift.
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -63,13 +64,15 @@ PYDANTIC_LEGACY_FIELDS = {
 
 def get_zod_schemas() -> Dict[str, Any]:
     """Execute frontend/scripts/export_schemas.ts via npm contracts:export."""
-    cmd = ["npm", "--prefix", "frontend", "run", "--silent", "contracts:export"]
+    # Resolve npm explicitly (npm.cmd on Windows) instead of shell=True, which on
+    # POSIX drops every list element after the first.
+    npm = shutil.which("npm") or "npm"
+    cmd = [npm, "--prefix", "frontend", "run", "--silent", "contracts:export"]
     result = subprocess.run(
         cmd,
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
-        shell=True,
     )
     if result.returncode != 0:
         print("[ERROR] Failed to export Zod schemas from frontend:", file=sys.stderr)

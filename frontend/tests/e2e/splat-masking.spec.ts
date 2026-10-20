@@ -1,6 +1,4 @@
 import { test, expect } from '@playwright/test';
-import fs from 'fs';
-import path from 'path';
 
 test.describe('T08: Splat Masking & Replacement Verification', () => {
   test('replacing a chair creates mask, hides splats from 4 angles, toggles ghost mode, resizes, and supports undo/redo', async ({
@@ -89,95 +87,71 @@ test.describe('T08: Splat Masking & Replacement Verification', () => {
     await expect(page.getByRole('button', { name: /Modern Replacement Chair/i }).first()).toBeVisible({ timeout: 5000 });
     await expect(page.getByText('Masked (0%)')).toBeVisible();
 
-    // Ensure docs/decisions directory exists
-    const docsDecisionsDir = path.resolve(__dirname, '../../../docs/decisions');
-    if (!fs.existsSync(docsDecisionsDir)) {
-      fs.mkdirSync(docsDecisionsDir, { recursive: true });
-    }
+    // 8. Assert the masks Spark actually receives (not just the panel text).
+    type SplatDebug = {
+      hasMesh: boolean;
+      globalEdits: number;
+      edits: { softEdge: number; sdfs: { type: string; opacity: number; halfExtents: number[] }[] }[];
+    };
+    const readSplat = () =>
+      page.evaluate(() => (window as unknown as { __spaceGenSplat?: () => unknown }).__spaceGenSplat?.() ?? null) as Promise<SplatDebug | null>;
 
-    // 8. Capture / Verify 4 Camera Angle Screenshots demonstrating the mask with no visible ghost
+    await expect.poll(async () => (await readSplat())?.edits.length ?? -1, { timeout: 10000 }).toBe(1);
+    let splat = (await readSplat())!;
+    expect(splat.hasMesh).toBe(true);
+    // Edits must be scoped to the mesh only; a scene-graph copy would apply the mask twice.
+    expect(splat.globalEdits).toBe(0);
+    expect(splat.edits[0].sdfs).toHaveLength(1);
+    expect(splat.edits[0].sdfs[0].type).toBe('box');
+    expect(splat.edits[0].sdfs[0].opacity).toBe(0);
+    // Original chair is 0.55 m wide -> 0.275 m half-extent.
+    expect(splat.edits[0].sdfs[0].halfExtents[0]).toBeCloseTo(0.275, 3);
+
+    // Undo removes the splat edit, redo restores it.
+    await undoButton.click();
+    await expect.poll(async () => (await readSplat())?.edits.length ?? -1).toBe(0);
+    await redoButton.click();
+    await expect.poll(async () => (await readSplat())?.edits.length ?? -1).toBe(1);
+
+    // Fresh evidence screenshots for this run (attached to the report, never reused from disk).
     const viewerCanvas = page.locator('canvas').last();
     const canvasBox = await viewerCanvas.boundingBox();
     const cx = canvasBox ? canvasBox.x + canvasBox.width / 2 : 400;
     const cy = canvasBox ? canvasBox.y + canvasBox.height / 2 : 300;
+    const capture = async (name: string) => {
+      await page.waitForTimeout(250);
+      await page.screenshot({ path: test.info().outputPath(name) });
+      await test.info().attach(name, { path: test.info().outputPath(name), contentType: 'image/png' });
+    };
+    const orbit = async (dx: number, dy: number) => {
+      await page.mouse.move(cx, cy);
+      await page.mouse.down();
+      await page.mouse.move(cx + dx, cy + dy, { steps: 3 });
+      await page.mouse.up();
+    };
 
-    // Angle 1: Front view (default baseline angle)
-    await page.waitForTimeout(300);
-    const angle1Path = path.join(docsDecisionsDir, 'chair-mask-angle-1-front.png');
-    if (!fs.existsSync(angle1Path)) {
-      await page.screenshot({ path: angle1Path });
-    }
-    expect(fs.existsSync(angle1Path)).toBe(true);
-    expect(fs.statSync(angle1Path).size).toBeGreaterThan(10000);
-    console.log(`Verified Angle 1 (Front View): ${angle1Path}`);
+    await capture('chair-mask-angle-1-front.png');
+    await orbit(90, -20);
+    await capture('chair-mask-angle-2-perspective.png');
+    await orbit(90, -10);
+    await capture('chair-mask-angle-3-side.png');
+    await orbit(0, 120);
+    await capture('chair-mask-angle-4-top.png');
 
-    // Angle 2: Perspective 45° angle (orbit slightly right)
-    await page.mouse.move(cx, cy);
-    await page.mouse.down();
-    await page.mouse.move(cx + 90, cy - 20, { steps: 8 });
-    await page.mouse.up();
-    await page.waitForTimeout(300);
-    const angle2Path = path.join(docsDecisionsDir, 'chair-mask-angle-2-perspective.png');
-    if (!fs.existsSync(angle2Path)) {
-      await page.screenshot({ path: angle2Path });
-    }
-    expect(fs.existsSync(angle2Path)).toBe(true);
-    expect(fs.statSync(angle2Path).size).toBeGreaterThan(10000);
-    console.log(`Verified Angle 2 (Perspective 45° View): ${angle2Path}`);
-
-    // Angle 3: Side view (orbit further right)
-    await page.mouse.move(cx + 90, cy - 20);
-    await page.mouse.down();
-    await page.mouse.move(cx + 180, cy - 30, { steps: 8 });
-    await page.mouse.up();
-    await page.waitForTimeout(300);
-    const angle3Path = path.join(docsDecisionsDir, 'chair-mask-angle-3-side.png');
-    if (!fs.existsSync(angle3Path)) {
-      await page.screenshot({ path: angle3Path });
-    }
-    expect(fs.existsSync(angle3Path)).toBe(true);
-    expect(fs.statSync(angle3Path).size).toBeGreaterThan(10000);
-    console.log(`Verified Angle 3 (Side View): ${angle3Path}`);
-
-    // Angle 4: Top-down / elevated view (orbit upwards)
-    await page.mouse.move(cx + 180, cy - 30);
-    await page.mouse.down();
-    await page.mouse.move(cx + 180, cy + 120, { steps: 8 });
-    await page.mouse.up();
-    await page.waitForTimeout(300);
-    const angle4Path = path.join(docsDecisionsDir, 'chair-mask-angle-4-top.png');
-    if (!fs.existsSync(angle4Path)) {
-      await page.screenshot({ path: angle4Path });
-    }
-    expect(fs.existsSync(angle4Path)).toBe(true);
-    expect(fs.statSync(angle4Path).size).toBeGreaterThan(10000);
-    console.log(`Verified Angle 4 (Top-Down View): ${angle4Path}`);
-
-    // Also copy to test screenshots folder
-    const e2eScreenshotsDir = path.join(__dirname, 'screenshots');
-    if (!fs.existsSync(e2eScreenshotsDir)) {
-      fs.mkdirSync(e2eScreenshotsDir, { recursive: true });
-    }
-    for (const name of ['chair-mask-angle-1-front.png', 'chair-mask-angle-2-perspective.png', 'chair-mask-angle-3-side.png', 'chair-mask-angle-4-top.png']) {
-      fs.copyFileSync(path.join(docsDecisionsDir, name), path.join(e2eScreenshotsDir, name));
-    }
-
-    // 9. Test Ghost Mode Toggle (semi-transparent splats at 25% opacity)
+    // 9. Ghost mode: one edit at 25% opacity (not 0.25^2 from a duplicated edit).
     await ghostToggleButton.click();
     await expect(page.getByText('Ghost (25%)')).toBeVisible();
     await expect(ghostToggleButton).toContainText('Show Original: On (Ghost Mode)');
-
-    await page.waitForTimeout(300);
-    const ghostScreenshotPath = path.join(docsDecisionsDir, 'chair-mask-ghost-mode.png');
-    if (!fs.existsSync(ghostScreenshotPath)) {
-      await page.screenshot({ path: ghostScreenshotPath });
-    }
-    expect(fs.existsSync(ghostScreenshotPath)).toBe(true);
-    fs.copyFileSync(ghostScreenshotPath, path.join(e2eScreenshotsDir, 'chair-mask-ghost-mode.png'));
+    await expect.poll(async () => (await readSplat())?.edits[0]?.sdfs[0]?.opacity).toBeCloseTo(0.25, 3);
+    splat = (await readSplat())!;
+    expect(splat.edits).toHaveLength(1);
+    expect(splat.globalEdits).toBe(0);
+    await capture('chair-mask-ghost-mode.png');
 
     // Toggle back to Masked (0%)
     await ghostToggleButton.click();
     await expect(page.getByText('Masked (0%)')).toBeVisible();
+    await expect.poll(async () => (await readSplat())?.edits[0]?.sdfs[0]?.opacity).toBe(0);
 
     // 10. Test Mask Resizing Controls & Undo
     const widthInput = page.getByRole('spinbutton', { name: 'Mask Width (m)' });
@@ -185,9 +159,11 @@ test.describe('T08: Splat Masking & Replacement Verification', () => {
     await widthInput.fill('0.85');
     await widthInput.blur();
     await expect(widthInput).toHaveValue('0.85');
+    await expect.poll(async () => (await readSplat())?.edits[0]?.sdfs[0]?.halfExtents[0]).toBeCloseTo(0.425, 3);
 
     // Undo the resize back to 0.55
     await undoButton.click();
     await expect(widthInput).toHaveValue('0.55');
+    await expect.poll(async () => (await readSplat())?.edits[0]?.sdfs[0]?.halfExtents[0]).toBeCloseTo(0.275, 3);
   });
 });

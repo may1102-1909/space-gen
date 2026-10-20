@@ -206,6 +206,9 @@ interface SceneViewerProps {
   onSelectObject?: (id: string | null) => void;
 }
 
+const IDENTITY_MATRIX: Matrix4 = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+const NO_MASK_REGIONS: MaskRegion[] = [];
+
 export function SceneViewer({ selectedId, onSelectObject }: SceneViewerProps) {
   const [isReady, setIsReady] = useState(false);
   const [initError, setInitError] = useState<string | null>(null);
@@ -218,10 +221,9 @@ export function SceneViewer({ selectedId, onSelectObject }: SceneViewerProps) {
   const pickerRef = useRef<ScanPicker | null>(null);
   const pointHandlerRef = useRef<((point: Vector3) => void) | null>(null);
   const scanNode = useScene((state) => Object.values(state.nodes).find((node: any) => node?.type === 'scan') as any);
-  const scanToScene: Matrix4 = scanNode?.metadata?.scanToScene || [
-    1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1,
-  ];
-  const maskRegions: MaskRegion[] = scanNode?.metadata?.maskRegions || [];
+  // Stable fallbacks: fresh literals here would re-run the splat alignment/mask effects every render.
+  const scanToScene: Matrix4 = scanNode?.metadata?.scanToScene || IDENTITY_MATRIX;
+  const maskRegions: MaskRegion[] = scanNode?.metadata?.maskRegions || NO_MASK_REGIONS;
   const handlePickerReady = useCallback((picker: ScanPicker | null) => {
     pickerRef.current = picker;
   }, []);

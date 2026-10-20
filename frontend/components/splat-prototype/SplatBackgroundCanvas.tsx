@@ -71,6 +71,8 @@ export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
   const raycasterRef = useRef(new THREE.Raycaster());
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  // Bumped whenever a SplatMesh is (re)created so alignment and masks are re-applied to it.
+  const [meshVersion, setMeshVersion] = useState(0);
   const loadedCountRef = useRef(0);
   const pickerCallbackRef = useRef(onPickerReady);
   pickerCallbackRef.current = onPickerReady;
@@ -257,6 +259,7 @@ export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
       });
       splatMeshRef.current = splatMesh;
       scene.add(splatMesh);
+      setMeshVersion((v) => v + 1);
     } catch (err: any) {
       setErrorMsg(`Could not load scan: ${err.message}`);
     }
@@ -284,7 +287,7 @@ export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
     mesh.matrixAutoUpdate = false;
     mesh.matrix.copy(matrix);
     mesh.matrixWorldNeedsUpdate = true;
-  }, [scanToScene, scanUrl, visible]);
+  }, [scanToScene, scanUrl, visible, meshVersion]);
 
   // 3. Dynamic Per-Region OBB Masking (SplatEdit SDF Box) with feathered opacity falloff & ghost mode
   useEffect(() => {
@@ -292,11 +295,9 @@ export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
     const scene = sceneRef.current;
     if (!splatMesh || !scene) return;
 
-    // Clean up previous edits
-    for (const oldEdit of activeEditsRef.current) {
-      scene.remove(oldEdit);
-      splatMesh.remove(oldEdit);
-    }
+    // Edits are assigned only via splatMesh.edits. Spark also applies any SplatEdit found
+    // in the scene graph as a global edit, so adding them to the scene would apply each
+    // mask twice (ghost 25% would render at ~6%).
     activeEditsRef.current = [];
 
     const nextEdits: SplatEditType[] = [];
@@ -326,7 +327,6 @@ export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
           sdfSmooth: 0.02,
         });
 
-        scene.add(edit);
         nextEdits.push(edit);
       }
     } else if (enableMasking) {
@@ -347,7 +347,6 @@ export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
         sdfSmooth: 0.02,
       });
 
-      scene.add(edit);
       nextEdits.push(edit);
     }
 
@@ -355,16 +354,43 @@ export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
     activeEditsRef.current = nextEdits;
 
     return () => {
-      for (const edit of nextEdits) {
-        scene.remove(edit);
-        splatMesh.remove(edit);
-      }
       activeEditsRef.current = [];
-      if (splatMeshRef.current) {
-        splatMeshRef.current.edits = null;
+      if (splatMeshRef.current === splatMesh) {
+        splatMesh.edits = null;
       }
     };
-  }, [enableMasking, maskPosition, maskSize, maskRegions]);
+  }, [enableMasking, maskPosition, maskSize, maskRegions, meshVersion]);
+
+  // Read-only diagnostics for E2E tests: reports the edits Spark actually receives.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const w = window as unknown as { __spaceGenSplat?: () => unknown };
+    w.__spaceGenSplat = () => {
+      const mesh = splatMeshRef.current;
+      let globalEdits = 0;
+      sceneRef.current?.traverse((node) => {
+        if (node instanceof SplatEdit) globalEdits += 1;
+      });
+      return {
+        hasMesh: !!mesh,
+        loadedSplats: loadedCountRef.current,
+        globalEdits,
+        edits: (mesh?.edits ?? []).map((edit: SplatEditType) => ({
+          softEdge: edit.softEdge,
+          sdfs: (edit.sdfs ?? []).map((sdf: InstanceType<typeof SplatEditSdf>) => ({
+            type: sdf.type,
+            opacity: sdf.opacity,
+            center: sdf.position.toArray(),
+            halfExtents: sdf.scale.toArray(),
+            yaw: sdf.rotation.y,
+          })),
+        })),
+      };
+    };
+    return () => {
+      delete w.__spaceGenSplat;
+    };
+  }, []);
 
   return (
     <div ref={containerRef} className="absolute inset-0 w-full h-full pointer-events-none">
