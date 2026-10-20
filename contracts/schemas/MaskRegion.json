@@ -1,0 +1,80 @@
+{
+  "$defs": {
+    "OrientedBoundingBox": {
+      "properties": {
+        "center": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Center",
+          "type": "array"
+        },
+        "size": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Size",
+          "type": "array"
+        },
+        "yaw": {
+          "title": "Yaw",
+          "type": "number"
+        }
+      },
+      "required": [
+        "center",
+        "size",
+        "yaw"
+      ],
+      "title": "OrientedBoundingBox",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "obb": {
+      "$ref": "#/$defs/OrientedBoundingBox"
+    },
+    "feather": {
+      "minimum": 0.0,
+      "title": "Feather",
+      "type": "number"
+    },
+    "enabled": {
+      "title": "Enabled",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "id",
+    "obb",
+    "feather",
+    "enabled"
+  ],
+  "title": "MaskRegion",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

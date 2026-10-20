@@ -1,0 +1,317 @@
+{
+  "$defs": {
+    "ProposalAsset": {
+      "properties": {
+        "source": {
+          "enum": [
+            "catalog",
+            "upload",
+            "generated"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "url": {
+          "title": "Url",
+          "type": "string"
+        },
+        "dimensions": {
+          "$ref": "#/$defs/ProposalAssetDimensions"
+        }
+      },
+      "required": [
+        "source",
+        "url",
+        "dimensions"
+      ],
+      "title": "ProposalAsset",
+      "type": "object"
+    },
+    "ProposalAssetDimensions": {
+      "properties": {
+        "width": {
+          "exclusiveMinimum": 0.0,
+          "title": "Width",
+          "type": "number"
+        },
+        "height": {
+          "exclusiveMinimum": 0.0,
+          "title": "Height",
+          "type": "number"
+        },
+        "depth": {
+          "exclusiveMinimum": 0.0,
+          "title": "Depth",
+          "type": "number"
+        }
+      },
+      "required": [
+        "width",
+        "height",
+        "depth"
+      ],
+      "title": "ProposalAssetDimensions",
+      "type": "object"
+    },
+    "ProposalTransform": {
+      "properties": {
+        "position": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Position",
+          "type": "array"
+        },
+        "rotationY": {
+          "title": "Rotationy",
+          "type": "number"
+        },
+        "scale": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Scale",
+          "type": "array"
+        }
+      },
+      "required": [
+        "position",
+        "rotationY",
+        "scale"
+      ],
+      "title": "ProposalTransform",
+      "type": "object"
+    },
+    "ProposalValidation": {
+      "properties": {
+        "ok": {
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "violations": {
+          "items": {
+            "$ref": "#/$defs/Violation"
+          },
+          "title": "Violations",
+          "type": "array"
+        }
+      },
+      "required": [
+        "ok",
+        "violations"
+      ],
+      "title": "ProposalValidation",
+      "type": "object"
+    },
+    "Violation": {
+      "properties": {
+        "rule": {
+          "title": "Rule",
+          "type": "string"
+        },
+        "severity": {
+          "enum": [
+            "error",
+            "warning",
+            "info"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "detail": {
+          "title": "Detail",
+          "type": "string"
+        },
+        "nodeIds": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Nodeids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "rule",
+        "severity",
+        "detail",
+        "nodeIds"
+      ],
+      "title": "Violation",
+      "type": "object"
+    }
+  },
+  "description": "Proposal emitted by AI assistant for user review before applying to the scene store.",
+  "properties": {
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "op": {
+      "enum": [
+        "replace",
+        "add",
+        "move",
+        "remove"
+      ],
+      "title": "Op",
+      "type": "string"
+    },
+    "targetNodeId": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Targetnodeid"
+    },
+    "asset": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ProposalAsset"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "transform": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ProposalTransform"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "rationale": {
+      "title": "Rationale",
+      "type": "string"
+    },
+    "validation": {
+      "$ref": "#/$defs/ProposalValidation"
+    },
+    "status": {
+      "enum": [
+        "pending",
+        "accepted",
+        "rejected"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "proposal_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Proposal Id"
+    },
+    "action": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Action"
+    },
+    "target_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Target Id"
+    },
+    "node_type": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Node Type"
+    },
+    "parameters": {
+      "additionalProperties": true,
+      "title": "Parameters",
+      "type": "object"
+    },
+    "summary": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Summary"
+    },
+    "accepted": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Accepted"
+    }
+  },
+  "required": [
+    "id",
+    "op",
+    "rationale",
+    "validation",
+    "status"
+  ],
+  "title": "EditProposal",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

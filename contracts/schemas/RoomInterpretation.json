@@ -1,0 +1,372 @@
+{
+  "$defs": {
+    "DetectionInterpretation": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "category": {
+          "title": "Category",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "obb": {
+          "$ref": "#/$defs/OrientedBoundingBox"
+        },
+        "confidence": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "maskRegionId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Maskregionid"
+        },
+        "status": {
+          "enum": [
+            "auto",
+            "verified",
+            "corrected",
+            "rejected"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "provenance": {
+          "enum": [
+            "auto",
+            "user"
+          ],
+          "title": "Provenance",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "category",
+        "label",
+        "obb",
+        "confidence",
+        "status",
+        "provenance"
+      ],
+      "title": "DetectionInterpretation",
+      "type": "object"
+    },
+    "FloorPlane": {
+      "properties": {
+        "normal": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Normal",
+          "type": "array"
+        },
+        "constant": {
+          "title": "Constant",
+          "type": "number"
+        },
+        "provenance": {
+          "enum": [
+            "auto",
+            "user"
+          ],
+          "title": "Provenance",
+          "type": "string"
+        }
+      },
+      "required": [
+        "normal",
+        "constant",
+        "provenance"
+      ],
+      "title": "FloorPlane",
+      "type": "object"
+    },
+    "OpeningInterpretation": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "wallId": {
+          "title": "Wallid",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "door",
+            "window",
+            "opening"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "offset": {
+          "minimum": 0.0,
+          "title": "Offset",
+          "type": "number"
+        },
+        "width": {
+          "exclusiveMinimum": 0.0,
+          "title": "Width",
+          "type": "number"
+        },
+        "height": {
+          "exclusiveMinimum": 0.0,
+          "title": "Height",
+          "type": "number"
+        },
+        "sill": {
+          "minimum": 0.0,
+          "title": "Sill",
+          "type": "number"
+        },
+        "confidence": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "provenance": {
+          "enum": [
+            "auto",
+            "user"
+          ],
+          "title": "Provenance",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "wallId",
+        "kind",
+        "offset",
+        "width",
+        "height",
+        "sill",
+        "confidence",
+        "provenance"
+      ],
+      "title": "OpeningInterpretation",
+      "type": "object"
+    },
+    "OrientedBoundingBox": {
+      "properties": {
+        "center": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Center",
+          "type": "array"
+        },
+        "size": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Size",
+          "type": "array"
+        },
+        "yaw": {
+          "title": "Yaw",
+          "type": "number"
+        }
+      },
+      "required": [
+        "center",
+        "size",
+        "yaw"
+      ],
+      "title": "OrientedBoundingBox",
+      "type": "object"
+    },
+    "WallInterpretation": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "start": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Start",
+          "type": "array"
+        },
+        "end": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "End",
+          "type": "array"
+        },
+        "height": {
+          "exclusiveMinimum": 0.0,
+          "title": "Height",
+          "type": "number"
+        },
+        "thickness": {
+          "exclusiveMinimum": 0.0,
+          "title": "Thickness",
+          "type": "number"
+        },
+        "confidence": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "provenance": {
+          "enum": [
+            "auto",
+            "user"
+          ],
+          "title": "Provenance",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "start",
+        "end",
+        "height",
+        "thickness",
+        "confidence",
+        "provenance"
+      ],
+      "title": "WallInterpretation",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "provenance": {
+      "enum": [
+        "auto",
+        "user"
+      ],
+      "title": "Provenance",
+      "type": "string"
+    },
+    "floor": {
+      "$ref": "#/$defs/FloorPlane"
+    },
+    "ceilingHeight": {
+      "exclusiveMinimum": 0.0,
+      "title": "Ceilingheight",
+      "type": "number"
+    },
+    "outline": {
+      "items": {
+        "maxItems": 2,
+        "minItems": 2,
+        "prefixItems": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "number"
+          }
+        ],
+        "type": "array"
+      },
+      "title": "Outline",
+      "type": "array"
+    },
+    "walls": {
+      "items": {
+        "$ref": "#/$defs/WallInterpretation"
+      },
+      "title": "Walls",
+      "type": "array"
+    },
+    "openings": {
+      "items": {
+        "$ref": "#/$defs/OpeningInterpretation"
+      },
+      "title": "Openings",
+      "type": "array"
+    },
+    "detections": {
+      "items": {
+        "$ref": "#/$defs/DetectionInterpretation"
+      },
+      "title": "Detections",
+      "type": "array"
+    }
+  },
+  "required": [
+    "provenance",
+    "floor",
+    "ceilingHeight",
+    "outline",
+    "walls",
+    "openings",
+    "detections"
+  ],
+  "title": "RoomInterpretation",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

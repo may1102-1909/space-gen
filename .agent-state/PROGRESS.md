@@ -1,31 +1,57 @@
 # SpaceGen Engineering System — Progress & State
 
-**Last Updated:** 2026-10-20 18:05 IST  
-**Branch:** `feat/splat-rendering-decision`  
-**Execution Scope:** Splat & Pascal Co-Rendering Decision, Spark & WebGPU Incompatibility Analysis, Dual-Canvas Architecture, Depth Occlusion Proxy, Playwright E2E Verification  
+**Last Updated:** 2026-10-20 18:18 IST  
+**Branch:** `feat/versioned-contracts`  
+**Execution Scope:** Unified Versioned Data Model (Zod in `frontend/lib/contracts/*.ts`, Pydantic v2 in `backend/models/contracts.py`), Generated JSON Schemas in `contracts/schemas/`, CI Schema Drift Check, Realistic Room Fixture, Round-Trip Testing  
 **Status:** COMPLETED (All Checks Verified with Empirical Proof)
 
 ---
 
 ## 1. Verified CI/CD Suite Status
 
+### Contracts & Parity Suite
+| Step | Command | Status | Result / Metrics |
+| :--- | :--- | :--- | :--- |
+| **Schema Drift & Parity Check** | `python scripts/check_contracts_sync.py` | **PASS** | 8/8 models verified 100% in sync across Pydantic v2, Zod, and JSON Schema; 0 drift |
+| **JSON Schema Generation** | `python scripts/generate_contracts_schemas.py` | **PASS** | 8 canonical JSON Schemas generated in `contracts/schemas/` |
+| **Realistic Room Fixture** | `fixtures/realistic_room.json` | **PASS** | Verified 2 doors, 1 window, 6 detections, provenance on every element |
+
 ### Frontend (`frontend/`)
 | Step | Command | Status | Result / Metrics |
 | :--- | :--- | :--- | :--- |
-| **Clean Install** | `npm ci` | **PASS** | 548 packages audited (0 peer dependency conflicts, no `--legacy-peer-deps`) |
+| **Clean Install** | `npm ci` | **PASS** | 621 packages audited |
 | **Lint** | `npm run lint` | **PASS** | `eslint .` passed with 0 errors / 0 warnings |
 | **Typecheck** | `npm run typecheck` | **PASS** | `tsc --noEmit` passed with 0 errors |
-| **Unit Tests** | `npm run test` | **PASS** | 12/12 Vitest unit tests passed (including 7 splat decision tests) |
-| **Production Build** | `npm run build` | **PASS** | Next.js 16.4.0 (Turbopack) compiled cleanly (including `/splat-prototype`) |
-| **E2E Smoke & Decision Tests** | `npm run test:e2e` | **PASS** | 2/2 Playwright tests passed in 7.3s (`editor-smoke.spec.ts` & `splat-decision.spec.ts`) |
+| **Unit Tests** | `npm run test` | **PASS** | 16/16 Vitest unit tests passed (including 4 contracts round-trip tests) |
+| **Contracts Check** | `npm run contracts:check` | **PASS** | Schema drift script passed |
+| **Production Build** | `npm run build` | **PASS** | Next.js 16.4.0 (Turbopack) compiled cleanly in 2.2s |
+| **E2E Tests** | `npm run test:e2e` | **PASS** | 2/2 Playwright tests passed in 6.9s |
 
 ### Backend (`backend/`)
 | Step | Command | Status | Result / Metrics |
 | :--- | :--- | :--- | :--- |
-| **Dependencies** | `pip install -r requirements.txt` | **PASS** | `open3d`, `trimesh`, `plyfile`, `fastapi`, `pytest`, `ruff` installed |
+| **Dependencies** | `pip install -r requirements.txt` | **PASS** | All dependencies satisfied |
 | **Linting** | `ruff check backend` | **PASS** | 0 errors, all checks passed |
-| **Formatting** | `ruff format --check backend` | **PASS** | 27 files verified formatted |
-| **Unit Tests** | `pytest backend/tests -v` | **PASS** | 13/13 tests passed in 0.88s |
+| **Formatting** | `ruff format --check backend` | **PASS** | 28 files verified formatted |
+| **Unit Tests** | `pytest backend/tests -v` | **PASS** | 18/18 tests passed in 0.94s (including 5 contracts tests) |
+
+---
+
+## 2. Shared Versioned Data Model Summary
+- **Frontend Zod Contracts:** `frontend/lib/contracts/`
+  - `primitives.ts`: `Provenance`, `Vector3`, `Matrix4`, `BoundingBox3D`, `OrientedBoundingBox`
+  - `scan.ts`: `ScanAsset`, `MaskRegion`
+  - `interpretation.ts`: `RoomInterpretation`, `FloorPlane`, `WallInterpretation`, `OpeningInterpretation`, `DetectionInterpretation`
+  - `proposal.ts`: `EditProposal`, `EditRecord`, `ProposalAsset`, `ProposalTransform`, `ProposalValidation`, `Violation`
+  - `manifest.ts`: `ProjectManifest`, `AssetRef`, `Variant`
+  - `index.ts`: Unified re-export and TypeScript type generation
+- **Backend Pydantic v2 Contracts:** `backend/models/contracts.py`
+  - Parallel strict Pydantic v2 models mirroring Zod schemas 1-to-1.
+  - Backwards compatibility alias getters for legacy pipeline endpoints.
+- **Canonical Schemas (`contracts/schemas/`):**
+  - Generated draft 2020-12 JSON Schemas for `ProjectManifest`, `ScanAsset`, `MaskRegion`, `RoomInterpretation`, `EditProposal`, `EditRecord`, `AssetRef`, and `Variant`.
+- **CI Enforcement:**
+  - Added `contracts-schema-drift-check` job to `.github/workflows/ci.yml` that runs `python scripts/check_contracts_sync.py`.
 
 ---
 

@@ -1,0 +1,71 @@
+{
+  "properties": {
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "timestamp": {
+      "title": "Timestamp",
+      "type": "string"
+    },
+    "proposalId": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Proposalid"
+    },
+    "op": {
+      "enum": [
+        "replace",
+        "add",
+        "move",
+        "remove"
+      ],
+      "title": "Op",
+      "type": "string"
+    },
+    "targetNodeId": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Targetnodeid"
+    },
+    "description": {
+      "title": "Description",
+      "type": "string"
+    },
+    "userComment": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Usercomment"
+    }
+  },
+  "required": [
+    "id",
+    "timestamp",
+    "op",
+    "description"
+  ],
+  "title": "EditRecord",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}
