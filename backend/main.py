@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from config import settings
-from routes import chat, generation, reconstruction, scenes
+from routes import chat, generation, projects, reconstruction, scenes
 
 app = FastAPI(title="SpaceGen AI", version="0.1.0")
 
@@ -17,6 +17,7 @@ app.add_middleware(
 
 # Routes
 app.include_router(scenes.router)
+app.include_router(projects.router)
 app.include_router(chat.router)
 app.include_router(generation.router)
 app.include_router(reconstruction.router)
