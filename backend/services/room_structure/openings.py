@@ -57,7 +57,14 @@ def detect_openings(
 
     ns, ny = int(np.ceil(length / CELL)), int(np.ceil(height / CELL))
     grid = np.zeros((ny, ns), dtype=np.int32)
-    np.add.at(grid, (np.minimum((y[on_plane] / CELL).astype(int), ny - 1), np.minimum((along[on_plane] / CELL).astype(int), ns - 1)), 1)
+    np.add.at(
+        grid,
+        (
+            np.minimum((y[on_plane] / CELL).astype(int), ny - 1),
+            np.minimum((along[on_plane] / CELL).astype(int), ns - 1),
+        ),
+        1,
+    )
     median = float(np.median(grid[grid > 0]))
     filled = (grid >= max(1.0, 0.2 * median)).astype(np.uint8)
     filled = cv2.morphologyEx(filled, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
@@ -119,7 +126,8 @@ def merge_external_openings(
                 i
                 for i, o in enumerate(merged)
                 if o.wallId == ext.wallId
-                and min(o.offset + o.width, ext.offset + ext.width) - max(o.offset, ext.offset) > 0.3 * min(o.width, ext.width)
+                and min(o.offset + o.width, ext.offset + ext.width) - max(o.offset, ext.offset)
+                > 0.3 * min(o.width, ext.width)
             ),
             None,
         )

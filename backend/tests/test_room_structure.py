@@ -7,6 +7,7 @@ from collections import Counter
 
 import numpy as np
 import pytest
+
 from models.contracts import OpeningInterpretation
 from services.room_structure import RoomStructureError, RoomStructureOptions, analyze_room
 
@@ -33,9 +34,7 @@ CASES = {
         low_opacity_floaters=3000,
     ),
     "slanted": dict(polygon=SLANTED, openings=[Opening(0, 1.5, 0.9, 0.0, 2.0)], seed=4),
-    "tilted_scan": dict(
-        polygon=RECTANGLE, openings=[Opening(1, 1.0, 0.9, 0.0, 2.0)], seed=5, max_tilt_deg=30.0
-    ),
+    "tilted_scan": dict(polygon=RECTANGLE, openings=[Opening(1, 1.0, 0.9, 0.0, 2.0)], seed=5, max_tilt_deg=30.0),
 }
 
 _results: dict[str, tuple] = {}

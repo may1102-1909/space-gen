@@ -94,7 +94,11 @@ def evaluate(scene: Scene, result) -> Accuracy:
         g0, g1 = (a + (b - a) / length_gt * s for s in (op.offset, op.offset + op.width))
         s0, s1 = sorted(((g0 - ra) @ rd, (g1 - ra) @ rd))
         for k, o in enumerate(interp.openings):
-            if o.wallId == wall.id and k not in used and min(o.offset + o.width, s1) - max(o.offset, s0) > 0.5 * op.width:
+            if (
+                o.wallId == wall.id
+                and k not in used
+                and min(o.offset + o.width, s1) - max(o.offset, s0) > 0.5 * op.width
+            ):
                 used.add(k)
                 found += 1
                 errors.append(max(abs(o.offset - s0), abs(o.offset + o.width - s1)))
