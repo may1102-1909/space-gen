@@ -24,7 +24,13 @@ export interface SplatCameraState {
 }
 
 export interface SplatBackgroundCanvasProps {
+  /** Legacy prototype prop; the main editor uses a mutable ref to avoid per-frame React renders. */
   cameraState?: SplatCameraState | null;
+  cameraStateRef?: React.RefObject<SplatCameraState | null>;
+  scanUrl?: string | null;
+  scanToScene?: number[];
+  visible?: boolean;
+  onPickerReady?: (picker: ((clientX: number, clientY: number) => [number, number, number] | null) | null) => void;
   enableMasking?: boolean;
   maskPosition?: [number, number, number];
   maskSize?: [number, number, number];
@@ -39,6 +45,11 @@ export interface SplatBackgroundCanvasProps {
 
 export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
   cameraState,
+  cameraStateRef,
+  scanUrl,
+  scanToScene,
+  visible = true,
+  onPickerReady,
   enableMasking = false,
   maskPosition = [0, 0, 0],
   maskSize = [1.5, 1.5, 1.5],
@@ -54,9 +65,14 @@ export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
   const splatEditRef = useRef<SplatEditType | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
+  const raycasterRef = useRef(new THREE.Raycaster());
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [loadedCount, setLoadedCount] = useState<number>(0);
+  const loadedCountRef = useRef(0);
+  const pickerCallbackRef = useRef(onPickerReady);
+  pickerCallbackRef.current = onPickerReady;
+  const legacyCameraStateRef = useRef(cameraState);
+  legacyCameraStateRef.current = cameraState;
 
   // FPS calculation refs
   const frameCountRef = useRef(0);
@@ -104,32 +120,11 @@ export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
         enableLod: false,
       });
       sparkRef.current = spark;
+      // SparkRenderer is a THREE.Mesh whose render hooks run only while it is in the scene graph.
+      scene.add(spark);
     } catch (err: any) {
       console.warn('[SplatCanvas] SparkRenderer init warning:', err);
       return;
-    }
-
-    // Load Hurstville_Museum_Gallery.sog
-    try {
-      const splatMesh = new SplatMesh({
-        url: '/Hurstville_Museum_Gallery.sog',
-        onLoad: (mesh: SplatMeshType) => {
-          const numSplats = mesh.numSplats || 161576;
-          setLoadedCount(numSplats);
-          if (onMetricsUpdate) {
-            onMetricsUpdate({
-              fps: currentFpsRef.current,
-              splatCount: numSplats,
-              format: 'pcsogszip (.sog)',
-              isLoaded: true,
-            });
-          }
-        },
-      });
-      splatMeshRef.current = splatMesh;
-      scene.add(splatMesh);
-    } catch (err: any) {
-      console.warn('[SplatCanvas] Failed loading .sog splat mesh:', err);
     }
 
     // Animation & Render Loop
@@ -146,10 +141,10 @@ export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
         frameCountRef.current = 0;
         lastFpsTimeRef.current = time;
 
-        if (onMetricsUpdate && loadedCount > 0) {
+        if (onMetricsUpdate && loadedCountRef.current > 0) {
           onMetricsUpdate({
             fps: currentFpsRef.current,
-            splatCount: loadedCount,
+            splatCount: loadedCountRef.current,
             format: 'pcsogszip (.sog)',
             isLoaded: true,
           });
@@ -157,6 +152,18 @@ export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
       }
 
       if (rendererRef.current && sceneRef.current && cameraRef.current && sparkRef.current) {
+        const state = cameraStateRef?.current || legacyCameraStateRef.current;
+        if (state) {
+          const camera = cameraRef.current;
+          camera.position.set(...state.position);
+          camera.quaternion.set(...state.quaternion);
+          camera.fov = state.fov;
+          camera.near = state.near;
+          camera.far = state.far;
+          camera.aspect = state.aspect;
+          camera.updateProjectionMatrix();
+          camera.updateMatrixWorld();
+        }
         sparkRef.current.render(sceneRef.current, cameraRef.current);
       }
     };
@@ -197,19 +204,84 @@ export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
     }
   }, [renderMode]);
 
-  // 2. Synchronize Camera when cameraState changes
+  // 2. Load the active Pascal ScanNode's source unchanged into Spark.
   useEffect(() => {
-    if (!cameraRef.current || !cameraState) return;
+    const scene = sceneRef.current;
+    if (!scene) return;
+    const previous = splatMeshRef.current;
+    if (previous) {
+      scene.remove(previous);
+      previous.dispose();
+      splatMeshRef.current = null;
+      loadedCountRef.current = 0;
+    }
+    if (!scanUrl) {
+      pickerCallbackRef.current?.(null);
+      return;
+    }
+    let cancelled = false;
+    try {
+      const splatMesh = new SplatMesh({
+        url: scanUrl,
+        raycastable: true,
+        onLoad: (mesh: SplatMeshType) => {
+          if (cancelled) return;
+          loadedCountRef.current = mesh.numSplats || 0;
+          onMetricsUpdate?.({
+            fps: currentFpsRef.current,
+            splatCount: loadedCountRef.current,
+            format: scanUrl.split(/[?#]/)[0].split('.').pop()?.toUpperCase() || 'SCAN',
+            isLoaded: true,
+          });
+          const picker = (clientX: number, clientY: number) => {
+            const canvas = canvasRef.current;
+            const camera = cameraRef.current;
+            const activeMesh = splatMeshRef.current;
+            if (!canvas || !camera || !activeMesh?.raycastable) return null;
+            const rect = canvas.getBoundingClientRect();
+            const pointer = new THREE.Vector2(
+              ((clientX - rect.left) / rect.width) * 2 - 1,
+              -((clientY - rect.top) / rect.height) * 2 + 1,
+            );
+            const raycaster = raycasterRef.current;
+            raycaster.setFromCamera(pointer, camera);
+            const hits = raycaster.intersectObject(activeMesh, false);
+            const point = hits[0]?.point;
+            return point ? [point.x, point.y, point.z] as [number, number, number] : null;
+          };
+          pickerCallbackRef.current?.(picker);
+        },
+      });
+      splatMeshRef.current = splatMesh;
+      scene.add(splatMesh);
+    } catch (err: any) {
+      setErrorMsg(`Could not load scan: ${err.message}`);
+    }
+    return () => {
+      cancelled = true;
+      if (splatMeshRef.current) {
+        scene.remove(splatMeshRef.current);
+        splatMeshRef.current.dispose();
+        splatMeshRef.current = null;
+      }
+      pickerCallbackRef.current?.(null);
+    };
+  }, [scanUrl, onMetricsUpdate]);
 
-    const cam = cameraRef.current;
-    cam.position.set(...cameraState.position);
-    cam.quaternion.set(...cameraState.quaternion);
-    cam.fov = cameraState.fov;
-    cam.near = cameraState.near;
-    cam.far = cameraState.far;
-    cam.aspect = cameraState.aspect;
-    cam.updateProjectionMatrix();
-  }, [cameraState]);
+  // 3. Apply the persisted Pascal alignment without modifying source splat data.
+  useEffect(() => {
+    const mesh = splatMeshRef.current;
+    if (!mesh) return;
+    mesh.visible = visible;
+    if (!scanToScene || scanToScene.length !== 16) return;
+    const matrix = new THREE.Matrix4().set(...scanToScene as [
+      number, number, number, number, number, number, number, number,
+      number, number, number, number, number, number, number, number,
+    ]);
+    mesh.matrixAutoUpdate = false;
+    mesh.matrix.copy(matrix);
+    mesh.matrixWorldNeedsUpdate = true;
+  }, [scanToScene, scanUrl, visible]);
 
   // 3. Dynamic Per-Region OBB Masking (SplatEdit SDF Box)
   useEffect(() => {

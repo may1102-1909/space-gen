@@ -32,9 +32,10 @@ test.describe('SpaceGen 3D Editor Smoke Test', () => {
     await expect(page.getByRole('button', { name: 'Wall', exact: true })).toBeVisible({ timeout: 15000 });
     await expect(page.getByRole('button', { name: 'Slab', exact: true })).toBeVisible({ timeout: 15000 });
 
-    // 4. Expect Three.js / WebGL canvas to be mounted in the viewport
-    const canvas = page.locator('canvas');
-    await expect(canvas).toBeVisible({ timeout: 20000 });
+    // 4. Expect dual-canvas architecture: background WebGL2 canvas (Spark) & foreground WebGPU canvas (Pascal)
+    const canvases = page.locator('canvas');
+    await expect(canvases.first()).toBeVisible({ timeout: 20000 });
+    await expect(canvases.nth(1)).toBeVisible({ timeout: 20000 });
 
     // 5. Allow frames to settle and verify no console errors
     await page.waitForTimeout(2000);

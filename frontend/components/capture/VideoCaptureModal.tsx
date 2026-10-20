@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { 
   AlertCircle, 
   Box, 
@@ -19,6 +19,7 @@ import {
 import { api } from '@/lib/api'
 import { ReconstructionJob } from '@/lib/types'
 import { useAppStore } from '@/lib/store'
+import { upsertScanNode } from '@/lib/pascal/scanNodes'
 import { motion, AnimatePresence } from 'framer-motion'
 
 type ModalTab = 'video' | 'import_model' | 'library'
@@ -30,6 +31,7 @@ interface AvailableModel {
   size_mb: number
   format: string
   url: string
+  mesh_url?: string
   modified: number
 }
 
@@ -38,6 +40,15 @@ const steps = ['Upload video', 'Extract keyframes', 'Estimate camera poses', 'Tr
 export function VideoCaptureModal({ onClose }: { onClose: () => void }) {
   const [activeTab, setActiveTab] = useState<ModalTab>('video')
   const { splatUrl, setSplatUrl, setLocalSplatData, setActiveJobId } = useAppStore()
+  const loadScanUrl = useCallback((url: string, meshUrl?: string) => {
+    setSplatUrl(url)
+    upsertScanNode(url, meshUrl ? { meshUrl } : undefined)
+  }, [setSplatUrl])
+  const loadLocalScan = (file: File) => {
+    if (/\.(sog|spz|ply|splat|ksplat)$/i.test(file.name)) {
+      loadScanUrl(URL.createObjectURL(file))
+    }
+  }
 
   /* ---------- Video Capture State ---------- */
   const inputRef = useRef<HTMLInputElement>(null)
@@ -66,12 +77,12 @@ export function VideoCaptureModal({ onClose }: { onClose: () => void }) {
         const updated = await api.getReconstructionJob(job.job_id)
         setJob(updated)
         if (updated.status === 'completed') {
-          setSplatUrl(api.getReconstructionModelUrl(updated.job_id))
+          loadScanUrl(api.getReconstructionModelUrl(updated.job_id), updated.mesh_url)
         }
       } catch { /* keep the last visible state */ }
     }, 1500)
     return () => window.clearInterval(timer)
-  }, [job, setSplatUrl])
+  }, [job, loadScanUrl])
 
   // Load available models when switching to library
   useEffect(() => {
@@ -137,6 +148,7 @@ export function VideoCaptureModal({ onClose }: { onClose: () => void }) {
       // Read bytes immediately into memory to avoid stale object URL permission revocations
       const buffer = await modelFile.arrayBuffer()
       setLocalSplatData({ buffer, name: modelFile.name })
+      loadLocalScan(modelFile)
       onClose()
     } catch (err: any) {
       console.warn('[ModelImport] Direct file read failed, falling back to FileReader:', err)
@@ -148,6 +160,7 @@ export function VideoCaptureModal({ onClose }: { onClose: () => void }) {
           reader.readAsArrayBuffer(modelFile)
         })
         setLocalSplatData({ buffer, name: modelFile.name })
+        loadLocalScan(modelFile)
         onClose()
       } catch (readErr: any) {
         setModelError(`Could not read file: ${readErr.message}`)
@@ -165,9 +178,9 @@ export function VideoCaptureModal({ onClose }: { onClose: () => void }) {
         setActiveJobId(result.job_id)
       }
       if (result.splat_url) {
-        setSplatUrl(api.normalizeModelUrl(result.splat_url) || result.splat_url)
+        loadScanUrl(api.normalizeModelUrl(result.splat_url) || result.splat_url, result.mesh_url)
       } else {
-        setSplatUrl(api.getReconstructionModelUrl(result.job_id))
+        loadScanUrl(api.getReconstructionModelUrl(result.job_id), result.mesh_url)
       }
       onClose()
     } catch (err: any) {
@@ -176,6 +189,7 @@ export function VideoCaptureModal({ onClose }: { onClose: () => void }) {
       try {
         const buffer = await modelFile.arrayBuffer()
         setLocalSplatData({ buffer, name: modelFile.name })
+        loadLocalScan(modelFile)
         onClose()
       } catch (readErr: any) {
         setModelError(`Could not read file: ${readErr.message}`)
@@ -189,7 +203,7 @@ export function VideoCaptureModal({ onClose }: { onClose: () => void }) {
     if (model.job_id) {
       setActiveJobId(model.job_id)
     }
-    setSplatUrl(api.normalizeModelUrl(model.url) || model.url)
+    loadScanUrl(api.normalizeModelUrl(model.url) || model.url, model.mesh_url)
     onClose()
   }
 
@@ -486,6 +500,17 @@ export function VideoCaptureModal({ onClose }: { onClose: () => void }) {
                 className="hidden"
                 onChange={(e) => chooseModel(e.target.files?.[0])}
               />
+
+              <button
+                type="button"
+                onClick={() => {
+                  loadScanUrl('/Hurstville_Museum_Gallery.sog')
+                  onClose()
+                }}
+                className="mt-3 w-full rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs font-medium text-emerald-300 transition-colors hover:bg-emerald-500/20"
+              >
+                Load verified sample room scan
+              </button>
 
               {modelError && (
                 <p className="mt-3 flex items-center gap-2 text-xs text-red-400">
