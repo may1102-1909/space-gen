@@ -161,13 +161,7 @@ def fit_floor_ceiling(
     peaks, _, _ = _height_peaks(h)
     lo_peak, hi_peak = (float(peaks.min()), float(peaks.max())) if len(peaks) else (float(np.percentile(h, 1)), None)
 
-    if not sign_fixed and hi_peak is not None and hi_peak - lo_peak > 1.0:
-        n_lo = np.count_nonzero((h > lo_peak + 0.15) & (h < lo_peak + 1.2))
-        n_hi = np.count_nonzero((h < hi_peak - 0.15) & (h > hi_peak - 1.2))
-        if n_hi > n_lo:  # furniture clutter stacks above the floor, not below the ceiling
-            up, h = -up, -h
-            lo_peak, hi_peak = -hi_peak, -lo_peak
-    elif not sign_fixed and hi_peak is None and lo_peak > float(np.median(h)):
+    if not sign_fixed and hi_peak is None and lo_peak > float(np.median(h)):
         up, h = -up, -h
         lo_peak = float(np.percentile(h, 1))
 
@@ -199,6 +193,39 @@ def fit_floor_ceiling(
         ceil_h = float(np.percentile(h[h > floor_h + 0.5], 99)) if np.any(h > floor_h + 0.5) else floor_h + 2.5
         ceil_conf = 0.25  # ceiling not observed; height taken from the top of the walls
     return up, floor_h, ceil_h, {"floor": floor_conf, "ceiling": ceil_conf}
+
+
+def clutter_sign(pts: np.ndarray, up: np.ndarray) -> int:
+    """+1 if `up` points from floor to ceiling, -1 if reversed, 0 if the points cannot tell.
+
+    Furniture stacks above the floor. Only points over the room interior count, because wall
+    points (and door gaps in them) are symmetric between floor and ceiling and would mislead.
+    """
+    h = pts @ up
+    peaks, _, _ = _height_peaks(h)
+    if len(peaks) < 2 or peaks.max() - peaks.min() <= 1.0:
+        return 0
+    lo, hi = float(peaks.min()), float(peaks.max())
+    basis = basis_from_up(up)
+    xz = (pts @ basis.T)[:, [0, 2]]
+    cell = 0.1
+    ij = np.floor((xz - xz.min(axis=0)) / cell).astype(int)
+    shape = ij.max(axis=0) + 1
+    if shape.max() > 4000:
+        return 0
+    both = np.ones(tuple(shape), dtype=np.uint8)
+    for level in (lo, hi):
+        plane = np.zeros(tuple(shape), dtype=np.uint8)
+        sel = np.abs(h - level) < 0.05
+        plane[ij[sel, 0], ij[sel, 1]] = 1
+        both &= cv2.morphologyEx(plane, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
+    interior = cv2.erode(both, np.ones((7, 7), np.uint8))
+    inside = interior[ij[:, 0], ij[:, 1]] > 0
+    n_lo = np.count_nonzero(inside & (h > lo + 0.15) & (h < lo + 1.2))
+    n_hi = np.count_nonzero(inside & (h < hi - 0.15) & (h > hi - 1.2))
+    if max(n_lo, n_hi) < 200 or max(n_lo, n_hi) < 1.5 * min(n_lo, n_hi):
+        return 0
+    return -1 if n_hi > n_lo else 1
 
 
 def basis_from_up(up: np.ndarray) -> np.ndarray:
@@ -395,6 +422,23 @@ def _intersect(n1: np.ndarray, c1: float, n2: np.ndarray, c2: float) -> np.ndarr
 # --------------------------------------------------------------------------- orchestration
 
 
+def _opening_score(openings: list[OpeningInterpretation], height: float) -> float:
+    """How plausible the up-axis sign is: doors reach the floor, never the ceiling alone."""
+    score = 0.0
+    for o in openings:
+        touches_floor = o.sill < 0.15
+        touches_ceiling = o.sill + o.height > height - 0.1
+        if o.kind == "door":
+            score += o.confidence
+        elif o.kind == "window":
+            score += 0.5 * o.confidence
+        elif touches_floor:
+            score += 0.25 * o.confidence
+        elif touches_ceiling:
+            score -= 0.5 * o.confidence
+    return score
+
+
 def analyze_room(
     positions: np.ndarray,
     opacity: np.ndarray | None = None,
@@ -404,18 +448,56 @@ def analyze_room(
     progress: ProgressFn | None = None,
 ) -> RoomStructureResult:
     opts = options or RoomStructureOptions()
-    rng = np.random.default_rng(opts.seed)
     report = progress or (lambda stage, fraction: None)
 
     report("filtering", 0.05)
     n_input = len(positions) + (0 if colmap_points is None else len(colmap_points))
-    pts = prepare_points(positions, opacity, colmap_points, opts, rng)
+    pts = prepare_points(positions, opacity, colmap_points, opts, np.random.default_rng(opts.seed))
 
     report("gravity", 0.2)
     if opts.up_hint is not None:
         up0, gravity_conf = _unit(np.asarray(opts.up_hint, dtype=np.float64)), 1.0
+        candidates = [up0]
     else:
-        up0, gravity_conf = estimate_up(pts, rng, opts)
+        up0, gravity_conf = estimate_up(pts, np.random.default_rng(opts.seed), opts)
+        sign = clutter_sign(pts, up0)
+        candidates = [up0] if sign > 0 else [-up0] if sign < 0 else [up0, -up0]
+
+    # Without clutter evidence the two orientations are mirror images; solve both and keep the one
+    # whose openings make sense (doors touch the floor), then the one with more floor mass.
+    results: list[tuple[tuple[float, float], RoomStructureResult]] = []
+    error: RoomStructureError | None = None
+    for candidate in candidates:
+        try:
+            result = _solve(pts, candidate, gravity_conf, opts, n_input, opening_detector, report)
+        except RoomStructureError as exc:
+            error = error or exc
+            continue
+        interp = result.interpretation
+        key = (
+            _opening_score(list(interp.openings), interp.ceilingHeight),
+            float(result.diagnostics["floor"]["mass"]),
+        )
+        results.append((key, result))
+    if not results:
+        raise error or RoomStructureError("Could not interpret the room.")
+    best = max(results, key=lambda item: item[0])[1]
+    if len(candidates) > 1:
+        best.diagnostics["notes"].append("up axis sign resolved from openings and floor mass (no furniture evidence)")
+    report("done", 1.0)
+    return best
+
+
+def _solve(
+    pts: np.ndarray,
+    up0: np.ndarray,
+    gravity_conf: float,
+    opts: RoomStructureOptions,
+    n_input: int,
+    opening_detector: OpeningDetector | None,
+    report: ProgressFn,
+) -> RoomStructureResult:
+    rng = np.random.default_rng(opts.seed)
     up, floor_h, ceil_h, confs = fit_floor_ceiling(pts, up0, rng, opts, sign_fixed=opts.up_hint is not None)
     height = ceil_h - floor_h
     if height < 1.0:
@@ -521,7 +603,10 @@ def analyze_room(
         "pointsInput": int(n_input),
         "pointsUsed": int(len(pts)),
         "gravity": {"upScan": [float(v) for v in up], "confidence": float(gravity_conf)},
-        "floor": {"confidence": float(confs["floor"] * min(1.0, 0.5 + floor_cov))},
+        "floor": {
+            "confidence": float(confs["floor"] * min(1.0, 0.5 + floor_cov)),
+            "mass": int(np.count_nonzero(np.abs(pts @ up - floor_h) < 0.05)),
+        },
         "ceiling": {"height": float(height), "confidence": float(confs["ceiling"])},
         "orientation": {"yawDegrees": theta_deg, "manhattan": bool(manhattan), "manhattanFraction": manhattan_fraction},
         "outline": {"confidence": outline_conf, "vertices": len(verts_c)},
@@ -532,5 +617,4 @@ def analyze_room(
     if not 1.8 <= height <= 4.5:
         diagnostics["scaleWarning"] = "ceiling height is implausible for metres"
         diagnostics["suggestedScale"] = float(opts.scale * 2.5 / height)
-    report("done", 1.0)
     return RoomStructureResult(interpretation, scan_to_scene, diagnostics)

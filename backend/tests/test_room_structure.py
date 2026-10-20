@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from collections import Counter
 
 import numpy as np
 import pytest
@@ -97,6 +98,28 @@ def test_opening_kinds_and_confidences():
     assert by_kind["window"].sill == pytest.approx(0.9, abs=0.1)
     assert by_kind["window"].height == pytest.approx(1.2, abs=0.12)
     assert all(o.confidence > 0.5 for o in interp.openings)
+
+
+@pytest.mark.parametrize("name", list(CASES))
+def test_door_and_window_kinds_per_case(name):
+    """Floor vs ceiling must not flip: doors reach the floor, windows float."""
+    scene, result, _ = _run(name)
+    openings = result.interpretation.openings
+    expected = Counter("door" if o.sill == 0.0 else "window" for o in scene.openings)
+    assert Counter(o.kind for o in openings) == expected
+    for o in openings:
+        if o.kind == "door":
+            assert o.sill < 0.1 and o.height == pytest.approx(2.0, abs=0.15)
+        else:
+            assert o.sill > 0.5
+
+
+def test_upside_down_scan_without_furniture_resolves_floor_from_ceiling():
+    for seed in range(6, 10):
+        scene = make_room(polygon=L_SHAPE, openings=[Opening(0, 2.0, 0.9, 0.0, 2.0)], seed=seed)
+        result = analyze_room(scene.positions, scene.opacity)
+        assert [o.kind for o in result.interpretation.openings] == ["door"], seed
+        assert result.interpretation.openings[0].sill < 0.1
 
 
 def test_deterministic_for_a_seed():
