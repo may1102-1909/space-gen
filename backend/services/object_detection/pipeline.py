@@ -18,7 +18,17 @@ from models.contracts import DetectionInterpretation, MaskRegion, OrientedBoundi
 
 from .colmap import ColmapModel
 from .detectors import DEFAULT_LABELS, Detection2D, Detector2D, Frame
-from .geometry import View, fit_obb, front_depth_group, make_view, obb_iou, split_similarity, visible_in_view
+from .geometry import (
+    View,
+    fit_obb,
+    front_depth_group,
+    make_view,
+    obb_iou,
+    project,
+    split_similarity,
+    visible_in_view,
+    yaw_axes,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +49,9 @@ class PipelineConfig:
     cluster_gap: float = 0.10  # max distance between lifted point extents of one object seen in two views
     min_views: int = 2  # clusters seen in fewer keyframes are treated as false positives
     min_visible_points: int = 25
+    min_visible_fraction: float = 0.3  # of the object's points that must be unoccluded
+    min_inframe_fraction: float = 0.7
+    fit_trim: float = 1.0  # percentile trimmed from each end of the OBB extents
     nms_iou: float = 0.5
     feather: float = 0.05
 
@@ -142,12 +155,49 @@ def fit_cluster(cluster: Cluster, points: np.ndarray, cfg: PipelineConfig) -> tu
     uniq, counts = np.unique(all_idx, return_counts=True)
     voted = uniq[counts >= math.ceil(len(cluster.lifts) / 2)]
     idx = voted if voted.size >= cfg_min_fit_points(cfg) else uniq
-    center, size, yaw = fit_obb(points[idx], trim=2.0)
+    center, size, yaw = fit_obb(points[idx], trim=cfg.fit_trim)
     return idx, center, size, yaw
 
 
 def cfg_min_fit_points(cfg: PipelineConfig) -> int:
     return max(cfg.min_box_points, 3 * cfg.min_visible_points)
+
+
+def in_frame_fraction(view: View, obb: tuple) -> float:
+    """Fraction of the projected OBB's 2D extent that lies inside the image (0 if any corner is behind)."""
+    (cx, cy, cz), (sx, sy, sz), yaw = obb
+    ax, az = yaw_axes(yaw)
+    corners = np.array(
+        [
+            [
+                cx + i * sx / 2 * ax[0] + k * sz / 2 * az[0],
+                cy + j * sy / 2,
+                cz + i * sx / 2 * ax[1] + k * sz / 2 * az[1],
+            ]
+            for i in (-1, 1)
+            for j in (-1, 1)
+            for k in (-1, 1)
+        ]
+    )
+    u, v, z = project(view, corners)
+    if not np.isfinite(z).all():
+        return 0.0
+    w, h = view.camera.width, view.camera.height
+    full = (u.max() - u.min()) * (v.max() - v.min())
+    clipped_w = min(u.max(), w) - max(u.min(), 0.0)
+    clipped_h = min(v.max(), h) - max(v.min(), 0.0)
+    if full <= 0 or clipped_w <= 0 or clipped_h <= 0:
+        return 0.0
+    return float(clipped_w * clipped_h / full)
+
+
+def _is_expected(view: View, obb: tuple, visible: np.ndarray, cfg: PipelineConfig) -> bool:
+    """A view should have detected an object when it is mostly in frame and not mostly occluded."""
+    return (
+        int(visible.sum()) >= cfg.min_visible_points
+        and float(visible.mean()) >= cfg.min_visible_fraction
+        and in_frame_fraction(view, obb) >= cfg.min_inframe_fraction
+    )
 
 
 def nms(boxes: list[dict[str, Any]], iou_threshold: float) -> list[dict[str, Any]]:
@@ -186,6 +236,7 @@ def run_pipeline(
 
     images = _select_frames(model, frames, cfg.max_keyframes)
     lifts: list[Lift] = []
+    views: list[View] = []
     visibility: list[np.ndarray] = []
     failed_frames = 0
     n_2d = 0
@@ -199,6 +250,7 @@ def run_pipeline(
             failed_frames += 1
             detections = []
         u, v, z, visible = visible_in_view(view, points)
+        views.append(view)
         visibility.append(visible)
         n_2d += len(detections)
         candidates = visible & non_floor
@@ -220,7 +272,11 @@ def run_pipeline(
             rejected += 1
             continue
         idx, center, size, yaw = fit_cluster(cluster, points, cfg)
-        expected = sum(1 for vis in visibility if int(vis[idx].sum()) >= cfg.min_visible_points)
+        expected = sum(
+            1
+            for view, vis in zip(views, visibility, strict=True)
+            if _is_expected(view, (center, size, yaw), vis[idx], cfg)
+        )
         agreement = min(1.0, n_views / max(expected, n_views))
         mean_score = float(np.mean([lift.score for lift in cluster.lifts]))
         fitted.append(
