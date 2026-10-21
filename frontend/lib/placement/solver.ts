@@ -69,6 +69,9 @@ interface Pose {
   sidePref?: number;
 }
 
+const MAX_WALL_POSES = 60;
+const MAX_GRID_POSES = 70;
+const MAX_GREEDY_EVALS = 30;
 const WEIGHTS = { validity: 0.25, clearance: 0.2, anchor: 0.25, alignment: 0.1, symmetry: 0.2 };
 const WALL_LOVERS = new Set(['sofa', 'couch', 'bed', 'wardrobe', 'bookcase', 'shelf', 'cabinet', 'storage', 'desk', 'tv_stand', 'dresser']);
 
@@ -168,13 +171,17 @@ function generatePoses(req: PlacementRequest, ctx: PlacementContext): { poses: P
     }
   }
 
+  // Sampling density is capped so large rooms stay within the interactive time budget.
+  const totalWall = room.walls.reduce((sum, x) => sum + x.length, 0);
+  const wallStep = Math.max(0.3, totalWall / MAX_WALL_POSES);
+
   // Wall strip: flush against inner wall faces, front pointing into the room.
   for (const wall of room.walls) {
     const margin = hw + 0.05;
     if (wall.length < 2 * margin) continue;
     const yaw = yawFacing(wall.normal[0], wall.normal[1]);
     const off = wall.thickness / 2 + hd + 0.005;
-    for (let t = margin; t <= wall.length - margin + 1e-9; t += 0.3) {
+    for (let t = margin; t <= wall.length - margin + 1e-9; t += wallStep) {
       poses.push({
         x: wall.start[0] + wall.dir[0] * t + wall.normal[0] * off,
         z: wall.start[1] + wall.dir[1] * t + wall.normal[1] * off,
@@ -194,8 +201,9 @@ function generatePoses(req: PlacementRequest, ctx: PlacementContext): { poses: P
         const b = polygonBounds(room.walls.flatMap((x) => [x.start, x.end]));
         return { minX: b.minX - 2, maxX: b.maxX + 2, minZ: b.minZ - 2, maxZ: b.maxZ + 2 };
       })();
-  for (let x = bounds.minX + 0.5; x < bounds.maxX; x += 0.5) {
-    for (let z = bounds.minZ + 0.5; z < bounds.maxZ; z += 0.5) {
+  const gridStep = Math.max(0.5, Math.sqrt(((bounds.maxX - bounds.minX) * (bounds.maxZ - bounds.minZ)) / MAX_GRID_POSES));
+  for (let x = bounds.minX + gridStep; x < bounds.maxX; x += gridStep) {
+    for (let z = bounds.minZ + gridStep; z < bounds.maxZ; z += gridStep) {
       if (room.outline && !pointInPolygon([x, z], room.outline)) continue;
       let f = focal[0];
       let best = Infinity;
@@ -259,12 +267,16 @@ function staticScore(
   } else if (pose.strategy === 'wall') {
     anchor = WALL_LOVERS.has(cat) ? 1 : 0.5;
     if (WALL_LOVERS.has(cat)) reasons.push('against a wall as is typical for this category');
+  } else if (pose.strategy === 'focal' && req.focalPoints?.length && !WALL_LOVERS.has(cat)) {
+    anchor = 0.95;
+    reasons.push('free-standing, facing the requested focal point');
   } else {
     anchor = WALL_LOVERS.has(cat) ? 0.2 : 0.6;
     if (!WALL_LOVERS.has(cat)) reasons.push('free-standing, facing the room focus');
   }
 
-  const alignment = pose.strategy === 'anchor' && pose.anchor ? 1 : wallAlignment(pose.yaw, ctx);
+  const facesFocus = pose.strategy === 'focal' && !!req.focalPoints?.length;
+  const alignment = (pose.strategy === 'anchor' && pose.anchor) || facesFocus ? 1 : wallAlignment(pose.yaw, ctx);
   if (alignment > 0.95) reasons.push('aligned with the room axes');
 
   let symmetry = 0.5;
@@ -383,7 +395,7 @@ export function solveInContext(request: PlacementRequest, ctx: PlacementContext)
       let best: { p: Pooled; total: number; sym: number } | null = null;
       let evaluated = 0;
       for (const p of pool) {
-        if (evaluated >= 60) break;
+        if (evaluated >= MAX_GREEDY_EVALS) break;
         if (chosen.some((c) => Math.hypot(c.position[0] - p.pose.x, c.position[2] - p.pose.z) < 0.05)) continue;
         const violations = validateSubject(subjectFor(request, p.pose, p.idx), sub);
         if (violations.some((v) => v.severity === 'error')) continue;

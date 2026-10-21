@@ -138,8 +138,8 @@ describe('placement validator rules (rectangular fixture room)', () => {
 
   it('DOOR_SWING: doorHinge option selects which leaf is swept', () => {
     // Inside the start-hinge quarter disc but outside the end-hinge one, and vice versa.
-    const nearStartHinge = proposal('chair', [1.9, 0, 1.9], [0.2, 0.8, 0.2]);
-    const nearEndHinge = proposal('chair', [1.15, 0, 1.9], [0.2, 0.8, 0.2]);
+    const nearStartHinge = proposal('chair', [1.9, 0, 1.55], [0.2, 0.8, 0.2]);
+    const nearEndHinge = proposal('chair', [1.2, 0, 1.55], [0.2, 0.8, 0.2]);
     const has = (p: EditProposal, doorHinge: 'start' | 'end' | 'both') =>
       codes(validate(p, [], interp, { category: 'chair', doorHinge })).includes('DOOR_SWING');
     expect(has(nearStartHinge, 'start')).toBe(true);
