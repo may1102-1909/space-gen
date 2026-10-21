@@ -33,6 +33,8 @@ import { Loader2 } from 'lucide-react';
 
 type ScanPicker = (clientX: number, clientY: number) => Vector3 | null;
 
+const NO_MASK_REGIONS: MaskRegion[] = [];
+
 function ScanCameraBridge({
   cameraStateRef,
   isPicking,
@@ -221,7 +223,7 @@ export function SceneViewer({ selectedId, onSelectObject }: SceneViewerProps) {
   const scanToScene: Matrix4 = scanNode?.metadata?.scanToScene || [
     1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1,
   ];
-  const maskRegions: MaskRegion[] = scanNode?.metadata?.maskRegions || [];
+  const maskRegions: MaskRegion[] = scanNode?.metadata?.maskRegions || NO_MASK_REGIONS;
   const handlePickerReady = useCallback((picker: ScanPicker | null) => {
     pickerRef.current = picker;
   }, []);

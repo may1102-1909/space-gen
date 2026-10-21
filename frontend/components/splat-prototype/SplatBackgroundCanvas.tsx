@@ -2,18 +2,12 @@
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import * as THREE from 'three';
-import {
-  SparkRenderer,
-  SplatMesh,
-  SplatEdit,
-  SplatEditSdf,
-  SplatEditSdfType,
-} from '@sparkjsdev/spark';
+import { SparkRenderer, SplatMesh } from '@sparkjsdev/spark';
 import type { MaskRegion } from '@/lib/contracts';
+import { applyMaskEdits } from '@/lib/splat/maskEdits';
 
 type SparkRendererType = InstanceType<typeof SparkRenderer>;
 type SplatMeshType = InstanceType<typeof SplatMesh>;
-type SplatEditType = InstanceType<typeof SplatEdit>;
 
 export interface SplatCameraState {
   position: [number, number, number];
@@ -45,6 +39,11 @@ export interface SplatBackgroundCanvasProps {
   renderMode?: 'synced' | 'unsupported_webgpu' | 'forced_webgl_fail';
 }
 
+// Stable defaults so the mask effect does not rebuild Spark edits on every render.
+const DEFAULT_MASK_POSITION: [number, number, number] = [0, 0, 0];
+const DEFAULT_MASK_SIZE: [number, number, number] = [1.5, 1.5, 1.5];
+const NO_MASK_REGIONS: MaskRegion[] = [];
+
 export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
   cameraState,
   cameraStateRef,
@@ -53,9 +52,9 @@ export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
   visible = true,
   onPickerReady,
   enableMasking = false,
-  maskPosition = [0, 0, 0],
-  maskSize = [1.5, 1.5, 1.5],
-  maskRegions = [],
+  maskPosition = DEFAULT_MASK_POSITION,
+  maskSize = DEFAULT_MASK_SIZE,
+  maskRegions = NO_MASK_REGIONS,
   onMetricsUpdate,
   renderMode = 'synced',
 }) => {
@@ -65,7 +64,6 @@ export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const sparkRef = useRef<SparkRendererType | null>(null);
   const splatMeshRef = useRef<SplatMeshType | null>(null);
-  const activeEditsRef = useRef<SplatEditType[]>([]);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const raycasterRef = useRef(new THREE.Raycaster());
@@ -286,85 +284,21 @@ export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
     mesh.matrixWorldNeedsUpdate = true;
   }, [scanToScene, scanUrl, visible]);
 
-  // 3. Dynamic Per-Region OBB Masking (SplatEdit SDF Box) with feathered opacity falloff & ghost mode
+  // 4. Per-region OBB masking. Re-runs whenever the SplatMesh is recreated (scanUrl change), so a
+  // newly loaded scan never renders without its persisted masks.
   useEffect(() => {
     const splatMesh = splatMeshRef.current;
-    const scene = sceneRef.current;
-    if (!splatMesh || !scene) return;
-
-    // Clean up previous edits
-    for (const oldEdit of activeEditsRef.current) {
-      scene.remove(oldEdit);
-      splatMesh.remove(oldEdit);
-    }
-    activeEditsRef.current = [];
-
-    const nextEdits: SplatEditType[] = [];
-
-    if (maskRegions && maskRegions.length > 0) {
-      for (const mask of maskRegions) {
-        if (mask.enabled === false) continue;
-
-        const targetOpacity = mask.ghost ? (mask.opacity ?? 0.25) : 0.0;
-        const boxSdf = new SplatEditSdf({
-          type: SplatEditSdfType.BOX,
-          opacity: targetOpacity,
-        });
-
-        boxSdf.position.set(mask.obb.center[0], mask.obb.center[1], mask.obb.center[2]);
-        boxSdf.rotation.set(0, mask.obb.yaw || 0, 0);
-        // Half-extents for Spark box SDF:
-        boxSdf.scale.set(
-          Math.max(0.01, mask.obb.size[0] / 2),
-          Math.max(0.01, mask.obb.size[1] / 2),
-          Math.max(0.01, mask.obb.size[2] / 2)
-        );
-
-        const edit = new SplatEdit({
-          sdfs: [boxSdf],
-          softEdge: mask.feather ?? 0.05,
-          sdfSmooth: 0.02,
-        });
-
-        scene.add(edit);
-        nextEdits.push(edit);
-      }
-    } else if (enableMasking) {
-      const boxSdf = new SplatEditSdf({
-        type: SplatEditSdfType.BOX,
-        opacity: 0.0,
-      });
-      boxSdf.position.set(...maskPosition);
-      boxSdf.scale.set(
-        Math.max(0.01, maskSize[0] / 2),
-        Math.max(0.01, maskSize[1] / 2),
-        Math.max(0.01, maskSize[2] / 2)
-      );
-
-      const edit = new SplatEdit({
-        sdfs: [boxSdf],
-        softEdge: 0.05,
-        sdfSmooth: 0.02,
-      });
-
-      scene.add(edit);
-      nextEdits.push(edit);
-    }
-
-    splatMesh.edits = nextEdits.length > 0 ? nextEdits : null;
-    activeEditsRef.current = nextEdits;
-
+    if (!splatMesh) return;
+    const regions: MaskRegion[] = maskRegions.length > 0
+      ? maskRegions
+      : enableMasking
+        ? [{ id: 'prototype-mask', obb: { center: maskPosition, size: maskSize, yaw: 0 }, feather: 0.05, enabled: true }]
+        : [];
+    applyMaskEdits(splatMesh, regions);
     return () => {
-      for (const edit of nextEdits) {
-        scene.remove(edit);
-        splatMesh.remove(edit);
-      }
-      activeEditsRef.current = [];
-      if (splatMeshRef.current) {
-        splatMeshRef.current.edits = null;
-      }
+      splatMesh.edits = null;
     };
-  }, [enableMasking, maskPosition, maskSize, maskRegions]);
+  }, [scanUrl, enableMasking, maskPosition, maskSize, maskRegions]);
 
   return (
     <div ref={containerRef} className="absolute inset-0 w-full h-full pointer-events-none">
