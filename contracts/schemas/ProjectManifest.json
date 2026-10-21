@@ -276,6 +276,20 @@
           ],
           "title": "Provenance",
           "type": "string"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence"
         }
       },
       "required": [
@@ -384,6 +398,7 @@
           "type": "string"
         },
         "offset": {
+          "description": "Distance along the wall from wall.start to the opening's center, in meters.",
           "minimum": 0.0,
           "title": "Offset",
           "type": "number"
@@ -524,6 +539,20 @@
           "exclusiveMinimum": 0.0,
           "title": "Ceilingheight",
           "type": "number"
+        },
+        "ceilingConfidence": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ceilingconfidence"
         },
         "outline": {
           "items": {

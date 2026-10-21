@@ -9,6 +9,7 @@ export const FloorPlaneSchema = z.object({
   normal: Vector3Schema,
   constant: z.number(),
   provenance: ProvenanceSchema,
+  confidence: z.number().min(0).max(1).nullable().optional(),
 });
 export type FloorPlane = z.infer<typeof FloorPlaneSchema>;
 
@@ -30,7 +31,10 @@ export const OpeningInterpretationSchema = z.object({
   id: z.string(),
   wallId: z.string(),
   kind: OpeningKindSchema,
-  offset: z.number().nonnegative(),
+  offset: z
+    .number()
+    .nonnegative()
+    .describe("Distance along the wall from wall.start to the opening's center, in meters."),
   width: z.number().positive(),
   height: z.number().positive(),
   sill: z.number().nonnegative(),
@@ -66,6 +70,7 @@ export const RoomInterpretationSchema = z.object({
   provenance: ProvenanceSchema,
   floor: FloorPlaneSchema,
   ceilingHeight: z.number().positive(),
+  ceilingConfidence: z.number().min(0).max(1).nullable().optional(),
   outline: z.array(Point2DSchema),
   walls: z.array(WallInterpretationSchema),
   openings: z.array(OpeningInterpretationSchema),
