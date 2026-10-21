@@ -118,7 +118,9 @@ class OpeningInterpretation(BaseModel):
     id: str
     wallId: str
     kind: OpeningKind
-    offset: float = Field(ge=0.0)
+    offset: float = Field(
+        ge=0.0, description="Distance along the wall from wall.start to the opening's center, in meters."
+    )
     width: float = Field(gt=0.0)
     height: float = Field(gt=0.0)
     sill: float = Field(ge=0.0)

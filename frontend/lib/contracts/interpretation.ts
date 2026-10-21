@@ -31,7 +31,10 @@ export const OpeningInterpretationSchema = z.object({
   id: z.string(),
   wallId: z.string(),
   kind: OpeningKindSchema,
-  offset: z.number().nonnegative(),
+  offset: z
+    .number()
+    .nonnegative()
+    .describe("Distance along the wall from wall.start to the opening's center, in meters."),
   width: z.number().positive(),
   height: z.number().positive(),
   sill: z.number().nonnegative(),

@@ -13,7 +13,7 @@ from models.contracts import RoomStructureResult
 @dataclass
 class Opening:
     wall: int
-    offset: float
+    offset: float  # along the wall from its start to the opening centre (contract convention)
     width: float
     sill: float
     height: float
@@ -77,12 +77,13 @@ def generate(room: SyntheticRoom, seed: int = 0) -> Tuple[np.ndarray, np.ndarray
         keep = np.ones(n, dtype=bool)
         for op in room.openings:
             if op.wall == i:
-                keep &= ~((t > op.offset) & (t < op.offset + op.width) & (y > op.sill) & (y < op.sill + op.height))
+                t_lo, t_hi = op.offset - op.width / 2, op.offset + op.width / 2
+                keep &= ~((t > t_lo) & (t < t_hi) & (y > op.sill) & (y < op.sill + op.height))
                 if op.kind == "window":  # sparse view-through points well outside the room
                     m = 200
                     u = (b - a) / length
                     out = np.array([u[1], -u[0]])
-                    tt = rng.uniform(op.offset, op.offset + op.width, m)
+                    tt = rng.uniform(t_lo, t_hi, m)
                     depth = rng.uniform(0.8, 3.0, m)
                     xz = a + tt[:, None] * u + depth[:, None] * out
                     chunks.append(np.column_stack([xz[:, 0], rng.uniform(0, room.height, m), xz[:, 1]]))
@@ -151,7 +152,7 @@ def recovery_errors(room: SyntheticRoom, result: RoomStructureResult) -> Dict[st
         k = gt_to_rec.get(op.wall)
         a, b = gt[op.wall], gt[(op.wall + 1) % len(gt)]
         u = (b - a) / np.linalg.norm(b - a)
-        gt_start = a + op.offset * u
+        gt_center = a + op.offset * u
         candidates = []
         for rec in interp.openings:
             if rec.wallId != f"wall_{k}" or rec.kind != op.kind:
@@ -159,9 +160,9 @@ def recovery_errors(room: SyntheticRoom, result: RoomStructureResult) -> Dict[st
             w = interp.walls[k]
             ws, we = back(w.start), back(w.end)
             ru = (we - ws) / np.linalg.norm(we - ws)
-            start = ws + rec.offset * ru
+            center = ws + rec.offset * ru
             err = max(
-                float(np.linalg.norm(start - gt_start)),
+                float(np.linalg.norm(center - gt_center)),
                 abs(rec.width - op.width),
                 abs(rec.sill - op.sill),
                 abs(rec.height - op.height),
@@ -190,7 +191,7 @@ ROOMS = [
         name="rectangle",
         outline=[(0, 0), (5, 0), (5, 4), (0, 4)],
         height=2.6,
-        openings=[Opening(0, 1.0, 0.9, 0.0, 2.1, "door"), Opening(2, 1.5, 1.2, 0.9, 1.1, "window")],
+        openings=[Opening(0, 1.45, 0.9, 0.0, 2.1, "door"), Opening(2, 2.1, 1.2, 0.9, 1.1, "window")],
         tilt_deg=8.0,
         yaw_deg=27.0,
         translation=(1.5, -0.7, 3.0),
@@ -199,7 +200,7 @@ ROOMS = [
         name="l_shape",
         outline=[(0, 0), (6, 0), (6, 2.5), (3, 2.5), (3, 5), (0, 5)],
         height=2.7,
-        openings=[Opening(1, 0.6, 1.0, 0.0, 2.1, "door"), Opening(5, 1.5, 1.5, 1.0, 1.0, "window")],
+        openings=[Opening(1, 1.1, 1.0, 0.0, 2.1, "door"), Opening(5, 2.25, 1.5, 1.0, 1.0, "window")],
         tilt_deg=12.0,
         yaw_deg=-40.0,
         translation=(-2.0, 1.2, 0.5),
@@ -208,7 +209,7 @@ ROOMS = [
         name="noisy_floaters",
         outline=[(0, 0), (4.5, 0), (4.5, 3.5), (0, 3.5)],
         height=2.5,
-        openings=[Opening(1, 1.0, 0.9, 0.0, 2.05, "door")],
+        openings=[Opening(1, 1.45, 0.9, 0.0, 2.05, "door")],
         furniture=[((1.5, 0.4, 1.0), (2.0, 0.8, 0.9)), ((3.6, 0.375, 2.6), (0.8, 0.75, 0.8))],
         noise=0.02,
         floaters=8000,

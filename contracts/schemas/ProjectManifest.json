@@ -398,6 +398,7 @@
           "type": "string"
         },
         "offset": {
+          "description": "Distance along the wall from wall.start to the opening's center, in meters.",
           "minimum": 0.0,
           "title": "Offset",
           "type": "number"

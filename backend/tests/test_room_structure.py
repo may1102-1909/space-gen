@@ -90,7 +90,7 @@ def test_image_detector_is_fused():
                     id="img_0",
                     wallId=walls[0].id,
                     kind="window",
-                    offset=0.2,
+                    offset=0.5,
                     width=0.5,
                     height=0.5,
                     sill=1.0,

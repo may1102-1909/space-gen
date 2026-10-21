@@ -20,7 +20,7 @@ matrix mapping scan coordinates into that frame.
 
 Wall convention (matches fixtures/realistic_room.json): wall ``start``/``end`` are the
 outline vertices, i.e. the scanned interior face. Opening ``offset`` is the distance along
-the wall from ``start`` to the opening's near edge.
+the wall from ``start`` to the opening's centre.
 """
 
 from __future__ import annotations
@@ -603,7 +603,7 @@ def extract_room_structure(
         )
         opening_cells = np.zeros_like(empty)
         for op in wall_openings:
-            s0, s1 = int(op.offset / g), int((op.offset + op.width) / g)
+            s0, s1 = int((op.offset - op.width / 2) / g), int((op.offset + op.width / 2) / g)
             y0, y1 = int(op.sill / g), int((op.sill + op.height) / g)
             opening_cells[s0:s1, y0:y1] = True
         solid = ~opening_cells
@@ -713,7 +713,7 @@ def _detect_openings(
                 id=f"{kind}_{wall_id}_{len(result)}",
                 wallId=wall_id,
                 kind=kind,
-                offset=float(max(left, 0.0)),
+                offset=float((max(left, 0.0) + min(right, length)) / 2.0),
                 width=float(width),
                 height=float(height),
                 sill=float(sill),
@@ -733,7 +733,8 @@ def merge_openings(
     for det in from_images:
         match = None
         for k, op in enumerate(merged):
-            overlap = min(op.offset + op.width, det.offset + det.width) - max(op.offset, det.offset)
+            half = (op.width + det.width) / 2.0
+            overlap = min(half - abs(op.offset - det.offset), op.width, det.width)
             if op.wallId == det.wallId and overlap > 0.5 * min(op.width, det.width):
                 match = k
                 break
