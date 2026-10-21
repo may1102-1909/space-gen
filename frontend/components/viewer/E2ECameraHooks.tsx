@@ -19,6 +19,8 @@ export interface SpacegenE2EHooks {
   setCamera(position: Vec3, target: Vec3): void;
   /** Viewport-space (CSS px) bounding rect of an OBB's 8 corners under the current editor camera. */
   projectObb(obb: OrientedBoundingBox): ScreenRect;
+  /** Viewport-space (CSS px) position of a scene point under the current editor camera. */
+  projectPoint(point: Vec3): { x: number; y: number };
 }
 
 /** Splat-layer diagnostics, registered by SplatBackgroundCanvas when NEXT_PUBLIC_E2E=1. */
@@ -77,6 +79,12 @@ export function E2ECameraHooks() {
           minY = Math.min(minY, y); maxY = Math.max(maxY, y);
         }
         return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+      },
+      projectPoint(point) {
+        camera.updateMatrixWorld();
+        const v = new THREE.Vector3(...point).project(camera);
+        const rect = gl.domElement.getBoundingClientRect();
+        return { x: rect.left + ((v.x + 1) / 2) * rect.width, y: rect.top + ((1 - v.y) / 2) * rect.height };
       },
     };
     return () => {

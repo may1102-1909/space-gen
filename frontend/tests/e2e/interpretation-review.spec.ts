@@ -2,6 +2,8 @@ import { expect, test } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { screenshotPath } from './support/artifacts';
+
 const fixture = JSON.parse(fs.readFileSync(path.join(__dirname, '../fixtures/realistic_room.json'), 'utf-8'));
 
 test('user fixes a wrong wall and a misplaced detection, saves, reloads, and the corrections persist', async ({ page }) => {
@@ -99,7 +101,5 @@ test('user fixes a wrong wall and a misplaced detection, saves, reloads, and the
   await expect(reloaded.getByLabel('Box center X')).toHaveValue(String(draggedX));
 
   await reloaded.getByRole('button', { name: 'Select Wall wall_east' }).click();
-  const shot = path.resolve(__dirname, '../../../docs/interpretation-review.png');
-  await page.screenshot({ path: shot, animations: 'disabled', timeout: 30000 });
-  fs.copyFileSync(shot, path.join(__dirname, 'screenshots', 'interpretation-review.png'));
+  await page.screenshot({ path: screenshotPath('interpretation-review.png'), animations: 'disabled', timeout: 30000 });
 });

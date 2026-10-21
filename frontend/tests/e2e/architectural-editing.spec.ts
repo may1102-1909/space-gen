@@ -2,16 +2,18 @@ import { expect, test, type Page } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { screenshotPath, waitForE2EHooks } from './support/artifacts';
+
 const fixture = JSON.parse(fs.readFileSync(path.join(__dirname, '../fixtures/realistic_room.json'), 'utf-8'));
 type Vec3 = [number, number, number];
 
 async function screenOf(page: Page, point: Vec3) {
-  return page.evaluate((p) => (window as any).__projectScenePoint(p) as { x: number; y: number }, point);
+  return page.evaluate((p) => window.__spacegenE2E!.projectPoint(p), point);
 }
 
 async function topView(page: Page) {
-  await page.waitForFunction(() => typeof (window as any).__setEditorCamera === 'function' && typeof (window as any).__projectScenePoint === 'function');
-  await page.evaluate(() => (window as any).__setEditorCamera([4, 10, 9], [4, 0, 3]));
+  await waitForE2EHooks(page);
+  await page.evaluate(() => window.__spacegenE2E!.setCamera([4, 10, 9], [4, 0, 3]));
 }
 
 async function hover(page: Page, point: Vec3) {
@@ -116,7 +118,5 @@ test('draw a wall snapped to a corner, add a door, measure, undo/redo, save, rel
   await expect(review.getByTestId(`status-${drawn.id}`)).toHaveText('corrected · user');
   await expect(review.getByTestId(`status-${door.id}`)).toHaveText('corrected · user');
 
-  const shot = path.resolve(__dirname, '../../../docs/architectural-editing.png');
-  await page.screenshot({ path: shot, animations: 'disabled', timeout: 30000 });
-  fs.copyFileSync(shot, path.join(__dirname, 'screenshots', 'architectural-editing.png'));
+  await page.screenshot({ path: screenshotPath('architectural-editing.png'), animations: 'disabled', timeout: 30000 });
 });
