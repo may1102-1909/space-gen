@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { extractVisualDescriptorsFromPhoto, matchCatalogAsset } from '@/lib/ai/photoTo3DMatcher';
+import catalogManifest from '@/public/catalog/catalogManifest.json';
+import { catalogFromPublicManifest, searchCatalog } from '@/lib/ai/catalog';
+import { descriptorsFromHint } from '@/lib/ai/vision';
 import { isPointInsideVolume } from '@/lib/splat/splatCropManager';
 
 describe('Splat Crop Manager', () => {
@@ -22,18 +24,14 @@ describe('Splat Crop Manager', () => {
   });
 });
 
-describe('Photo to 3D Matcher', () => {
-  it('extracts descriptors and matches closest catalog asset', async () => {
-    const descriptors = await extractVisualDescriptorsFromPhoto(
-      'data:image/png;base64,mock',
-      'Scandinavian minimal ash wood chair'
-    );
-
+describe('Photo to catalog match', () => {
+  it('turns photo descriptors into the closest catalog asset', () => {
+    const descriptors = descriptorsFromHint('Scandinavian minimal ash wood chair');
     expect(descriptors.category).toBe('chair');
     expect(descriptors.styleTags).toContain('scandinavian');
 
-    const matched = matchCatalogAsset(descriptors);
-    expect(matched.modelUrl).toContain('chair.glb');
-    expect(matched.confidence).toBeGreaterThan(0.9);
+    const [best] = searchCatalog(catalogFromPublicManifest(catalogManifest), descriptors);
+    expect(best.entry.url).toContain('chair.glb');
+    expect(best.entry.styleTags).toContain('scandinavian');
   });
 });

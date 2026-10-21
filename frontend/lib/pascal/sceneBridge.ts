@@ -68,6 +68,7 @@ export type SceneAction =
       nodeId: string;
       position?: [number, number, number];
       rotation?: [number, number, number];
+      scale?: [number, number, number];
       dimensions?: [number, number, number];
     }
   | {
@@ -213,6 +214,7 @@ export function applySceneActions(actions: SceneAction[]): void {
         const patch: Record<string, any> = {};
         if (act.position) patch.position = act.position;
         if (act.rotation) patch.rotation = act.rotation;
+        if (act.scale) patch.scale = act.scale;
         if (act.dimensions) patch.dimensions = act.dimensions;
         updates.push({
           id: act.nodeId as AnyNodeId,
