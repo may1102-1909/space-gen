@@ -125,7 +125,8 @@ def fit_obb(
     yaw_step_deg: float = 1.0,
     max_points: int = 20000,
 ) -> tuple[tuple[float, float, float], tuple[float, float, float], float]:
-    """Fit a yaw-only OBB. Yaw is the min-area rectangle orientation on XZ, seeded/disambiguated by PCA.
+    """Fit a yaw-only OBB (Y up). Yaw is the min-area bounding rectangle on XZ, found by a brute-force
+    angle sweep (PCA is not used: it is unstable for near-square footprints). The long side becomes local x.
 
     Returns (center, size, yaw) with size_x >= size_z and yaw in (-pi/2, pi/2].
     """
@@ -152,7 +153,7 @@ def fit_obb(
             best_area, best_yaw = area, yaw
     yaw = best_yaw
     a0, a1, b0, b1 = extents(yaw)
-    if (b1 - b0) > (a1 - a0):  # local x is the long side, matching the PCA principal axis
+    if (b1 - b0) > (a1 - a0):  # make local x the long side
         yaw += math.pi / 2
     yaw = (yaw + math.pi / 2) % math.pi - math.pi / 2
     if yaw <= -math.pi / 2 + 1e-9:
