@@ -8,6 +8,7 @@ from typing import Dict, List, Sequence, Tuple
 import numpy as np
 
 from models.contracts import RoomStructureResult
+from models.reference_room import ReferenceOpening, ReferenceRoom, ReferenceScan, ReferenceWall
 
 
 @dataclass
@@ -225,3 +226,52 @@ ROOMS = [
         yaw_deg=15.0,
     ),
 ]
+
+
+# Simulated residual scale error per scaleSource (assumptions, not measurements): no metric anchor
+# leaves ~10% error, a single user tape/laser calibration ~1%, a depth sensor ~0.5%.
+SCALE_FACTORS = {
+    "none": (1.12, 0.89, 1.08, 0.93),
+    "user_measurement": (1.012, 0.988, 1.006, 0.994),
+    "sensor": (1.004, 0.997, 1.002, 0.996),
+}
+
+
+def to_reference(room: SyntheticRoom, scale_source: str) -> ReferenceRoom:
+    """Ground truth of a synthetic room in the reference-room format."""
+    poly = np.asarray(room.outline, dtype=np.float64)
+    walls = [
+        ReferenceWall(id=f"w{i}", length=float(np.linalg.norm(poly[(i + 1) % len(poly)] - poly[i])))
+        for i in range(len(poly))
+    ]
+    openings = [
+        ReferenceOpening(
+            id=f"o{j}",
+            wall=f"w{op.wall}",
+            kind=op.kind,
+            width=op.width,
+            height=op.height,
+            sill=op.sill,
+            offset=op.offset,
+        )
+        for j, op in enumerate(room.openings)
+    ]
+    return ReferenceRoom(
+        id=f"synthetic_{room.name}_{scale_source}",
+        name=room.name,
+        groundTruthSource="synthetic",
+        scan=ReferenceScan(path=f"synthetic://{room.name}", scaleSource=scale_source),
+        ceilingHeight=room.height,
+        walls=walls,
+        openings=openings,
+    )
+
+
+def synthetic_references(seed: int = 0) -> List[Tuple[ReferenceRoom, np.ndarray, np.ndarray]]:
+    """Every synthetic room under every scaleSource, its scan scaled by that source's simulated error."""
+    out = []
+    for source, factors in SCALE_FACTORS.items():
+        for room, factor in zip(ROOMS, factors):
+            positions, opacity = generate(room, seed=seed)
+            out.append((to_reference(room, source), positions * factor, opacity))
+    return out

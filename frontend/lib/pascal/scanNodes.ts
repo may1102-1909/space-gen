@@ -1,5 +1,6 @@
 import { useScene } from '@pascal-app/core';
 import type { Matrix4 } from '@/lib/contracts/primitives';
+import type { ScaleSource } from '@/lib/contracts/scan';
 import { IDENTITY_SCAN_TO_SCENE } from './scanAlignment';
 
 /** Creates or updates the canonical Pascal ScanNode. Matrix metadata is the alignment source of truth. */
@@ -53,14 +54,16 @@ export function upsertScanNode(
 }
 
 /** Records a completed alignment as one Pascal scene update, so temporal undo reverts it. */
-export function setScanAlignment(scanId: string, scanToScene: Matrix4): void {
+export function setScanAlignment(scanId: string, scanToScene: Matrix4, scaleSource?: ScaleSource): void {
   const scene = useScene.getState();
   const scan = (scene.nodes as Record<string, any>)[scanId];
   if (!scan || scan.type !== 'scan') throw new Error(`Scan node not found: ${scanId}`);
   scene.applyNodeChanges({
     update: [{
       id: scanId as any,
-      data: { metadata: { ...(scan.metadata || {}), scanToScene: [...scanToScene] } } as any,
+      data: {
+        metadata: { ...(scan.metadata || {}), scanToScene: [...scanToScene], ...(scaleSource ? { scaleSource } : {}) },
+      } as any,
     }],
   });
 }

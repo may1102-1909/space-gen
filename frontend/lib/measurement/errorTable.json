@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "basis": "synthetic",
+  "scaleSources": {
+    "none": {
+      "relativePct": 14.71,
+      "samples": 33,
+      "rooms": 4
+    },
+    "sensor": {
+      "relativePct": 2.25,
+      "samples": 33,
+      "rooms": 4
+    },
+    "user_measurement": {
+      "relativePct": 3.79,
+      "samples": 33,
+      "rooms": 4
+    }
+  }
+}

@@ -77,7 +77,7 @@ export function ScanAlignmentTool({
     }
     try {
       const matrix = applyMetricAlignment(scanToScene, [ptsToUse[0], ptsToUse[1]], meters, 0);
-      setScanAlignment(scanId, matrix);
+      setScanAlignment(scanId, matrix, 'user_measurement');
       setLastAction(`Scale calibrated to ${meters} m.`);
       setStage('wall');
       setPoints([]);
