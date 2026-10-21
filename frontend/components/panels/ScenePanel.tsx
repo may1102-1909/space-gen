@@ -27,6 +27,7 @@ import type { FurnitureItem } from '@/lib/types';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { createItemNode, normalizeGlbBounds, replaceItemAsset, fetchCatalogItems } from '@/lib/pascal/itemEditing';
 import { seedScannedRoom } from '@/lib/pascal/seedScannedRoom';
+import { ERROR_TABLE, formatDimensions, scaleSourceOf } from '@/lib/measurement/accuracy';
 import {
   replaceItemWithMask,
   toggleMaskGhostMode,
@@ -51,6 +52,8 @@ export function ScenePanel() {
   const selectedNode = activeId ? (nodes as Record<string, any>)[activeId] : null;
   const scanNode = Object.values(nodes).find((n) => n?.type === 'scan') as any;
   const maskRegions: MaskRegion[] = scanNode?.metadata?.maskRegions || [];
+  const scaleSource = scaleSourceOf(scanNode);
+  const estimateTitle = `Estimated from the ${ERROR_TABLE.basis} accuracy benchmark for scale source "${scaleSource}"`;
   const linkedMask = maskRegions.find(
     (m) => m.itemId === activeId || m.id === selectedNode?.metadata?.maskRegionId
   );
@@ -501,9 +504,14 @@ export function ScenePanel() {
               {(selectedNode.asset?.dimensions || selectedNode.dimensions) && (
                 <div className="flex items-center gap-2 text-[10px] text-text-muted font-mono bg-surface p-1.5 rounded border border-border/50">
                   <Maximize2 size={11} className="text-text-secondary" />
-                  <span>
-                    Size: {(selectedNode.asset?.dimensions || selectedNode.dimensions)[0]}m × {(selectedNode.asset?.dimensions || selectedNode.dimensions)[1]}m × {(selectedNode.asset?.dimensions || selectedNode.dimensions)[2]}m
-                  </span>
+                  {selectedNode.asset?.dimensions ? (
+                    // Catalog/asset dimensions are product specs, not scan measurements.
+                    <span>
+                      Size: {selectedNode.asset.dimensions[0]}m × {selectedNode.asset.dimensions[1]}m × {selectedNode.asset.dimensions[2]}m
+                    </span>
+                  ) : (
+                    <span title={estimateTitle}>Size: {formatDimensions(selectedNode.dimensions, scaleSource)}</span>
+                  )}
                 </div>
               )}
 
@@ -663,7 +671,7 @@ export function ScenePanel() {
                       </button>
                     </div>
                     <div className="text-[9px] text-text-muted font-mono flex items-center justify-between">
-                      <span>Size: {mask.obb.size.map((v) => v.toFixed(2)).join(' × ')}m</span>
+                      <span title={estimateTitle}>Size: {formatDimensions(mask.obb.size, scaleSource)}</span>
                       <button
                         type="button"
                         title="Delete mask"

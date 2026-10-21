@@ -29,4 +29,15 @@ describe('Pascal scan alignment history', () => {
     expect((useScene.getState().nodes as Record<string, any>)[scanId].metadata.scanToScene)
       .toEqual(IDENTITY_SCAN_TO_SCENE);
   });
+
+  it('records a scale calibration as scaleSource=user_measurement, undoable with the transform', () => {
+    const scanId = upsertScanNode('/Hurstville_Museum_Gallery.sog', { id: 'scan_scale_test' });
+    (useScene as any).temporal.getState().clear();
+
+    setScanAlignment(scanId, aligned, 'user_measurement');
+    expect((useScene.getState().nodes as Record<string, any>)[scanId].metadata.scaleSource).toBe('user_measurement');
+
+    undoSceneAction();
+    expect((useScene.getState().nodes as Record<string, any>)[scanId].metadata.scaleSource).toBeUndefined();
+  });
 });
