@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { useScene } from '@pascal-app/core'
 import { SceneGraph, ChatMessage, ObjectTransform, FurnitureItem, MeshManifest } from './types'
 import { SplatExclusionBox, applySceneActions } from './pascal/sceneBridge'
-import { CandidatePlacement } from './ai/spatialLayoutSolver'
+import type { CandidatePlacement } from './placement'
 
 export interface AppState {
   scene: SceneGraph | null

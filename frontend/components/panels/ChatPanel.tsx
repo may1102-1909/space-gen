@@ -18,7 +18,13 @@ import { ChatMessage as ChatMessageType } from '@/lib/types';
 import { getEditableSceneSummary, undoSceneAction } from '@/lib/pascal/sceneBridge';
 import { executeSpatialToolCalls, ExecutionResult } from '@/lib/ai/executor';
 import { replaceItemWithPhotoReference, ReplacementResult } from '@/lib/ai/photoTo3DMatcher';
-import { solveSmartPlacements } from '@/lib/ai/spatialLayoutSolver';
+import {
+  interpretationFromPascalNodes,
+  parsePlacementCount,
+  sceneFromPascalNodes,
+  solvePlacement,
+  toCandidatePlacements,
+} from '@/lib/placement';
 import { ChatAttachmentBar } from './ChatAttachmentBar';
 import { useViewer } from '@pascal-app/viewer';
 import { useScene, AnyNodeId } from '@pascal-app/core';
@@ -209,17 +215,19 @@ export function ChatPanel() {
 
       setIsLoading(true);
       try {
-        const sceneSummary = getEditableSceneSummary();
-        const modelUrl = currentAttachment?.dataUrl || '/samples/models/chair.glb';
-        const modelName = currentAttachment?.name?.replace(/\.glb$/i, '') || 'Dining Chair';
-        const candidates = solveSmartPlacements(
-          modelUrl,
-          modelName,
-          'chair',
-          [0.55, 0.85, 0.55],
-          userMsg,
-          sceneSummary
+        const sceneNodes = useScene.getState().nodes as Record<string, unknown>;
+        const asset = {
+          url: currentAttachment?.dataUrl || '/samples/models/chair.glb',
+          name: currentAttachment?.name?.replace(/\.glb$/i, '') || 'Dining Chair',
+          category: 'chair',
+          dimensions: { width: 0.55, height: 0.85, depth: 0.55 },
+        };
+        const [bestLayout] = solvePlacement(
+          { asset, count: parsePlacementCount(userMsg) },
+          sceneFromPascalNodes(sceneNodes),
+          interpretationFromPascalNodes(sceneNodes)
         );
+        const candidates = bestLayout ? toCandidatePlacements(bestLayout, asset) : [];
 
         useSpaceGenStore.getState().setCandidatePlacements(candidates);
 
