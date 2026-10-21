@@ -101,6 +101,7 @@ class FloorPlane(BaseModel):
     normal: Vector3
     constant: float
     provenance: Provenance
+    confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
 
 
 class WallInterpretation(BaseModel):
@@ -140,6 +141,7 @@ class RoomInterpretation(BaseModel):
     provenance: Provenance
     floor: FloorPlane
     ceilingHeight: float = Field(gt=0.0)
+    ceilingConfidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
     outline: List[Point2D]
     walls: List[WallInterpretation]
     openings: List[OpeningInterpretation]
@@ -289,6 +291,25 @@ class ReconstructionJobStatus(BaseModel):
     demo: bool = False
 
 
+class RoomStructureResult(BaseModel):
+    """Result of the room-structure job: interpretation in the scene frame plus the suggested scan placement."""
+
+    interpretation: RoomInterpretation
+    scanToScene: Matrix4
+    gravityConfidence: float = Field(ge=0.0, le=1.0)
+    manhattan: bool
+    diagnostics: Dict[str, Any] = Field(default_factory=dict)
+
+
+class RoomStructureJobStatus(BaseModel):
+    jobId: str
+    status: Literal["queued", "running", "completed", "failed"]
+    progress: int = 0
+    step: str = ""
+    error: Optional[str] = None
+    result: Optional[RoomStructureResult] = None
+
+
 __all__ = [
     # Legacy re-exports
     "Material",
@@ -303,6 +324,8 @@ __all__ = [
     "ImageGenerationRequest",
     "VariantRequest",
     "ReconstructionJobStatus",
+    "RoomStructureResult",
+    "RoomStructureJobStatus",
     # Geometry & Primitives
     "Provenance",
     "Vector3",

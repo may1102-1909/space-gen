@@ -9,6 +9,7 @@ export const FloorPlaneSchema = z.object({
   normal: Vector3Schema,
   constant: z.number(),
   provenance: ProvenanceSchema,
+  confidence: z.number().min(0).max(1).nullable().optional(),
 });
 export type FloorPlane = z.infer<typeof FloorPlaneSchema>;
 
@@ -66,6 +67,7 @@ export const RoomInterpretationSchema = z.object({
   provenance: ProvenanceSchema,
   floor: FloorPlaneSchema,
   ceilingHeight: z.number().positive(),
+  ceilingConfidence: z.number().min(0).max(1).nullable().optional(),
   outline: z.array(Point2DSchema),
   walls: z.array(WallInterpretationSchema),
   openings: z.array(OpeningInterpretationSchema),

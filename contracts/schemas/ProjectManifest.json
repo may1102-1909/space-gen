@@ -276,6 +276,20 @@
           ],
           "title": "Provenance",
           "type": "string"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence"
         }
       },
       "required": [
@@ -524,6 +538,20 @@
           "exclusiveMinimum": 0.0,
           "title": "Ceilingheight",
           "type": "number"
+        },
+        "ceilingConfidence": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ceilingconfidence"
         },
         "outline": {
           "items": {
