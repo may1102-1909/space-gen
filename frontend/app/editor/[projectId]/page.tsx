@@ -7,9 +7,11 @@ import { useParams } from 'next/navigation';
 import { applySceneSnapshot, getSceneDocument, useScene } from '@pascal-app/core';
 import { ScenePanel } from '@/components/panels/ScenePanel';
 import { ChatPanel } from '@/components/panels/ChatPanel';
+import { InterpretationReviewPanel } from '@/components/panels/InterpretationReviewPanel';
 import { EditorLayout } from '@/components/layout/EditorLayout';
 import { useSpaceGenStore } from '@/lib/store';
 import { loadProject, saveProject, type ProjectDocument } from '@/lib/projects/api';
+import { deriveInterpretationFromScene } from '@/lib/pascal/scanConverter';
 
 const SceneViewer = dynamic(() => import('@/components/viewer/SceneViewer'), { ssr: false });
 
@@ -18,6 +20,7 @@ export default function ProjectEditorPage() {
   const [document, setDocument] = useState<ProjectDocument | null>(null);
   const [status, setStatus] = useState<'loading' | 'saved' | 'unsaved' | 'saving' | 'error'>('loading');
   const [error, setError] = useState('');
+  const [reviewMode, setReviewMode] = useState(false);
   const loaded = useRef(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const documentRef = useRef<ProjectDocument | null>(null);
@@ -71,13 +74,16 @@ export default function ProjectEditorPage() {
           const savedGeneration = generation.current;
           setStatus('saving'); setError('');
           try {
-            const scanNode = Object.values(useScene.getState().nodes).find((n: any) => n?.type === 'scan') as any;
+            const nodes = useScene.getState().nodes as Record<string, any>;
+            const scanNode = Object.values(nodes).find((n: any) => n?.type === 'scan') as any;
             const maskRegions = scanNode?.metadata?.maskRegions || base.manifest.maskRegions || [];
+            const interpretation = deriveInterpretationFromScene(nodes, base.manifest.interpretation) || base.manifest.interpretation;
             const next = await saveProject({
               ...base,
               manifest: {
                 ...base.manifest,
                 maskRegions,
+                interpretation,
                 sceneSnapshot: getSceneDocument(),
               },
             });
@@ -117,9 +123,9 @@ export default function ProjectEditorPage() {
   if (!document) return <main className="flex min-h-screen items-center justify-center bg-background text-text-muted">{status === 'error' ? error : 'Loading project…'}</main>;
   const label = status === 'saving' ? 'Saving…' : status === 'unsaved' ? 'Unsaved changes' : status === 'error' ? 'Save failed' : 'Saved';
   return <EditorLayout>
-    <div className="absolute left-3 top-3 z-50 flex items-center gap-3 rounded-lg border border-border bg-surface px-3 py-2 text-sm shadow"><Link href="/projects" className="text-accent">Projects</Link><span className="font-medium">{document.manifest.name}</span><span aria-live="polite" className={status === 'error' ? 'text-red-500' : 'text-text-muted'}>{label}</span><button onClick={() => void saveNowRef.current?.()} className="rounded bg-accent px-3 py-1 text-white">Save</button>{error && <span role="alert" className="text-red-500">{error}</span>}</div>
+    <div className="absolute left-3 top-3 z-50 flex items-center gap-3 rounded-lg border border-border bg-surface px-3 py-2 text-sm shadow"><Link href="/projects" className="text-accent">Projects</Link><span className="font-medium">{document.manifest.name}</span><span aria-live="polite" className={status === 'error' ? 'text-red-500' : 'text-text-muted'}>{label}</span><button onClick={() => void saveNowRef.current?.()} className="rounded bg-accent px-3 py-1 text-white">Save</button><button aria-pressed={reviewMode} onClick={() => setReviewMode(v => !v)} className={`rounded border px-3 py-1 ${reviewMode ? 'border-accent text-accent' : 'border-border'}`}>Review scan</button>{error && <span role="alert" className="text-red-500">{error}</span>}</div>
     <div className="w-[280px] border-r border-border bg-surface flex flex-col shrink-0 h-full overflow-hidden"><ScenePanel /></div>
-    <div className="flex-1 bg-background relative overflow-hidden h-full"><SceneViewer selectedId={selectedObjectId} onSelectObject={setSelectedObjectId} /></div>
-    <div className="w-[380px] border-l border-border bg-surface flex flex-col shrink-0 h-full overflow-hidden"><ChatPanel /></div>
+    <div className="flex-1 bg-background relative overflow-hidden h-full"><SceneViewer selectedId={selectedObjectId} onSelectObject={setSelectedObjectId} reviewMode={reviewMode} /></div>
+    <div className="w-[380px] border-l border-border bg-surface flex flex-col shrink-0 h-full overflow-hidden">{reviewMode ? <InterpretationReviewPanel interpretation={document.manifest.interpretation} scan={document.manifest.scan} maskRegions={document.manifest.maskRegions} /> : <ChatPanel />}</div>
   </EditorLayout>;
 }

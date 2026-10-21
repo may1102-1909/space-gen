@@ -416,6 +416,24 @@
           ],
           "title": "Provenance",
           "type": "string"
+        },
+        "status": {
+          "anyOf": [
+            {
+              "enum": [
+                "auto",
+                "verified",
+                "corrected",
+                "rejected"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Status"
         }
       },
       "required": [
@@ -541,6 +559,24 @@
           },
           "title": "Outline",
           "type": "array"
+        },
+        "outlineStatus": {
+          "anyOf": [
+            {
+              "enum": [
+                "auto",
+                "verified",
+                "corrected",
+                "rejected"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Outlinestatus"
         },
         "walls": {
           "items": {
@@ -787,6 +823,24 @@
           ],
           "title": "Provenance",
           "type": "string"
+        },
+        "status": {
+          "anyOf": [
+            {
+              "enum": [
+                "auto",
+                "verified",
+                "corrected",
+                "rejected"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Status"
         }
       },
       "required": [
