@@ -32,7 +32,7 @@ async function rendererInfo(page: Page): Promise<string> {
 }
 
 test('measure FPS with the 161,576-splat sample scan (prototype and editor)', async ({ page }) => {
-  test.setTimeout(180000);
+  test.slow();
   const results: Record<string, unknown> = { renderer: '', softwareGl: Boolean(process.env.E2E_SOFTWARE_GL), viewport: page.viewportSize() };
 
   await page.goto('/splat-prototype', { waitUntil: 'domcontentloaded' });

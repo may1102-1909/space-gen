@@ -20,9 +20,10 @@ export default defineConfig({
   testDir: './tests/e2e',
   // Gitignored. Screenshots go to test-results/screenshots unless E2E_SCREENSHOT_DIR is set.
   outputDir: './test-results/artifacts',
-  timeout: 60000,
+  // Software GL renders ~1 fps, so every UI step is far slower there; long flows call test.slow() (x3).
+  timeout: process.env.E2E_SOFTWARE_GL ? 300000 : 60000,
   expect: {
-    timeout: 15000,
+    timeout: process.env.E2E_SOFTWARE_GL ? 60000 : 15000,
   },
   fullyParallel: false,
   workers: 1,

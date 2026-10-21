@@ -6,7 +6,7 @@ test.describe('T05: Scan Alignment & Splat Layer Integration', () => {
   test('mounts dual-canvas, loads scan, executes alignment workflow, and captures before/after screenshots', async ({
     page,
   }) => {
-    test.setTimeout(90000);
+    test.slow();
 
     // 1. Navigate to main editor
     await page.goto('/', { waitUntil: 'domcontentloaded' });

@@ -6,8 +6,8 @@ test.describe('001 Splat Rendering Decision - Prototype E2E Verification', () =>
   test('prototype page loads, dual canvas mounts, HUD telemetry displays, and candidate switching functions', async ({
     page,
   }) => {
-    // Software GL (CI) renders a few frames per second; each attempt can take up to its 60-frame budget.
-    test.setTimeout(300000);
+    // Each candidate attempt can take up to its 60-frame budget (slow on software GL).
+    test.slow();
     page.on('console', (msg) => {
       if (/webgpu|spark|THREE\./i.test(msg.text()) && msg.type() !== 'info') console.log(`[browser ${msg.type()}]`, msg.text().slice(0, 300));
     });

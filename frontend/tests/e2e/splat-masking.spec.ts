@@ -31,7 +31,7 @@ async function maskRegionRect(page: Page) {
 
 test.describe('T08: Splat Masking & Replacement Verification', () => {
   test('replacing a chair masks the splat inside its OBB; undo restores it; redo re-applies; ghost and resize work', async ({ page }) => {
-    test.setTimeout(150000);
+    test.slow();
 
     await page.route('**/api/reconstruction/furniture-catalog', (route) =>
       route.fulfill({
