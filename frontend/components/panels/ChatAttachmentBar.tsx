@@ -35,7 +35,7 @@ export function ChatAttachmentBar({
   const nodes = useScene((state) => state.nodes);
 
   const selectedNodeId = selectedIds[0] || null;
-  const selectedNode = selectedNodeId ? (nodes[selectedNodeId as AnyNodeId] as unknown as { id: string; type: string; name?: string; dimensions?: [number, number, number] } | undefined) : null;
+  const selectedNode = selectedNodeId ? (nodes[selectedNodeId as AnyNodeId] as unknown as { id: string; type: string; name?: string; dimensions?: [number, number, number]; asset?: { dimensions?: [number, number, number] } } | undefined) : null;
   const isItem = selectedNode?.type === 'item';
 
   const dims = selectedNode?.dimensions;

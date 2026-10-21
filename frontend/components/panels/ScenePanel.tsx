@@ -48,7 +48,7 @@ interface PanelNode {
   height?: number;
   thickness?: number;
   opacity?: number;
-  metadata?: { maskRegionId?: string; maskRegions?: MaskRegion[]; exclusionBoxes?: unknown[] };
+  metadata?: { maskRegionId?: string; maskRegions?: MaskRegion[]; exclusionBoxes?: unknown[]; scaleSource?: unknown };
 }
 
 interface ScenePanelProps {
@@ -531,7 +531,7 @@ export function ScenePanel({ projectId, onAssetUploaded }: ScenePanelProps = {})
                     <span>
                       Size: {selectedNode.asset.dimensions[0]}m × {selectedNode.asset.dimensions[1]}m × {selectedNode.asset.dimensions[2]}m
                     </span>
-                  ) : (
+                  ) : selectedNode.dimensions && (
                     <span title={estimateTitle}>Size: {formatDimensions(selectedNode.dimensions, scaleSource)}</span>
                   )}
                 </div>
