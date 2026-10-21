@@ -30,6 +30,7 @@ backend/data/processed/
 backend/data/output/
 backend/data/export/
 backend/data/reconstruction/
+backend/data/accuracy/
 scratch/
 *.mp4
 *.mov
