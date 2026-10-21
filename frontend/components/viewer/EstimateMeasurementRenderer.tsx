@@ -2,11 +2,11 @@
 
 import React, { Suspense, lazy, useEffect, useMemo, useRef } from 'react';
 import { BufferGeometry, Float32BufferAttribute, type Group } from 'three';
-import { useRegistry, type MeasurementNode } from '@pascal-app/core';
+import { useRegistry, useScene, type MeasurementNode } from '@pascal-app/core';
 import { OVERLAY_LAYER, useNodeEvents, useViewer } from '@pascal-app/viewer';
 import { measurementDefinition } from '@pascal-app/nodes';
 import { Html } from '@react-three/drei';
-import { formatMeasurementEstimate } from '@/lib/pascal/measurementFormat';
+import { formatMeasurement, scaleSourceOf } from '@/lib/measurement/accuracy';
 
 type Vec3 = [number, number, number];
 const pointOf = (anchor: unknown): Vec3 => (Array.isArray(anchor) ? (anchor as Vec3) : (anchor as { fallback: Vec3 }).fallback);
@@ -27,6 +27,7 @@ export function MeasurementLine({ a, b, draft = false }: { a: Vec3; b: Vec3; dra
   const color = draft ? '#fbbf24' : '#f472b6';
   const mid: Vec3 = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2 + 0.05, (a[2] + b[2]) / 2];
   const length = Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+  const scaleSource = useScene((s) => scaleSourceOf(Object.values(s.nodes).find((n) => n?.type === 'scan') as any));
   return (
     <group>
       <lineSegments geometry={geometry} layers={OVERLAY_LAYER} renderOrder={1001} frustumCulled={false}>
@@ -38,7 +39,7 @@ export function MeasurementLine({ a, b, draft = false }: { a: Vec3; b: Vec3; dra
           className="whitespace-nowrap rounded bg-black/70 px-1.5 py-0.5 text-xs font-semibold text-white"
           style={{ border: `1px solid ${color}` }}
         >
-          {formatMeasurementEstimate(length)}
+          {formatMeasurement(length, scaleSource)}
         </div>
       </Html>
     </group>
@@ -47,7 +48,7 @@ export function MeasurementLine({ a, b, draft = false }: { a: Vec3; b: Vec3; dra
 
 /**
  * Registry renderer for `measurement` nodes. Distances show as scan estimates through
- * `formatMeasurementEstimate`; other kinds keep Pascal's renderer.
+ * `formatMeasurement`; other kinds keep Pascal's renderer.
  */
 export default function EstimateMeasurementRenderer({ node }: { node: MeasurementNode }) {
   if (node.measurement.kind === 'distance') return <DistanceRenderer node={node} />;

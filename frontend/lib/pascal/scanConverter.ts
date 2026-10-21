@@ -48,7 +48,7 @@ export interface ConvertOptions {
   levelId?: string;
   /** Existing scan node to annotate with detections; one is created from `scan` otherwise. */
   scanNodeId?: string;
-  scan?: Pick<ScanAsset, 'url' | 'format' | 'scanToScene'>;
+  scan?: Pick<ScanAsset, 'url' | 'format' | 'scanToScene'> & Partial<Pick<ScanAsset, 'scaleSource'>>;
   maskRegions?: MaskRegion[];
 }
 
@@ -271,6 +271,7 @@ export function planInterpretationNodes(
           scanToScene: [...((options.scan?.scanToScene as Matrix4) || IDENTITY_SCAN_TO_SCENE)],
           maskRegions: options.maskRegions || [],
           detections,
+          ...(options.scan?.scaleSource ? { scaleSource: options.scan.scaleSource } : {}),
         },
       } as any,
       parentId: levelId as AnyNodeId,

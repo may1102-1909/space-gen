@@ -75,7 +75,7 @@ test('draw a wall snapped to a corner, add a door, measure, undo/redo, save, rel
   await clickAt(page, [7.85, 0, 0.1]);
   await clickAt(page, [7.9, 0, 5.85]);
   const label = page.getByTestId('measurement-label');
-  await expect(label).toHaveText('≈ 6.00 m');
+  await expect(label).toHaveText('≈ 6.0 m (±14 cm est.)');
 
   // 4. Undo / redo: each edit is one step.
   await page.keyboard.press('Escape');
@@ -85,7 +85,7 @@ test('draw a wall snapped to a corner, add a door, measure, undo/redo, save, rel
   await undo.click();
   await expect(label).toHaveCount(0);
   await redo.click();
-  await expect(label).toHaveText('≈ 6.00 m');
+  await expect(label).toHaveText('≈ 6.0 m (±14 cm est.)');
 
   // 5. Save and check the persisted interpretation.
   await page.getByRole('button', { name: 'Save', exact: true }).click();
@@ -110,7 +110,7 @@ test('draw a wall snapped to a corner, add a door, measure, undo/redo, save, rel
   await page.reload();
   await expect(page.getByText(fixture.name, { exact: true })).toBeVisible();
   await topView(page);
-  await expect(page.getByTestId('measurement-label')).toHaveText('≈ 6.00 m');
+  await expect(page.getByTestId('measurement-label')).toHaveText('≈ 6.0 m (±14 cm est.)');
   await page.getByRole('button', { name: 'Review scan' }).click();
   const review = page.getByRole('region', { name: 'Scan review' });
   await expect(review.getByTestId(`status-${drawn.id}`)).toHaveText('corrected · user');

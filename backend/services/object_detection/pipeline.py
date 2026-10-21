@@ -15,6 +15,24 @@ from services.object_detection.lifting import LiftConfig, run_detection, to_cont
 IDENTITY = [1.0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 1.0]
 
 
+def drop_wall_points(points: np.ndarray, walls: Sequence, margin: float = 0.05) -> np.ndarray:
+    """Remove scene-frame points within `margin` of a wall's faces, so wall-adjacent objects don't absorb wall splats."""
+    keep = np.ones(len(points), dtype=bool)
+    for w in walls:
+        w = w.model_dump() if hasattr(w, "model_dump") else w
+        a = np.array([w["start"][0], w["start"][2]], dtype=float)
+        d = np.array([w["end"][0], w["end"][2]], dtype=float) - a
+        length = float(np.linalg.norm(d))
+        if length < 1e-6:
+            continue
+        u = d / length
+        rel = points[:, [0, 2]] - a
+        along = rel @ u
+        across = np.abs(rel @ np.array([-u[1], u[0]]))
+        keep &= ~((along >= -margin) & (along <= length + margin) & (across <= w["thickness"] / 2 + margin))
+    return points[keep]
+
+
 def load_splat_points(path: Path, max_points: int = 400_000, min_opacity: float = 0.2) -> np.ndarray:
     """Splat centers from a 3DGS .ply (scan frame), dropping near-transparent Gaussians."""
     from plyfile import PlyData
@@ -63,6 +81,7 @@ def run_scan_detection(
     cfg: Optional[LiftConfig] = None,
     progress: Optional[Callable[[int, int], None]] = None,
     id_prefix: str = "det",
+    walls: Sequence = (),
 ) -> Dict[str, list]:
     """Detect objects for one job. Splat points are in the scan frame; COLMAP poses map via colmap_to_scan."""
     job_dir = Path(job_dir)
@@ -82,7 +101,7 @@ def run_scan_detection(
         job_dir / "images",
     ]
     frames = load_keyframes(model_dir, image_dirs, scene_to_colmap, max_views)
-    points = apply_matrix(scan_m, load_splat_points(splat))
+    points = drop_wall_points(apply_matrix(scan_m, load_splat_points(splat)), walls)
     results = run_detection(detector, frames, labels, points, cfg, progress)
     return to_contracts(results, id_prefix=id_prefix)
 

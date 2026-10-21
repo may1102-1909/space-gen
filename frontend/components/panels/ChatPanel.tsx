@@ -16,6 +16,7 @@ import { ChatMessage as ChatMessageType } from '@/lib/types';
 import type { EditProposal } from '@/lib/contracts';
 import { undoSceneAction } from '@/lib/pascal/sceneBridge';
 import { acceptProposal } from '@/lib/pascal/applyProposal';
+import { getTrustedInterpretation } from '@/lib/pascal/interpretationReview';
 import { ChatAttachmentBar } from './ChatAttachmentBar';
 import { useViewer } from '@pascal-app/viewer';
 import { useScene, AnyNodeId } from '@pascal-app/core';
@@ -90,6 +91,8 @@ export function ChatPanel() {
         body: JSON.stringify({
           prompt,
           nodes: sceneNodes,
+          // Scan rooms: the solver sees only verified or corrected elements.
+          interpretation: getTrustedInterpretation(useScene.getState().nodes as Record<string, any>).interpretation ?? undefined,
           selectedIds: selection,
           attachment: attachment
             ? { type: attachment.type, dataUrl: attachment.dataUrl, name: attachment.name, url: attachment.url }

@@ -7,7 +7,7 @@ import { applyInterpretationToScene, deriveInterpretationFromScene, getInterpret
 import { setWallEndpoints } from '@/lib/pascal/interpretationReview';
 import { installArchitecturalSync, planInterpretationStamps } from '@/lib/pascal/architecturalSync';
 import { buildSnapTargets, closestOnSegment, planFeaturePoints, snapPlanPoint, wallFaces } from '@/lib/pascal/scanSnapping';
-import { formatMeasurementEstimate } from '@/lib/pascal/measurementFormat';
+import { formatMeasurement } from '@/lib/measurement/accuracy';
 import { redoSceneAction, undoSceneAction } from '@/lib/pascal/sceneBridge';
 
 const manifest = ProjectManifestSchema.parse(
@@ -53,7 +53,7 @@ describe('scan snapping math', () => {
   });
 
   it('formats measurements as estimates through one function', () => {
-    expect(formatMeasurementEstimate(3.14159)).toBe('≈ 3.14 m');
+    expect(formatMeasurement(3.14159, 'sensor')).toBe('≈ 3.14 m (±8 cm est.)');
   });
 });
 

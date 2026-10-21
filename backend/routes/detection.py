@@ -57,6 +57,7 @@ def _worker(job_id: str, req: DetectionJobRequest) -> None:
             max_views=req.maxViews,
             progress=progress,
             id_prefix=f"det_{job_id}",
+            walls=req.interpretation.walls if req.interpretation is not None else (),
         )
         result: Dict[str, Any] = {
             "detector": detector.name,

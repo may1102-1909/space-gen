@@ -11,7 +11,7 @@ from services.object_detection import colmap, detectors
 from services.object_detection.detectors import FakeDetector, Keyframe, parse_gemini_boxes
 from services.object_detection.geometry import CameraView, fit_obb, look_at_view, obb_iou, points_in_obb
 from services.object_detection.lifting import to_contracts
-from services.object_detection.pipeline import merge_into_interpretation
+from services.object_detection.pipeline import drop_wall_points, merge_into_interpretation
 from services.object_detection.synthetic import (
     LABELS,
     NOISE_LEVELS,
@@ -312,3 +312,17 @@ def test_detection_job_without_colmap_fails_cleanly(detection_client):
 def test_keyframe_without_image_raises():
     with pytest.raises(FileNotFoundError):
         Keyframe("x.jpg", build_scene(0)[1][0].camera).load_image()
+
+
+def test_drop_wall_points_removes_only_points_near_wall_faces():
+    wall = {"start": [0.0, 0.0, 0.0], "end": [4.0, 0.0, 0.0], "thickness": 0.1, "height": 2.5}
+    points = np.array(
+        [
+            [2.0, 1.0, 0.04],  # on the wall face
+            [2.0, 1.0, 0.09],  # 4 cm in front of the face
+            [2.0, 1.0, 0.2],  # object 15 cm off the wall
+            [4.2, 1.0, 0.0],  # past the wall end
+        ]
+    )
+    kept = drop_wall_points(points, [wall])
+    np.testing.assert_allclose(kept, points[[2, 3]])
