@@ -29,6 +29,9 @@ import { ScanToEditableModal } from '../capture/ScanToEditableModal';
 import { AIPlacementPreview } from './AIPlacementPreview';
 import { TransformGizmo } from './TransformGizmo';
 import { InterpretationOverlay } from './InterpretationOverlay';
+import { ArchitecturalTools, useArchitecturalSnap } from './ArchitecturalTools';
+import { installArchitecturalSync } from '@/lib/pascal/architecturalSync';
+import { planFeaturePoints } from '@/lib/pascal/scanSnapping';
 import { useSpaceGenStore } from '@/lib/store';
 import { Loader2 } from 'lucide-react';
 
@@ -72,12 +75,21 @@ function ScanCameraBridge({
         perspective.updateMatrixWorld();
       };
     }
+    if (typeof window !== 'undefined') {
+      // Test hook: CSS-pixel position of a scene point on the editor canvas.
+      (window as any).__projectScenePoint = (point: [number, number, number]) => {
+        const v = new THREE.Vector3(...point).project(camera);
+        const rect = gl.domElement.getBoundingClientRect();
+        return { x: rect.left + ((v.x + 1) / 2) * rect.width, y: rect.top + ((1 - v.y) / 2) * rect.height };
+      };
+    }
     return () => {
       if (typeof window !== 'undefined') {
         delete (window as any).__setEditorCamera;
+        delete (window as any).__projectScenePoint;
       }
     };
-  }, [camera]);
+  }, [camera, gl]);
 
   useFrame(() => {
     if ((camera as THREE.PerspectiveCamera).isPerspectiveCamera) {
@@ -144,6 +156,31 @@ function ScanDepthMesh({
     groupRef.current.matrix.copy(matrix);
     groupRef.current.matrixWorldNeedsUpdate = true;
   }, [scanToScene]);
+
+  // Precompute the proxy's plan feature points once per mesh/alignment for tool snapping.
+  const setScanPoints = useArchitecturalSnap((s) => s.setScanPoints);
+  useEffect(() => {
+    if (!scanToScene || scanToScene.length !== 16) return;
+    const toScene = new THREE.Matrix4().set(...scanToScene as [
+      number, number, number, number, number, number, number, number,
+      number, number, number, number, number, number, number, number,
+    ]);
+    const positions: number[] = [];
+    const v = new THREE.Vector3();
+    const m = new THREE.Matrix4();
+    proxyScene.updateWorldMatrix(true, true);
+    proxyScene.traverse((child) => {
+      const attr = (child as THREE.Mesh).isMesh ? (child as THREE.Mesh).geometry.getAttribute('position') : null;
+      if (!attr) return;
+      m.multiplyMatrices(toScene, child.matrixWorld);
+      for (let i = 0; i < attr.count; i++) {
+        v.fromBufferAttribute(attr, i).applyMatrix4(m);
+        positions.push(v.x, v.y, v.z);
+      }
+    });
+    setScanPoints(planFeaturePoints(positions));
+    return () => setScanPoints([]);
+  }, [proxyScene, scanToScene, setScanPoints]);
 
   return <primitive ref={groupRef} object={proxyScene} />;
 }
@@ -267,6 +304,9 @@ export function SceneViewer({ selectedId, onSelectObject, reviewMode = false }: 
     };
   }, []);
 
+  // Pascal tool edits join the RoomInterpretation (provenance=user) inside their own undo step.
+  useEffect(() => installArchitecturalSync(), []);
+
   // 2. Synchronize Pascal selection with SpaceGen store
   useEffect(() => {
     const currentId = selectedIds[0] || null;
@@ -352,6 +392,7 @@ export function SceneViewer({ selectedId, onSelectObject, reviewMode = false }: 
       />
       <Viewer perf={false} useBvh={true} transparent>
         <TransformGizmo />
+        <ArchitecturalTools />
         {reviewMode && <InterpretationOverlay />}
         <MaskRegionVisualizer
           maskRegions={maskRegions}

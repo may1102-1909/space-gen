@@ -1,5 +1,22 @@
-import { loadPlugin, nodeRegistry } from '@pascal-app/core';
+import { loadPlugin, nodeRegistry, type AnyNodeDefinition } from '@pascal-app/core';
 import { builtinPlugin } from '@pascal-app/nodes';
+
+/**
+ * Pascal's built-ins with one swap: `measurement` keeps Pascal's schema and behaviour but uses
+ * our tool (scan-snapped input) and renderer (values shown as scan estimates).
+ */
+const spaceGenPlugin = {
+  ...builtinPlugin,
+  nodes: builtinPlugin.nodes?.map((def): AnyNodeDefinition =>
+    def.kind === 'measurement'
+      ? {
+          ...def,
+          tool: () => import('@/components/viewer/MeasureTool'),
+          renderer: { kind: 'parametric', module: () => import('@/components/viewer/EstimateMeasurementRenderer') as Promise<any> },
+        }
+      : def,
+  ),
+};
 
 let initPromise: Promise<void> | null = null;
 let isInitialized = false;
@@ -22,7 +39,7 @@ export async function ensurePascalInitialized(): Promise<void> {
   if (!initPromise) {
     initPromise = (async () => {
       try {
-        await loadPlugin(builtinPlugin);
+        await loadPlugin(spaceGenPlugin);
         isInitialized = true;
       } catch (error) {
         initPromise = null;
