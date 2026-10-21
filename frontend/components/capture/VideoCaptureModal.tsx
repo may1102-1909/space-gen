@@ -67,7 +67,9 @@ export function VideoCaptureModal({ onClose }: { onClose: () => void }) {
 
   /* ---------- Scene Library State ---------- */
   const [modelsList, setModelsList] = useState<AvailableModel[]>([])
-  const [isLoadingModels, setIsLoadingModels] = useState(false)
+  // null until the library tab has fetched once; derived loading state avoids setState in the effect
+  const [loadedModels, setLoadedModels] = useState<AvailableModel[] | null>(null)
+  const isLoadingModels = activeTab === 'library' && loadedModels === null
 
   // Poll reconstruction job
   useEffect(() => {
@@ -87,10 +89,9 @@ export function VideoCaptureModal({ onClose }: { onClose: () => void }) {
   // Load available models when switching to library
   useEffect(() => {
     if (activeTab === 'library') {
-      setIsLoadingModels(true)
       api.listAvailableModels().then(data => {
         setModelsList(data)
-        setIsLoadingModels(false)
+        setLoadedModels(data)
       })
     }
   }, [activeTab])
@@ -150,7 +151,7 @@ export function VideoCaptureModal({ onClose }: { onClose: () => void }) {
       setLocalSplatData({ buffer, name: modelFile.name })
       loadLocalScan(modelFile)
       onClose()
-    } catch (err: any) {
+    } catch (err) {
       console.warn('[ModelImport] Direct file read failed, falling back to FileReader:', err)
       try {
         const buffer = await new Promise<ArrayBuffer>((resolve, reject) => {
@@ -162,8 +163,8 @@ export function VideoCaptureModal({ onClose }: { onClose: () => void }) {
         setLocalSplatData({ buffer, name: modelFile.name })
         loadLocalScan(modelFile)
         onClose()
-      } catch (readErr: any) {
-        setModelError(`Could not read file: ${readErr.message}`)
+      } catch (readErr) {
+        setModelError(`Could not read file: ${(readErr as Error).message}`)
       }
     }
   }
@@ -183,7 +184,7 @@ export function VideoCaptureModal({ onClose }: { onClose: () => void }) {
         loadScanUrl(api.getReconstructionModelUrl(result.job_id), result.mesh_url)
       }
       onClose()
-    } catch (err: any) {
+    } catch (err) {
       console.warn('[ModelImport] Server upload failed, loading via instant preview:', err)
       // Instant fallback: Read directly into browser memory
       try {
@@ -191,8 +192,8 @@ export function VideoCaptureModal({ onClose }: { onClose: () => void }) {
         setLocalSplatData({ buffer, name: modelFile.name })
         loadLocalScan(modelFile)
         onClose()
-      } catch (readErr: any) {
-        setModelError(`Could not read file: ${readErr.message}`)
+      } catch (readErr) {
+        setModelError(`Could not read file: ${(readErr as Error).message}`)
       }
     } finally {
       setIsUploadingModel(false)
@@ -562,7 +563,7 @@ export function VideoCaptureModal({ onClose }: { onClose: () => void }) {
                 </div>
               ) : modelsList.length === 0 ? (
                 <div className="p-8 text-center border border-dashed border-border rounded-xl text-xs text-text-muted">
-                  No pre-trained models found. Use the "Video to 3DGS" tab or import an existing model.
+                  No pre-trained models found. Use the &quot;Video to 3DGS&quot; tab or import an existing model.
                 </div>
               ) : (
                 <div className="grid grid-cols-2 gap-3 max-h-[340px] overflow-y-auto pr-1">

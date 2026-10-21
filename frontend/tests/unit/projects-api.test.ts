@@ -1,5 +1,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { listProjects, createProject, loadProject, saveProject, type ProjectDocument } from '@/lib/projects/api';
+import {
+  listProjects,
+  createProject,
+  loadProject,
+  saveProject,
+  uploadProjectAsset,
+  uploadedAssetRef,
+  ProjectConflictError,
+  type ProjectDocument,
+} from '@/lib/projects/api';
+import { AssetRefSchema } from '@/lib/contracts';
 
 describe('Project API client', () => {
   const originalFetch = globalThis.fetch;
@@ -127,5 +137,48 @@ describe('Project API client', () => {
     });
 
     await expect(saveProject(sampleDoc)).rejects.toThrow();
+  });
+
+  it('surfaces a 409 as ProjectConflictError carrying the server revision', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 409,
+      json: async () => ({ detail: { message: 'Project revision conflict; current revision is 5.', revision: 5 } }),
+    });
+
+    const error = await saveProject(sampleDoc).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ProjectConflictError);
+    expect((error as ProjectConflictError).currentRevision).toBe(5);
+    expect((error as Error).message).toBe('Project revision conflict; current revision is 5.');
+  });
+
+  it('never reports an object detail as "[object Object]"', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({ ok: false, status: 400, json: async () => ({ detail: { message: 'Bad manifest' } }) });
+    await expect(loadProject('proj_123')).rejects.toThrow('Bad manifest');
+    globalThis.fetch = vi.fn().mockResolvedValue({ ok: false, status: 500, json: async () => { throw new Error('not json'); } });
+    await expect(loadProject('proj_123')).rejects.toThrow('Project request failed (500)');
+  });
+
+  it('uploads a GLB as multipart and returns an absolute asset URL plus a valid AssetRef', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ filename: `${'a'.repeat(64)}.glb`, size: 3, url: `/api/projects/proj_123/assets/${'a'.repeat(64)}.glb` }),
+    });
+
+    const uploaded = await uploadProjectAsset('proj_123', new Blob([new Uint8Array([1, 2, 3])]), 'chair.glb');
+    const [url, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(url).toMatch(/\/api\/projects\/proj_123\/assets$/);
+    expect(init.method).toBe('POST');
+    expect((init.body as FormData).get('file')).toBeInstanceOf(Blob);
+    expect(uploaded.url).toMatch(/^https?:\/\/.+\/api\/projects\/proj_123\/assets\/a{64}\.glb$/);
+
+    const ref = uploadedAssetRef(uploaded, 'chair', [0.5, 0.8, 0.45]);
+    expect(AssetRefSchema.parse(ref)).toEqual(ref);
+    expect(ref).toMatchObject({ id: `asset_${'a'.repeat(64)}`, source: 'upload', format: 'glb', url: uploaded.url, dimensions: { width: 0.5, height: 0.8, depth: 0.45 } });
+  });
+
+  it('maps a 413 upload rejection to its message', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({ ok: false, status: 413, json: async () => ({ detail: 'Asset exceeds the 10-byte upload limit.' }) });
+    await expect(uploadProjectAsset('proj_123', new Blob(['x']), 'big.glb')).rejects.toThrow('Asset exceeds the 10-byte upload limit.');
   });
 });

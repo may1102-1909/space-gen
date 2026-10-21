@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { useScene } from '@pascal-app/core';
 import { useViewer } from '@pascal-app/viewer';
 import { useSpaceGenStore } from '@/lib/store';
@@ -8,7 +8,6 @@ import {
   Layers,
   Box,
   BoxSelect,
-  Grid3X3,
   Shapes,
   Eye,
   EyeOff,
@@ -16,8 +15,6 @@ import {
   ChevronRight,
   Maximize2,
   Sliders,
-  DoorOpen,
-  Frame,
   Plus,
   Upload,
 } from 'lucide-react';
@@ -25,8 +22,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { api } from '@/lib/api';
 import type { FurnitureItem } from '@/lib/types';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { createItemNode, normalizeGlbBounds, replaceItemAsset, fetchCatalogItems } from '@/lib/pascal/itemEditing';
-import { seedScannedRoom } from '@/lib/pascal/seedScannedRoom';
+import { createItemNode, normalizeGlbBounds, fetchCatalogItems, type ItemNode } from '@/lib/pascal/itemEditing';
+import { asNode, asNodeId, updateNodeData } from '@/lib/pascal/nodes';
 import { ERROR_TABLE, formatDimensions, scaleSourceOf } from '@/lib/measurement/accuracy';
 import {
   replaceItemWithMask,
@@ -35,10 +32,33 @@ import {
   resizeMaskRegion,
   removeMaskRegion,
 } from '@/lib/splat/splatMasking';
-import type { MaskRegion } from '@/lib/contracts';
+import type { AssetRef, MaskRegion } from '@/lib/contracts';
+import { uploadProjectAsset, uploadedAssetRef } from '@/lib/projects/api';
 
-export function ScenePanel() {
-  const nodes = useScene((state) => state.nodes);
+/** The node fields this panel reads; Pascal nodes are a union, so all are optional here. */
+interface PanelNode {
+  id: string;
+  type: string;
+  name?: string;
+  visible?: boolean;
+  category?: string;
+  position?: [number, number, number];
+  dimensions?: [number, number, number];
+  asset?: { dimensions?: [number, number, number] };
+  height?: number;
+  thickness?: number;
+  opacity?: number;
+  metadata?: { maskRegionId?: string; maskRegions?: MaskRegion[]; exclusionBoxes?: unknown[] };
+}
+
+interface ScenePanelProps {
+  /** Project that owns uploaded assets; uploads are disabled without one. */
+  projectId?: string;
+  onAssetUploaded?: (asset: AssetRef) => void;
+}
+
+export function ScenePanel({ projectId, onAssetUploaded }: ScenePanelProps = {}) {
+  const nodes = useScene((state) => state.nodes) as unknown as Record<string, PanelNode | undefined>;
   const selectedIds = useViewer((state) => state.selection.selectedIds);
   const setSelection = useViewer((state) => state.setSelection);
   const selectedObjectId = useSpaceGenStore((state) => state.selectedObjectId);
@@ -49,8 +69,8 @@ export function ScenePanel() {
   const uploadRef = useRef<HTMLInputElement>(null);
 
   const activeId = selectedIds[0] || selectedObjectId || null;
-  const selectedNode = activeId ? (nodes as Record<string, any>)[activeId] : null;
-  const scanNode = Object.values(nodes).find((n) => n?.type === 'scan') as any;
+  const selectedNode = activeId ? nodes[activeId] ?? null : null;
+  const scanNode = Object.values(nodes).find((n) => n?.type === 'scan');
   const maskRegions: MaskRegion[] = scanNode?.metadata?.maskRegions || [];
   const scaleSource = scaleSourceOf(scanNode);
   const estimateTitle = `Estimated from the ${ERROR_TABLE.basis} accuracy benchmark for scale source "${scaleSource}"`;
@@ -59,17 +79,15 @@ export function ScenePanel() {
   );
   const [positionDraft, setPositionDraft] = useState<[string, string, string]>(['0', '0', '0']);
 
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      (window as any).__seedScannedRoom = (options?: { forceReset?: boolean }) => seedScannedRoom(options);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (selectedNode?.type === 'item') {
-      setPositionDraft((selectedNode.position || [0, 0, 0]).map((value: number) => String(value)) as [string, string, string]);
-    }
-  }, [activeId, selectedNode?.position?.[0], selectedNode?.position?.[1], selectedNode?.position?.[2]]);
+  // Re-seed the inputs when the selection or its stored position changes (state adjusted during
+  // render, per React's guidance, rather than in an effect).
+  const selectedPosition = selectedNode?.type === 'item' ? selectedNode.position || [0, 0, 0] : null;
+  const positionKey = selectedPosition ? `${activeId}:${selectedPosition.join(',')}` : null;
+  const [draftKey, setDraftKey] = useState<string | null>(null);
+  if (positionKey !== draftKey) {
+    setDraftKey(positionKey);
+    if (selectedPosition) setPositionDraft(selectedPosition.map((value) => String(value)) as [string, string, string]);
+  }
 
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
     new Set(['items', 'walls', 'scans', 'zones'])
@@ -85,20 +103,18 @@ export function ScenePanel() {
   };
 
   const handleSelectNode = (id: string) => {
-    setSelection({ selectedIds: [id as any] });
+    setSelection({ selectedIds: [asNodeId(id)] });
     setSelectedObjectId(id);
   };
 
-  const handleUpdateNodeProp = (key: string, value: any) => {
+  const handleUpdateNodeProp = (key: string, value: unknown) => {
     if (!activeId) return;
-    (useScene.getState().updateNode as any)(activeId, {
-      [key]: value,
-    });
+    updateNodeData(activeId, { [key]: value });
   };
 
   const handleDeleteNode = () => {
     if (!activeId) return;
-    (useScene.getState().deleteNode as any)(activeId);
+    useScene.getState().deleteNode(asNodeId(activeId));
     setSelection({ selectedIds: [] });
     setSelectedObjectId(null);
   };
@@ -111,16 +127,16 @@ export function ScenePanel() {
     const assetPayload = { ...asset, src: resolvedSrc };
 
     const currentActiveId = activeId || useViewer.getState().selection.selectedIds[0] || useSpaceGenStore.getState().selectedObjectId;
-    const currentSelectedNode = currentActiveId ? ((scene.nodes as Record<string, any>)[currentActiveId] || selectedNode) : selectedNode;
+    const currentSelectedNode = currentActiveId ? scene.nodes[asNodeId(currentActiveId)] : undefined;
 
     if (currentSelectedNode?.type === 'item') {
-      replaceItemWithMask(currentSelectedNode as any, assetPayload);
+      replaceItemWithMask(currentSelectedNode as ItemNode, assetPayload);
     } else {
       const levelId = Object.values(scene.nodes).find((node) => node?.type === 'level')?.id;
       const node = { ...createItemNode(assetPayload), parentId: levelId || null };
-      scene.applyNodeChanges({ create: [{ node: node as any, parentId: levelId as any }] });
+      scene.applyNodeChanges({ create: [{ node: asNode({ ...node }), parentId: levelId }] });
       setSelectedObjectId(node.id);
-      setSelection({ selectedIds: [node.id as any] });
+      setSelection({ selectedIds: [node.id] });
     }
     setCatalogOpen(false);
   };
@@ -139,6 +155,10 @@ export function ScenePanel() {
   const uploadGlb = async (file?: File) => {
     if (!file) return;
     setAssetError(null);
+    if (!projectId) {
+      setAssetError('Open a saved project to upload GLB assets.');
+      return;
+    }
     try {
       const url = URL.createObjectURL(file);
       const gltf = await new GLTFLoader().loadAsync(url);
@@ -157,20 +177,24 @@ export function ScenePanel() {
         if (result instanceof ArrayBuffer) resolve(new Blob([result], { type: 'model/gltf-binary' }));
         else reject(new Error('GLB normalization did not produce a binary GLB'));
       }, reject, { binary: true }));
-      const normalizedUrl = URL.createObjectURL(normalizedBlob);
       URL.revokeObjectURL(url);
-      commitAsset({ name: file.name.replace(/\.glb$/i, ''), category: 'custom', src: normalizedUrl, dimensions: measured.dimensions, source: 'mine' });
+      const name = file.name.replace(/\.glb$/i, '');
+      // Persist the normalized GLB server-side; a blob: URL would not survive a reload.
+      const uploaded = await uploadProjectAsset(projectId, normalizedBlob, `${name}.glb`);
+      const assetRef = uploadedAssetRef(uploaded, name, measured.dimensions);
+      onAssetUploaded?.(assetRef);
+      commitAsset({ id: assetRef.id, name, category: 'custom', src: uploaded.url, dimensions: measured.dimensions, source: 'mine' });
     } catch (error) {
       setAssetError(error instanceof Error ? error.message : 'GLB could not be measured');
     }
   };
 
   // Group nodes by category
-  const walls: any[] = [];
-  const items: any[] = [];
-  const scans: any[] = [];
-  const zones: any[] = [];
-  const slabs: any[] = [];
+  const walls: PanelNode[] = [];
+  const items: PanelNode[] = [];
+  const scans: PanelNode[] = [];
+  const zones: PanelNode[] = [];
+  const slabs: PanelNode[] = [];
 
   for (const node of Object.values(nodes)) {
     if (!node) continue;
@@ -220,7 +244,7 @@ export function ScenePanel() {
           <button onClick={() => uploadRef.current?.click()} className="flex items-center gap-1.5 rounded-md border border-border px-2 py-1.5 text-[11px] hover:bg-surface-elevated">
             <Upload size={12} /> GLB
           </button>
-          <input ref={uploadRef} type="file" accept=".glb,model/gltf-binary" className="hidden" onChange={(event) => void uploadGlb(event.target.files?.[0])} />
+          <input ref={uploadRef} type="file" accept=".glb,model/gltf-binary" className="hidden" aria-label="Upload GLB" onChange={(event) => { void uploadGlb(event.target.files?.[0]); event.target.value = ''; }} />
         </div>
         {assetError && <p role="alert" className="text-[10px] text-red-400">{assetError}</p>}
         {catalogOpen && <div className="max-h-32 overflow-y-auto rounded border border-border">
@@ -364,9 +388,7 @@ export function ScenePanel() {
                         title="Toggle visibility"
                         onClick={(e) => {
                           e.stopPropagation();
-                          (useScene.getState().updateNode as any)(scan.id, {
-                            visible: !scan.visible,
-                          });
+                          updateNodeData(scan.id, { visible: !scan.visible });
                         }}
                         className="p-1 hover:text-text-primary"
                       >

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import path from 'node:path';
+import { screenshotPath } from './support/artifacts';
 
 test('reopening a project restores the Pascal item transform', async ({ page }) => {
   const id = 'fixture-room';
@@ -44,5 +44,5 @@ test('reopening a project restores the Pascal item transform', async ({ page }) 
   await page.getByRole('button', { name: /Saved Chair chair/ }).click();
   await expect(page.locator('input[type="number"]').nth(0)).toHaveValue('4.5');
   await expect(page.locator('input[type="number"]').nth(2)).toHaveValue('-2.5');
-  await page.screenshot({ path: path.join(__dirname, 'screenshots', 'project-reload.png'), fullPage: true });
+  await page.screenshot({ path: screenshotPath('project-reload.png'), fullPage: true });
 });

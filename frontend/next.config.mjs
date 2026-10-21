@@ -10,6 +10,10 @@ const nextConfig = {
     '@react-three/drei',
   ],
   turbopack: {},
+  // Always inline the e2e flag (empty when unset) so production bundles drop the test hooks entirely.
+  env: {
+    NEXT_PUBLIC_E2E: process.env.NEXT_PUBLIC_E2E ?? '',
+  },
   webpack: (config, { isServer }) => {
     if (isServer) {
       config.resolve.alias = {

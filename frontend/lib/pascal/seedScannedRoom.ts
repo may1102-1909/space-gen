@@ -1,4 +1,5 @@
 import { useScene } from '@pascal-app/core';
+import { asNode, asNodeId } from './nodes';
 
 export interface SeedRoomOptions {
   forceReset?: boolean;
@@ -37,8 +38,8 @@ export function seedScannedRoom(options?: SeedRoomOptions): boolean {
   }
 
   // Helper to safely invoke createNode with partial initial props
-  const addNode = (node: Record<string, any>, parentId?: string) => {
-    (scene.createNode as any)(node, parentId);
+  const addNode = (node: Record<string, unknown>, parentId?: string) => {
+    scene.createNode(asNode(node), parentId ? asNodeId(parentId) : undefined);
   };
 
   // 1. Root Site Node
@@ -324,10 +325,7 @@ export function seedScannedRoom(options?: SeedRoomOptions): boolean {
 
   // Clear any temporal history created during the seed initialization
   // so that the initial room state is the clean baseline for user undo/redo.
-  const temporal = (useScene as any).temporal;
-  if (temporal && typeof temporal.getState === 'function') {
-    temporal.getState().clear();
-  }
+  useScene.temporal.getState().clear();
 
   return true;
 }

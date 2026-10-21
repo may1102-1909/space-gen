@@ -1,6 +1,6 @@
 import React from 'react'
 
-export function VariantGallery({ variants, onSelect }: { variants: Array<{ style: string, image: string, description: string }>, onSelect?: (v: any) => void }) {
+export function VariantGallery({ variants, onSelect }: { variants: Array<{ style: string, image: string, description: string }>, onSelect?: (v: { style: string, image: string, description: string }) => void }) {
   return (
     <div className="flex gap-4 overflow-x-auto pb-4">
       {variants.map((v, i) => (

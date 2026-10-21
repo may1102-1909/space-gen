@@ -1,12 +1,12 @@
 import { test, expect } from '@playwright/test';
 import fs from 'fs';
-import path from 'path';
+import { screenshotPath } from './support/artifacts';
 
 test.describe('T05: Scan Alignment & Splat Layer Integration', () => {
   test('mounts dual-canvas, loads scan, executes alignment workflow, and captures before/after screenshots', async ({
     page,
   }) => {
-    test.setTimeout(90000);
+    test.slow();
 
     // 1. Navigate to main editor
     await page.goto('/', { waitUntil: 'domcontentloaded' });
@@ -34,11 +34,7 @@ test.describe('T05: Scan Alignment & Splat Layer Integration', () => {
     // 4. Wait for scan asset to mount and settle render
     await page.waitForTimeout(1500);
 
-    const screenshotsDir = path.join(__dirname, 'screenshots');
-    if (!fs.existsSync(screenshotsDir)) {
-      fs.mkdirSync(screenshotsDir, { recursive: true });
-    }
-    const beforeScreenshotPath = path.join(screenshotsDir, 'scan-before-alignment.png');
+    const beforeScreenshotPath = screenshotPath('scan-before-alignment.png');
     await page.screenshot({ path: beforeScreenshotPath, fullPage: true });
     expect(fs.existsSync(beforeScreenshotPath)).toBe(true);
 
@@ -68,16 +64,9 @@ test.describe('T05: Scan Alignment & Splat Layer Integration', () => {
 
     // 7. Settle render and capture AFTER ALIGNMENT screenshot
     await page.waitForTimeout(1000);
-    const afterScreenshotPath = path.join(screenshotsDir, 'scan-after-alignment.png');
+    const afterScreenshotPath = screenshotPath('scan-after-alignment.png');
     await page.screenshot({ path: afterScreenshotPath, fullPage: true });
     expect(fs.existsSync(afterScreenshotPath)).toBe(true);
-
-    // Also copy to docs/decisions for inclusion in documentation and reports
-    const docScreenshotsDir = path.resolve(__dirname, '../../../docs/decisions');
-    if (fs.existsSync(docScreenshotsDir)) {
-      fs.copyFileSync(beforeScreenshotPath, path.join(docScreenshotsDir, 'scan-before-alignment.png'));
-      fs.copyFileSync(afterScreenshotPath, path.join(docScreenshotsDir, 'scan-after-alignment.png'));
-    }
 
     // 8. Test Undo (Ctrl+Z)
     await page.keyboard.press('Control+z');

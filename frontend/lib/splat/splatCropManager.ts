@@ -1,4 +1,5 @@
 import { useScene } from '@pascal-app/core';
+import { asNodeId, scanMetadata, updateNodeData } from '@/lib/pascal/nodes';
 
 export interface SplatCropVolume {
   id: string;
@@ -24,7 +25,7 @@ export function isPointInsideVolume(
 
   // Translate to origin
   let dx = px - cx;
-  let dy = py - cy;
+  const dy = py - cy;
   let dz = pz - cz;
 
   // If rotation exists, apply inverse rotation around Y (most common for furniture Yaw)
@@ -102,19 +103,19 @@ export function addExclusionVolumeToScan(
   volume: SplatCropVolume
 ): void {
   const scene = useScene.getState();
-  const node = (scene.nodes as Record<string, any>)[scanNodeId];
+  const node = scene.nodes[asNodeId(scanNodeId)];
 
   if (!node || node.type !== 'scan') {
     console.warn(`[splatCropManager] Node ${scanNodeId} is not a scan node.`);
     return;
   }
 
-  const existing: SplatCropVolume[] = node.metadata?.exclusionBoxes || [];
+  const existing = (scanMetadata(node).exclusionBoxes as unknown as SplatCropVolume[] | undefined) || [];
   const nextBoxes = [...existing.filter((b) => b.id !== volume.id), volume];
 
-  (scene.updateNode as any)(scanNodeId, {
+  updateNodeData(scanNodeId, {
     metadata: {
-      ...node.metadata,
+      ...scanMetadata(node),
       exclusionBoxes: nextBoxes,
     },
   });
@@ -128,16 +129,16 @@ export function removeExclusionVolumeFromScan(
   volumeId: string
 ): void {
   const scene = useScene.getState();
-  const node = (scene.nodes as Record<string, any>)[scanNodeId];
+  const node = scene.nodes[asNodeId(scanNodeId)];
 
   if (!node || node.type !== 'scan') return;
 
-  const existing: SplatCropVolume[] = node.metadata?.exclusionBoxes || [];
+  const existing = (scanMetadata(node).exclusionBoxes as unknown as SplatCropVolume[] | undefined) || [];
   const nextBoxes = existing.filter((b) => b.id !== volumeId);
 
-  (scene.updateNode as any)(scanNodeId, {
+  updateNodeData(scanNodeId, {
     metadata: {
-      ...node.metadata,
+      ...scanMetadata(node),
       exclusionBoxes: nextBoxes,
     },
   });
@@ -148,13 +149,13 @@ export function removeExclusionVolumeFromScan(
  */
 export function clearAllExclusionVolumes(scanNodeId: string): void {
   const scene = useScene.getState();
-  const node = (scene.nodes as Record<string, any>)[scanNodeId];
+  const node = scene.nodes[asNodeId(scanNodeId)];
 
   if (!node || node.type !== 'scan') return;
 
-  (scene.updateNode as any)(scanNodeId, {
+  updateNodeData(scanNodeId, {
     metadata: {
-      ...node.metadata,
+      ...scanMetadata(node),
       exclusionBoxes: [],
     },
   });

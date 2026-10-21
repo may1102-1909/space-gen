@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test';
 test.use({ video: 'on' });
 
 test('place, move, replace, undo three actions, and redo one action', async ({ page }) => {
-  await page.route('http://localhost:8000/api/reconstruction/furniture-catalog', (route) => route.fulfill({
+  await page.route('**/api/reconstruction/furniture-catalog', (route) => route.fulfill({
     status: 200,
     contentType: 'application/json',
     body: JSON.stringify([

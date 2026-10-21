@@ -15,12 +15,12 @@ const aligned: Matrix4 = [
 describe('Pascal scan alignment history', () => {
   afterEach(() => {
     useScene.getState().clearScene();
-    (useScene as any).temporal.getState().clear();
+    useScene.temporal.getState().clear();
   });
 
   it('stores the transform in ScanNode metadata and Ctrl+Z undo restores it', () => {
     const scanId = upsertScanNode('/Hurstville_Museum_Gallery.sog', { id: 'scan_alignment_test' });
-    (useScene as any).temporal.getState().clear();
+    useScene.temporal.getState().clear();
 
     setScanAlignment(scanId, aligned);
     expect((useScene.getState().nodes as Record<string, any>)[scanId].metadata.scanToScene).toEqual(aligned);

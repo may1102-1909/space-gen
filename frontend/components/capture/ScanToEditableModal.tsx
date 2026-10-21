@@ -21,7 +21,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 interface ScanToEditableModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onConverted?: (result: any) => void;
+  onConverted?: (result: unknown) => void;
 }
 
 export function ScanToEditableModal({
@@ -56,7 +56,7 @@ export function ScanToEditableModal({
         setTimeout(() => {
           onClose();
         }, 1400);
-      } catch (err: any) {
+      } catch (err) {
         setIsProcessing(false);
         console.error('Scan conversion failed:', err);
       }

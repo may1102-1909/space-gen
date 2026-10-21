@@ -55,12 +55,12 @@ export function ObjectReplacementModal() {
     }
   }, [furnitureCatalog.length, setFurnitureCatalog])
 
-  // Set initial category filter matching the selected object
-  useEffect(() => {
-    if (targetCategory) {
-      setSelectedCategory(targetCategory)
-    }
-  }, [targetCategory])
+  // Reset the category filter when the selected object's category changes (adjusted during render).
+  const [filterFor, setFilterFor] = useState<string | null>(null)
+  if (targetCategory && targetCategory !== filterFor) {
+    setFilterFor(targetCategory)
+    setSelectedCategory(targetCategory)
+  }
 
   if (!showReplacementModal || !selectedObjectId) return null
 
@@ -268,7 +268,7 @@ export function ObjectReplacementModal() {
                   Upload 3D Mesh (.glb, .gltf, .obj)
                 </p>
                 <p className="text-xs text-text-muted max-w-sm mb-4">
-                  Drag and drop or browse for a custom 3D asset to swap directly into this object's position.
+                  Drag and drop or browse for a custom 3D asset to swap directly into this object&apos;s position.
                 </p>
                 <span className="px-4 py-2 rounded-xl text-xs font-semibold bg-accent text-white shadow-lg shadow-accent/25 hover:brightness-110 transition-all">
                   Browse Files

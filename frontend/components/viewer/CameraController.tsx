@@ -33,8 +33,8 @@ export function CameraController({
   resetTrigger?: number
 }) {
   const { camera, gl } = useThree()
-  const orbitRef = useRef<any>(null)
-  const pointerLockRef = useRef<any>(null)
+  const orbitRef = useRef<React.ComponentRef<typeof OrbitControls>>(null)
+  const pointerLockRef = useRef<React.ComponentRef<typeof PointerLockControls>>(null)
   const velocityRef = useRef(new THREE.Vector3())
   const keysRef = useRef<Set<string>>(new Set())
   const speedMultiplierRef = useRef(1)
@@ -112,8 +112,10 @@ export function CameraController({
   }, [mode, onModeChange])
 
   // Frame update for walk/fly movement
-  useFrame((_, delta) => {
+  useFrame((state, delta) => {
     if (mode === 'orbit') return
+    // Mutate the frame-state camera (R3F's intended per-frame path), not the render-time hook value.
+    const camera = state.camera
 
     const keys = keysRef.current
     const speed = moveSpeed * speedMultiplierRef.current * delta

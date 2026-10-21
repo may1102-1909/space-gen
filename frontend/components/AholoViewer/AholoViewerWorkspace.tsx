@@ -101,6 +101,7 @@ export function AholoViewerWorkspace({
     if (typeof window === 'undefined') return;
     try {
       const left = localStorage.getItem(LEFT_COLLAPSED_KEY);
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage is read after mount so server and first client render match
       if (left !== null) setLeftCollapsed(left === 'true');
       const right = localStorage.getItem(RIGHT_COLLAPSED_KEY);
       if (right !== null) setRightCollapsed(right === 'true');
@@ -218,8 +219,8 @@ export function AholoViewerWorkspace({
             name: file.name,
             size: file.size,
           });
-        } catch (err: any) {
-          showToast(`读取文件失败: ${file.name} - ${err.message || String(err)}`, 'error');
+        } catch (err) {
+          showToast(`读取文件失败: ${file.name} - ${(err as Error).message || String(err)}`, 'error');
         }
       }
     },
@@ -262,8 +263,8 @@ export function AholoViewerWorkspace({
         name: urlName,
       });
       showToast(`从剪贴板载入: ${urlName}`, 'success');
-    } catch (err: any) {
-      showToast(`读取剪贴板失败: ${err.message || String(err)}`, 'error');
+    } catch (err) {
+      showToast(`读取剪贴板失败: ${(err as Error).message || String(err)}`, 'error');
     }
   }, [addSourceRecord, showToast]);
 
@@ -291,8 +292,8 @@ export function AholoViewerWorkspace({
         await navigator.clipboard.writeText(JSON.stringify(state, null, 2));
         showToast('相机状态 JSON 已复制到剪贴板', 'success');
       }
-    } catch (err: any) {
-      showToast(`复制相机状态失败: ${err.message}`, 'error');
+    } catch (err) {
+      showToast(`复制相机状态失败: ${(err as Error).message}`, 'error');
     }
   }, [showToast]);
 
@@ -307,8 +308,8 @@ export function AholoViewerWorkspace({
         setFarPlane(state.far);
       }
       showToast('已平滑恢复相机视角与观察点', 'success');
-    } catch (err: any) {
-      showToast(`粘贴相机状态失败: ${err.message || 'JSON 格式不正确'}`, 'error');
+    } catch (err) {
+      showToast(`粘贴相机状态失败: ${(err as Error).message || 'JSON 格式不正确'}`, 'error');
     }
   }, [showToast]);
 
