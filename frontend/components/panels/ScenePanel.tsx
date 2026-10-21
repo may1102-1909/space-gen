@@ -26,7 +26,6 @@ import { api } from '@/lib/api';
 import type { FurnitureItem } from '@/lib/types';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { createItemNode, normalizeGlbBounds, replaceItemAsset, fetchCatalogItems } from '@/lib/pascal/itemEditing';
-import { seedScannedRoom } from '@/lib/pascal/seedScannedRoom';
 import {
   replaceItemWithMask,
   toggleMaskGhostMode,
@@ -55,12 +54,6 @@ export function ScenePanel() {
     (m) => m.itemId === activeId || m.id === selectedNode?.metadata?.maskRegionId
   );
   const [positionDraft, setPositionDraft] = useState<[string, string, string]>(['0', '0', '0']);
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      (window as any).__seedScannedRoom = (options?: { forceReset?: boolean }) => seedScannedRoom(options);
-    }
-  }, []);
 
   useEffect(() => {
     if (selectedNode?.type === 'item') {

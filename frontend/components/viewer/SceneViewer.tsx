@@ -16,9 +16,10 @@ import {
   LevelSystem,
   useViewer,
 } from '@pascal-app/viewer';
+import { OrbitControls } from '@react-three/drei';
 import { ensurePascalInitialized } from '@/lib/pascal/initPascal';
-import { seedScannedRoom } from '@/lib/pascal/seedScannedRoom';
 import { useScene } from '@pascal-app/core';
+import { E2ECameraHooks } from './E2ECameraHooks';
 import { SplatBackgroundCanvas, type SplatCameraState } from '@/components/splat-prototype/SplatBackgroundCanvas';
 import { ScanAlignmentTool } from './ScanAlignmentTool';
 import type { Matrix4, Vector3 } from '@/lib/contracts/primitives';
@@ -32,8 +33,12 @@ import { useSpaceGenStore } from '@/lib/store';
 import { Loader2 } from 'lucide-react';
 
 type ScanPicker = (clientX: number, clientY: number) => Vector3 | null;
+type OrbitControlsImpl = React.ComponentRef<typeof OrbitControls>;
 
 const NO_MASK_REGIONS: MaskRegion[] = [];
+const SCAN_FOCUS_POSITION: [number, number, number] = [0, 1.6, 5];
+const SCAN_FOCUS_TARGET: [number, number, number] = [0, 1, 0];
+const E2E_HOOKS_ENABLED = process.env.NEXT_PUBLIC_E2E === '1';
 
 function ScanCameraBridge({
   cameraStateRef,
@@ -49,36 +54,19 @@ function ScanCameraBridge({
   scanId: string | null;
 }) {
   const { camera, size, gl } = useThree();
+  const controls = useThree((state) => state.controls) as unknown as OrbitControlsImpl | null;
   const focusedScanRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!scanId || focusedScanRef.current === scanId) return;
     focusedScanRef.current = scanId;
     const perspective = camera as THREE.PerspectiveCamera;
-    perspective.position.set(0, 1.6, 5);
-    perspective.lookAt(0, 1, 0);
+    perspective.position.set(...SCAN_FOCUS_POSITION);
+    perspective.lookAt(...SCAN_FOCUS_TARGET);
     perspective.updateProjectionMatrix();
-  }, [camera, scanId]);
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      (window as any).__setEditorCamera = (
-        position: [number, number, number],
-        target: [number, number, number] = [2.0, 0.45, -0.75]
-      ) => {
-        const perspective = camera as THREE.PerspectiveCamera;
-        perspective.position.set(...position);
-        perspective.lookAt(...target);
-        perspective.updateProjectionMatrix();
-        perspective.updateMatrixWorld();
-      };
-    }
-    return () => {
-      if (typeof window !== 'undefined') {
-        delete (window as any).__setEditorCamera;
-      }
-    };
-  }, [camera]);
+    controls?.target.set(...SCAN_FOCUS_TARGET);
+    controls?.update();
+  }, [camera, controls, scanId]);
 
   useFrame(() => {
     if ((camera as THREE.PerspectiveCamera).isPerspectiveCamera) {
@@ -245,12 +233,7 @@ export function SceneViewer({ selectedId, onSelectObject }: SceneViewerProps) {
     async function init() {
       try {
         await ensurePascalInitialized();
-        if (mounted) {
-          setIsReady(true);
-          if (typeof window !== 'undefined') {
-            (window as any).__seedScannedRoom = (options?: { forceReset?: boolean }) => seedScannedRoom(options);
-          }
-        }
+        if (mounted) setIsReady(true);
       } catch (err: any) {
         console.error('[SceneViewer] Failed to initialize Pascal workspace:', err);
         if (mounted) {
@@ -350,6 +333,8 @@ export function SceneViewer({ selectedId, onSelectObject }: SceneViewerProps) {
         onPickerReady={handlePickerReady}
       />
       <Viewer perf={false} useBvh={true} transparent>
+        <OrbitControls makeDefault target={SCAN_FOCUS_TARGET} enableDamping={false} />
+        {E2E_HOOKS_ENABLED && <E2ECameraHooks />}
         <TransformGizmo />
         <MaskRegionVisualizer
           maskRegions={maskRegions}

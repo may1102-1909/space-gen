@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import fs from 'fs';
-import path from 'path';
+import { screenshotPath } from './support/artifacts';
 
 test.describe('001 Splat Rendering Decision - Prototype E2E Verification', () => {
   test('prototype page loads, dual canvas mounts, HUD telemetry displays, and candidate switching functions', async ({
@@ -51,20 +51,8 @@ test.describe('001 Splat Rendering Decision - Prototype E2E Verification', () =>
     // 7. Settle frames and capture screenshot evidence
     await page.waitForTimeout(2000);
 
-    const docScreenshotsDir = path.resolve(__dirname, '../../../docs/decisions');
-    if (!fs.existsSync(docScreenshotsDir)) {
-      fs.mkdirSync(docScreenshotsDir, { recursive: true });
-    }
-    const docScreenshotPath = path.join(docScreenshotsDir, 'splat-prototype-screenshot.png');
-    await page.screenshot({ path: docScreenshotPath, fullPage: true });
-    expect(fs.existsSync(docScreenshotPath)).toBe(true);
-
-    const e2eScreenshotDir = path.join(__dirname, 'screenshots');
-    if (!fs.existsSync(e2eScreenshotDir)) {
-      fs.mkdirSync(e2eScreenshotDir, { recursive: true });
-    }
-    const e2eScreenshotPath = path.join(e2eScreenshotDir, 'splat-prototype-screenshot.png');
-    await page.screenshot({ path: e2eScreenshotPath, fullPage: true });
-    expect(fs.existsSync(e2eScreenshotPath)).toBe(true);
+    const file = screenshotPath('splat-prototype-screenshot.png');
+    await page.screenshot({ path: file, fullPage: true });
+    expect(fs.existsSync(file)).toBe(true);
   });
 });

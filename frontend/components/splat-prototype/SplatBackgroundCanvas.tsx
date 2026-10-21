@@ -300,9 +300,41 @@ export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
     };
   }, [scanUrl, enableMasking, maskPosition, maskSize, maskRegions]);
 
+  useEffect(() => {
+    if (process.env.NEXT_PUBLIC_E2E !== '1') return;
+    const sceneCenters = (visit: (p: THREE.Vector3) => void) => {
+      const mesh = splatMeshRef.current;
+      if (!mesh?.isInitialized) return;
+      mesh.updateMatrixWorld();
+      const world = mesh.matrixWorld;
+      mesh.forEachSplat((_i: number, center: THREE.Vector3) => visit(center.clone().applyMatrix4(world)));
+    };
+    window.__spacegenSplat = {
+      numSplats: () => splatMeshRef.current?.numSplats ?? 0,
+      editCount: () => splatMeshRef.current?.edits?.length ?? 0,
+      bounds() {
+        const box = new THREE.Box3();
+        sceneCenters((p) => box.expandByPoint(p));
+        return box.isEmpty() ? null : { min: box.min.toArray(), max: box.max.toArray() };
+      },
+      countInside(obb) {
+        const toLocal = new THREE.Matrix4().makeRotationY(obb.yaw).setPosition(...obb.center).invert();
+        let count = 0;
+        sceneCenters((p) => {
+          p.applyMatrix4(toLocal);
+          if (Math.abs(p.x) <= obb.size[0] / 2 && Math.abs(p.y) <= obb.size[1] / 2 && Math.abs(p.z) <= obb.size[2] / 2) count += 1;
+        });
+        return count;
+      },
+    };
+    return () => {
+      delete window.__spacegenSplat;
+    };
+  }, []);
+
   return (
     <div ref={containerRef} className="absolute inset-0 w-full h-full pointer-events-none">
-      <canvas ref={canvasRef} className="w-full h-full block" />
+      <canvas ref={canvasRef} data-testid="splat-canvas" className="w-full h-full block" />
       {errorMsg && (
         <div className="absolute inset-0 z-10 flex items-center justify-center bg-red-950/60 p-6 text-red-200 pointer-events-none">
           <div className="max-w-lg bg-black/90 p-5 border border-red-500 rounded-xl shadow-2xl font-mono text-xs pointer-events-auto">
