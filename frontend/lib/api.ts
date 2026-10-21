@@ -310,9 +310,10 @@ export const api = {
     }
     const data = await res.json()
     const items = Array.isArray(data) ? data : (data.items || [])
+    // Frontend-hosted models (/samples, /catalog) must not be rewritten to the backend origin.
     return items.map((item: any) => ({
       ...item,
-      url: `${API_BASE}${item.url}`,
+      url: api.normalizeModelUrl(item.url) ?? item.url,
     }))
   },
 
