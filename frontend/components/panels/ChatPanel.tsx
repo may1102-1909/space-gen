@@ -13,7 +13,9 @@ import {
 } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 import { ChatMessage as ChatMessageType } from '@/lib/types';
-import type { EditProposal } from '@/lib/contracts';
+import type { AssetRef, EditProposal } from '@/lib/contracts';
+import { uploadProjectAsset, uploadedAssetRef } from '@/lib/projects/api';
+import { bytesFromDataUrl, measureGlb } from '@/lib/ai/glb';
 import { undoSceneAction } from '@/lib/pascal/sceneBridge';
 import { acceptProposal } from '@/lib/pascal/applyProposal';
 import { getTrustedInterpretation } from '@/lib/pascal/interpretationReview';
@@ -24,7 +26,13 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 const PROPOSAL_NODE_TYPES = new Set(['item', 'wall', 'door', 'window', 'slab', 'level', 'zone']);
 
-export function ChatPanel() {
+interface ChatPanelProps {
+  /** Project that stores attached GLBs; GLB attachments are disabled without one. */
+  projectId?: string;
+  onAssetUploaded?: (asset: AssetRef) => void;
+}
+
+export function ChatPanel({ projectId, onAssetUploaded }: ChatPanelProps = {}) {
   const { chatMessages, addChatMessage, isLoading, setIsLoading } = useAppStore();
   const [input, setInput] = useState('');
   const [attachedFile, setAttachedFile] = useState<{
@@ -57,14 +65,22 @@ export function ChatPanel() {
     const type = isGlb ? 'glb' : 'image';
 
     const reader = new FileReader();
-    reader.onload = (event) => {
-      setAttachedFile({
-        type,
-        dataUrl: event.target?.result as string,
-        name: file.name,
-        // Proposals reference the uploaded GLB by a URL this browser session can load.
-        url: isGlb ? URL.createObjectURL(file) : undefined,
-      });
+    reader.onload = async (event) => {
+      const dataUrl = event.target?.result as string;
+      let url: string | undefined;
+      if (isGlb) {
+        // Proposals reference the GLB in the project asset store; a blob: URL would not survive a reload.
+        try {
+          if (!projectId) throw new Error('open a saved project to attach GLB models');
+          const uploaded = await uploadProjectAsset(projectId, file, file.name);
+          onAssetUploaded?.(uploadedAssetRef(uploaded, file.name.replace(/\.gl(b|tf)$/i, ''), measureGlb(bytesFromDataUrl(dataUrl))));
+          url = uploaded.url;
+        } catch (err) {
+          addChatMessage({ role: 'assistant', content: `Could not attach ${file.name}: ${(err as Error).message}`, timestamp: Date.now() });
+          return;
+        }
+      }
+      setAttachedFile({ type, dataUrl, name: file.name, url });
     };
     reader.readAsDataURL(file);
   };

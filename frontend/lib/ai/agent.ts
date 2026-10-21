@@ -24,7 +24,7 @@ export const SpatialRequestSchema = z.object({
       type: z.enum(['image', 'glb']),
       dataUrl: z.string().optional(),
       name: z.string().optional(),
-      /** Client-loadable URL for an uploaded GLB (e.g. a blob: URL); proposals reference it. */
+      /** Project asset-store URL of an uploaded GLB; proposals reference it. */
       url: z.string().optional(),
       /** Dimensions measured on the client, used when no dataUrl is sent. */
       dimensions: z.tuple([z.number().positive(), z.number().positive(), z.number().positive()]).optional(),

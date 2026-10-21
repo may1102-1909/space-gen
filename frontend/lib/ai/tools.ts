@@ -21,7 +21,7 @@ import type { VisualDescriptors } from './vision';
 
 export interface UploadedAsset {
   name: string;
-  /** URL the client can load (blob: or hosted); proposals reference it. */
+  /** Project asset-store or catalog URL; proposals reference it. */
   url: string;
   dimensions: [number, number, number];
   category?: string;
