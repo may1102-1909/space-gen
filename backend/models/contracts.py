@@ -112,6 +112,7 @@ class WallInterpretation(BaseModel):
     thickness: float = Field(gt=0.0)
     confidence: float = Field(ge=0.0, le=1.0)
     provenance: Provenance
+    status: Optional[DetectionStatus] = None
 
 
 class OpeningInterpretation(BaseModel):
@@ -126,6 +127,7 @@ class OpeningInterpretation(BaseModel):
     sill: float = Field(ge=0.0)
     confidence: float = Field(ge=0.0, le=1.0)
     provenance: Provenance
+    status: Optional[DetectionStatus] = None
 
 
 class DetectionInterpretation(BaseModel):
@@ -145,6 +147,7 @@ class RoomInterpretation(BaseModel):
     ceilingHeight: float = Field(gt=0.0)
     ceilingConfidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
     outline: List[Point2D]
+    outlineStatus: Optional[DetectionStatus] = None
     walls: List[WallInterpretation]
     openings: List[OpeningInterpretation]
     detections: List[DetectionInterpretation]

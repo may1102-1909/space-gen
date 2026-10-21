@@ -28,6 +28,7 @@ import { ScanSegmentationOverlay } from './ScanSegmentationOverlay';
 import { ScanToEditableModal } from '../capture/ScanToEditableModal';
 import { AIPlacementPreview } from './AIPlacementPreview';
 import { TransformGizmo } from './TransformGizmo';
+import { InterpretationOverlay } from './InterpretationOverlay';
 import { useSpaceGenStore } from '@/lib/store';
 import { Loader2 } from 'lucide-react';
 
@@ -204,9 +205,11 @@ interface SceneViewerProps {
   objects?: any[];
   selectedId?: string | null;
   onSelectObject?: (id: string | null) => void;
+  /** Shows confidence-coloured scan interpretation overlays. */
+  reviewMode?: boolean;
 }
 
-export function SceneViewer({ selectedId, onSelectObject }: SceneViewerProps) {
+export function SceneViewer({ selectedId, onSelectObject, reviewMode = false }: SceneViewerProps) {
   const [isReady, setIsReady] = useState(false);
   const [initError, setInitError] = useState<string | null>(null);
   const [activeTool, setActiveTool] = useState<ActiveTool>('select');
@@ -349,6 +352,7 @@ export function SceneViewer({ selectedId, onSelectObject }: SceneViewerProps) {
       />
       <Viewer perf={false} useBvh={true} transparent>
         <TransformGizmo />
+        {reviewMode && <InterpretationOverlay />}
         <MaskRegionVisualizer
           maskRegions={maskRegions}
           selectedId={selectedId || selectedIds[0] || null}

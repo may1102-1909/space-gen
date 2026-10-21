@@ -48,7 +48,7 @@ export function ScanToEditableModal({
 
         setIsProcessing(false);
         setSuccessInfo(
-          `Extracted ${result.wallCount} walls, 1 floor slab, and ${result.itemCount} editable 3D furniture meshes with ${result.exclusionBoxCount} splat erasure masks!`
+          `Extracted ${result.wallCount} walls, 1 floor slab, and ${result.itemCount} detections to review with ${result.exclusionBoxCount} splat masks.`
         );
 
         if (onConverted) onConverted(result);

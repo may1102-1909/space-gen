@@ -13,6 +13,15 @@ export const FloorPlaneSchema = z.object({
 });
 export type FloorPlane = z.infer<typeof FloorPlaneSchema>;
 
+/** Review state shared by every interpreted element. Absent on walls/openings means 'auto'. */
+export const DetectionStatusSchema = z.enum([
+  'auto',
+  'verified',
+  'corrected',
+  'rejected',
+]);
+export type DetectionStatus = z.infer<typeof DetectionStatusSchema>;
+
 export const WallInterpretationSchema = z.object({
   id: z.string(),
   start: Vector3Schema,
@@ -21,6 +30,7 @@ export const WallInterpretationSchema = z.object({
   thickness: z.number().positive(),
   confidence: z.number().min(0).max(1),
   provenance: ProvenanceSchema,
+  status: DetectionStatusSchema.nullable().optional(),
 });
 export type WallInterpretation = z.infer<typeof WallInterpretationSchema>;
 
@@ -40,16 +50,9 @@ export const OpeningInterpretationSchema = z.object({
   sill: z.number().nonnegative(),
   confidence: z.number().min(0).max(1),
   provenance: ProvenanceSchema,
+  status: DetectionStatusSchema.nullable().optional(),
 });
 export type OpeningInterpretation = z.infer<typeof OpeningInterpretationSchema>;
-
-export const DetectionStatusSchema = z.enum([
-  'auto',
-  'verified',
-  'corrected',
-  'rejected',
-]);
-export type DetectionStatus = z.infer<typeof DetectionStatusSchema>;
 
 export const DetectionInterpretationSchema = z.object({
   id: z.string(),
@@ -72,6 +75,7 @@ export const RoomInterpretationSchema = z.object({
   ceilingHeight: z.number().positive(),
   ceilingConfidence: z.number().min(0).max(1).nullable().optional(),
   outline: z.array(Point2DSchema),
+  outlineStatus: DetectionStatusSchema.nullable().optional(),
   walls: z.array(WallInterpretationSchema),
   openings: z.array(OpeningInterpretationSchema),
   detections: z.array(DetectionInterpretationSchema),
