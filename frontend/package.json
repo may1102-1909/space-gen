@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:e2e": "playwright test",
+    "eval:ai": "tsx scripts/eval_ai.ts",
     "contracts:export": "tsx scripts/export_schemas.ts",
     "contracts:check": "python ../scripts/check_contracts_sync.py",
     "contracts:generate": "python ../scripts/generate_contracts_schemas.py"

@@ -1,3 +1,5 @@
+import type { EditProposal } from './contracts'
+
 export interface Material {
   type: string
   color: string
@@ -55,6 +57,9 @@ export interface ChatMessage {
     modifiedNodeIds: string[]
   }>
   canUndo?: boolean
+  /** Pending AI EditProposals; applied only when the user accepts one. */
+  proposals?: EditProposal[]
+  proposalLabels?: Record<string, { label: string; category: string }>
 }
 
 export interface ReconstructionJob {

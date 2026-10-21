@@ -1,255 +1,100 @@
-import { useScene, AnyNodeId } from '@pascal-app/core';
-import { useViewer } from '@pascal-app/viewer';
-import { applySceneActions, SceneAction, SplatExclusionBox } from '@/lib/pascal/sceneBridge';
-import { addExclusionVolumeToScan } from '@/lib/splat/splatCropManager';
-import { ToolCallPayload } from './tools';
+/**
+ * Spatial agent loop. The model may call read-only tools (tools.ts) and must finish with
+ * EditProposal drafts. The executor never touches the scene store: it validates every draft
+ * with the placement validator, fills `validation`, and returns pending proposals that the
+ * user accepts or rejects in the UI.
+ */
+import { z } from 'zod';
+import type { AgentMessage, InlineImage, ModelUsage, SpatialModel, ToolCall } from './model';
+import { INTERIOR_DESIGNER_SYSTEM_PROMPT } from './prompts/interiorDesignerPrompt';
+import { finalizeProposals, type FinalizedProposals } from './proposals';
+import { runReadTool, SPATIAL_TOOLS, SUBMISSION_JSON_SCHEMA, SUBMIT_TOOL, type AgentContext } from './tools';
 
-export interface ExecutionResult {
-  success: boolean;
-  toolName: string;
-  modifiedNodeIds: string[];
-  message: string;
+export interface AgentTraceStep {
+  tool: string;
+  ok: boolean;
 }
 
-/**
- * Executes a batch of Gemini spatial tool calls against the live Pascal scene graph
- * and records atomic Zundo history so changes can be reverted in 1 click.
- */
-export function executeSpatialToolCalls(
-  toolCalls: ToolCallPayload[]
-): ExecutionResult[] {
-  const scene = useScene.getState();
-  const allModifiedIds: string[] = [];
-  const results: ExecutionResult[] = [];
-  const actions: SceneAction[] = [];
+const SubmissionSchema = z.object({ message: z.string(), proposals: z.array(z.unknown()) });
 
-  // Identify active level and active scan node
-  const activeLevelId =
-    Object.values(scene.nodes).find((n) => n?.type === 'level')?.id || 'level_main';
-  const scanNode = Object.values(scene.nodes).find((n) => n?.type === 'scan');
+export interface AgentResult extends FinalizedProposals {
+  message: string;
+  trace: { model: string; steps: AgentTraceStep[]; turns: number; usage: ModelUsage; forcedStructuredOutput: boolean };
+}
 
-  for (const call of toolCalls) {
-    const { name, args } = call;
+export interface RunAgentOptions {
+  model: SpatialModel;
+  context: AgentContext;
+  prompt: string;
+  image?: InlineImage;
+  maxTurns?: number;
+  idPrefix?: string;
+}
 
-    switch (name) {
-      case 'find_nodes': {
-        const { type, category, query } = args;
-        const matches = Object.values(scene.nodes).filter((node) => {
-          if (!node) return false;
-          if (type && node.type !== type) return false;
-          if (category && (node as any).category !== category) return false;
-          if (query) {
-            const q = query.toLowerCase();
-            const nodeName = (node.name || '').toLowerCase();
-            const nodeId = node.id.toLowerCase();
-            if (!nodeName.includes(q) && !nodeId.includes(q)) return false;
-          }
-          return true;
-        });
+const addUsage = (a: ModelUsage, b?: ModelUsage): ModelUsage =>
+  b ? { inputTokens: a.inputTokens + b.inputTokens, outputTokens: a.outputTokens + b.outputTokens } : a;
 
-        results.push({
-          success: true,
-          toolName: name,
-          modifiedNodeIds: [],
-          message: `Found ${matches.length} matching nodes: ${matches.map((m) => m.name || m.id).join(', ')}`,
-        });
-        break;
+function contextPrompt(ctx: AgentContext, prompt: string): string {
+  const extras: string[] = [];
+  if (ctx.selectedIds.length) extras.push(`Selected item ids: ${ctx.selectedIds.join(', ')}`);
+  if (ctx.upload) extras.push(`The user uploaded a 3D model "${ctx.upload.name}" measuring ${ctx.upload.dimensions.join(' x ')} m (w x h x d).`);
+  if (ctx.reference) extras.push(`The user attached a reference photo; vision analysis: ${JSON.stringify(ctx.reference)}`);
+  return [`User request: ${prompt}`, ...extras].join('\n');
+}
+
+export async function runSpatialAgent(options: RunAgentOptions): Promise<AgentResult> {
+  const { model, context: ctx, prompt, image, maxTurns = 8, idPrefix = 'proposal' } = options;
+  const messages: AgentMessage[] = [{ role: 'user', text: contextPrompt(ctx, prompt), image }];
+  const steps: AgentTraceStep[] = [];
+  let usage: ModelUsage = { inputTokens: 0, outputTokens: 0 };
+  let submission: z.infer<typeof SubmissionSchema> | null = null;
+  let lastText = '';
+  let turns = 0;
+
+  for (; turns < maxTurns && !submission; turns++) {
+    const turn = await model.generate({ system: INTERIOR_DESIGNER_SYSTEM_PROMPT, messages, tools: SPATIAL_TOOLS });
+    usage = addUsage(usage, turn.usage);
+    const calls: ToolCall[] = turn.toolCalls ?? [];
+    messages.push({ role: 'model', text: turn.text, toolCalls: calls, raw: turn.raw });
+    if (turn.text) lastText = turn.text;
+    if (!calls.length) break;
+
+    const results = calls.map((call) => {
+      if (call.name === SUBMIT_TOOL) {
+        const parsed = SubmissionSchema.safeParse(call.args);
+        steps.push({ tool: call.name, ok: parsed.success });
+        if (parsed.success) submission = parsed.data;
+        return { id: call.id, name: call.name, response: parsed.success ? { received: parsed.data.proposals.length } : { error: parsed.error.message } };
       }
-
-      case 'update_node_transform': {
-        const { nodeId, position, rotation, dimensions } = args;
-        const targetNode = scene.nodes[nodeId as AnyNodeId];
-
-        if (!targetNode) {
-          results.push({
-            success: false,
-            toolName: name,
-            modifiedNodeIds: [],
-            message: `Node "${nodeId}" not found in scene.`,
-          });
-          continue;
-        }
-
-        // If moving an item that has an underlying scan, mask the old bounding box
-        if (targetNode.type === 'item' && scanNode && (targetNode as any).position) {
-          const oldPos = (targetNode as any).position as [number, number, number];
-          const oldDims = (targetNode as any).dimensions || [1, 1, 1];
-          addExclusionVolumeToScan(scanNode.id, {
-            id: `box_moved_${nodeId}_${Date.now()}`,
-            type: 'box',
-            center: oldPos,
-            size: [oldDims[0] * 1.05, oldDims[1] * 1.05, oldDims[2] * 1.05],
-            rotation: (targetNode as any).rotation,
-            mode: 'exclude',
-            label: `Mask old footprint of ${targetNode.name || nodeId}`,
-          });
-        }
-
-        actions.push({
-          action: 'update_transform',
-          nodeId,
-          position,
-          rotation,
-          dimensions,
-        });
-
-        allModifiedIds.push(nodeId);
-        results.push({
-          success: true,
-          toolName: name,
-          modifiedNodeIds: [nodeId],
-          message: `Updated transform for "${targetNode.name || nodeId}".`,
-        });
-        break;
+      let response: unknown;
+      try {
+        response = runReadTool(ctx, call.name, call.args ?? {});
+      } catch (err) {
+        response = { error: err instanceof Error ? err.message : String(err) };
       }
-
-      case 'replace_item_asset': {
-        const { nodeId, newModelUrl, newName, dimensions, materialStyle } = args;
-        const targetNode = scene.nodes[nodeId as AnyNodeId];
-
-        if (!targetNode) {
-          results.push({
-            success: false,
-            toolName: name,
-            modifiedNodeIds: [],
-            message: `Target item "${nodeId}" not found in scene.`,
-          });
-          continue;
-        }
-
-        // Add SuperSplat exclusion box over the item's current footprint so raw splats vanish
-        if (scanNode && (targetNode as any).position) {
-          const pos = (targetNode as any).position as [number, number, number];
-          const dims = (targetNode as any).dimensions || [1, 1, 1];
-          addExclusionVolumeToScan(scanNode.id, {
-            id: `box_replace_${nodeId}_${Date.now()}`,
-            type: 'box',
-            center: pos,
-            size: [dims[0] * 1.05, dims[1] * 1.05, dims[2] * 1.05],
-            rotation: (targetNode as any).rotation,
-            mode: 'exclude',
-            label: `Replaced ${targetNode.name || nodeId}`,
-          });
-        }
-
-        actions.push({
-          action: 'replace_asset',
-          nodeId,
-          newModelUrl,
-          newName,
-          dimensions,
-          materialStyle,
-        });
-
-        allModifiedIds.push(nodeId);
-        results.push({
-          success: true,
-          toolName: name,
-          modifiedNodeIds: [nodeId],
-          message: `Replaced asset on "${targetNode.name || nodeId}" with ${newName || newModelUrl}.`,
-        });
-        break;
-      }
-
-      case 'spawn_items_smartly': {
-        const { items } = args;
-        if (!Array.isArray(items)) continue;
-
-        const spawnedIds: string[] = [];
-        items.forEach((item, index) => {
-          const itemId = `item_${item.category || 'furniture'}_${Date.now()}_${index}`;
-          actions.push({
-            action: 'create_node',
-            node: {
-              type: 'item',
-              id: itemId,
-              name: item.name || `${item.category} ${index + 1}`,
-              category: item.category,
-              position: item.position || [0, 0, 0],
-              rotation: item.rotation || [0, 0, 0],
-              dimensions: item.dimensions || [0.8, 0.8, 0.8],
-              scale: [1, 1, 1],
-              modelUrl: item.modelUrl || '/samples/models/chair.glb',
-              asset: {
-                id: `asset_${itemId}`,
-                category: item.category || 'furniture',
-                name: item.name || `${item.category} ${index + 1}`,
-                thumbnail: '',
-                source: 'library',
-                src: item.modelUrl || '/samples/models/chair.glb',
-                dimensions: item.dimensions || [0.8, 0.8, 0.8],
-                offset: [0, 0, 0],
-                rotation: [0, 0, 0],
-                scale: [1, 1, 1],
-              },
-            } as any,
-            parentId: activeLevelId,
-          });
-          spawnedIds.push(itemId);
-          allModifiedIds.push(itemId);
-        });
-
-        results.push({
-          success: true,
-          toolName: name,
-          modifiedNodeIds: spawnedIds,
-          message: `Spawned ${spawnedIds.length} new items: ${spawnedIds.join(', ')}`,
-        });
-        break;
-      }
-
-      case 'modify_architecture': {
-        const { wallId, action, thickness, height, finish } = args;
-        const targetWall = scene.nodes[wallId as AnyNodeId];
-
-        if (!targetWall) {
-          results.push({
-            success: false,
-            toolName: name,
-            modifiedNodeIds: [],
-            message: `Wall "${wallId}" not found.`,
-          });
-          continue;
-        }
-
-        const wallPatch: Record<string, any> = {};
-        if (thickness !== undefined) wallPatch.thickness = thickness;
-        if (height !== undefined) wallPatch.height = height;
-        if (finish !== undefined) wallPatch.finish = finish;
-
-        // Custom action for wall modification
-        actions.push({
-          action: 'update_transform',
-          nodeId: wallId,
-          dimensions: undefined,
-        });
-
-        // Apply direct update for wall properties
-        scene.applyNodeChanges({
-          update: [{ id: wallId as AnyNodeId, data: wallPatch as any }],
-        });
-
-        allModifiedIds.push(wallId);
-        results.push({
-          success: true,
-          toolName: name,
-          modifiedNodeIds: [wallId],
-          message: `Modified wall "${targetWall.name || wallId}" (${action}${finish ? ` with finish: ${finish}` : ''}).`,
-        });
-        break;
-      }
-    }
+      const ok = !(response && typeof response === 'object' && 'error' in response);
+      steps.push({ tool: call.name, ok });
+      return { id: call.id, name: call.name, response };
+    });
+    messages.push({ role: 'tool', results });
   }
 
-  // Commit all queued actions
-  if (actions.length > 0) {
-    applySceneActions(actions);
+  let forcedStructuredOutput = false;
+  if (!submission) {
+    // The model stopped without submitting: ask once more under a strict response schema.
+    forcedStructuredOutput = true;
+    messages.push({ role: 'user', text: 'Now return your final answer as JSON: a message and the EditProposal drafts (empty list if no edit fits).' });
+    const { value, usage: u } = await model.generateJson({ system: INTERIOR_DESIGNER_SYSTEM_PROMPT, messages, schema: SUBMISSION_JSON_SCHEMA });
+    usage = addUsage(usage, u);
+    const parsed = SubmissionSchema.safeParse(value);
+    submission = parsed.success ? parsed.data : { message: lastText || 'No proposals.', proposals: [] };
   }
 
-  // Highlight all modified items in the 3D viewport
-  if (allModifiedIds.length > 0) {
-    useViewer.getState().setSelection({ selectedIds: allModifiedIds as any });
-  }
-
-  return results;
+  const done = submission as z.infer<typeof SubmissionSchema>;
+  const finalized = finalizeProposals(ctx, done.proposals, idPrefix);
+  return {
+    message: done.message || lastText,
+    ...finalized,
+    trace: { model: model.name, steps, turns, usage, forcedStructuredOutput },
+  };
 }
