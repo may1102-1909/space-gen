@@ -13,6 +13,7 @@ import type {
   WallInterpretation,
 } from '@/lib/contracts';
 import { IDENTITY_SCAN_TO_SCENE } from './scanAlignment';
+import { asNode, asNodeData, nodeViews, type NodeView, type NodeViewMap } from './nodes';
 
 /**
  * RoomInterpretation <-> Pascal node conversion.
@@ -41,7 +42,7 @@ export interface InterpretationMeta {
   roomProvenance?: Provenance;
 }
 
-type NodeMap = Record<string, any>;
+type NodeMap = NodeViewMap;
 type CreateOp = { node: AnyNode; parentId?: AnyNodeId };
 
 export interface ConvertOptions {
@@ -67,12 +68,14 @@ export function prefixedId(prefix: string, id: string): string {
   return id.startsWith(`${prefix}_`) ? id : `${prefix}_${id}`;
 }
 
-export function getInterpretationMeta(node: any): InterpretationMeta | null {
-  const meta = node?.metadata?.[INTERPRETATION_META_KEY];
+type WithMetadata = { metadata?: object } | null | undefined;
+
+export function getInterpretationMeta(node: WithMetadata): InterpretationMeta | null {
+  const meta = (node?.metadata as Record<string, unknown> | undefined)?.[INTERPRETATION_META_KEY];
   return meta && typeof meta === 'object' ? (meta as InterpretationMeta) : null;
 }
 
-export function withInterpretationMeta(node: any, patch: Partial<InterpretationMeta>) {
+export function withInterpretationMeta(node: WithMetadata, patch: Partial<InterpretationMeta>) {
   const current = getInterpretationMeta(node);
   return {
     ...(node?.metadata || {}),
@@ -101,7 +104,7 @@ function openingNode(op: OpeningInterpretation, id: string, wallNodeId: string, 
   const width = Math.min(op.width, wallLen);
   const offset = clampOpeningCenter(op.offset, width, wallLen);
   const isWindow = op.kind === 'window';
-  return {
+  return asNode({
     id,
     type: isWindow ? 'window' : 'door',
     name: isWindow ? 'Window' : op.kind === 'opening' ? 'Opening' : 'Door',
@@ -112,7 +115,7 @@ function openingNode(op: OpeningInterpretation, id: string, wallNodeId: string, 
     height: op.height,
     ...(op.kind === 'opening' ? { openingKind: 'opening' } : {}),
     metadata: { [INTERPRETATION_META_KEY]: meta },
-  } as any;
+  });
 }
 
 /** Builds the Pascal node payloads for an interpretation without touching the store. */
@@ -127,10 +130,10 @@ export function planInterpretationNodes(
   const levelId = existingLevel || 'level_scan';
 
   if (!existingLevel) {
-    creates.push({ node: { id: 'site_scan', type: 'site', name: 'Site' } as any });
-    creates.push({ node: { id: 'building_scan', type: 'building', name: 'Building' } as any, parentId: 'site_scan' as AnyNodeId });
+    creates.push({ node: asNode({ id: 'site_scan', type: 'site', name: 'Site' }) });
+    creates.push({ node: asNode({ id: 'building_scan', type: 'building', name: 'Building' }), parentId: 'site_scan' as AnyNodeId });
     creates.push({
-      node: { id: levelId, type: 'level', name: 'Scanned level', elevation: 0, height: interpretation.ceilingHeight } as any,
+      node: asNode({ id: levelId, type: 'level', name: 'Scanned level', elevation: 0, height: interpretation.ceilingHeight }),
       parentId: 'building_scan' as AnyNodeId,
     });
   }
@@ -141,7 +144,7 @@ export function planInterpretationNodes(
     : 0;
   const slabId = 'slab_scan_outline';
   creates.push({
-    node: {
+    node: asNode({
       id: slabId,
       type: 'slab',
       name: 'Scanned floor',
@@ -159,13 +162,13 @@ export function planInterpretationNodes(
           ceilingHeight: interpretation.ceilingHeight,
         } satisfies InterpretationMeta,
       },
-    } as any,
+    }),
     parentId: levelId as AnyNodeId,
   });
 
   const zoneId = 'zone_scan_room';
   creates.push({
-    node: {
+    node: asNode({
       id: zoneId,
       type: 'zone',
       name: 'Scanned room',
@@ -180,7 +183,7 @@ export function planInterpretationNodes(
           status: outlineStatus,
         } satisfies InterpretationMeta,
       },
-    } as any,
+    }),
     parentId: levelId as AnyNodeId,
   });
 
@@ -193,7 +196,7 @@ export function planInterpretationNodes(
     wallIds[wall.id] = id;
     wallLengths[wall.id] = wallLength(start, end);
     creates.push({
-      node: {
+      node: asNode({
         id,
         type: 'wall',
         name: `Wall ${wall.id.replace(/^wall_/, '')}`,
@@ -211,7 +214,7 @@ export function planInterpretationNodes(
             status: wall.status || 'auto',
           } satisfies InterpretationMeta,
         },
-      } as any,
+      }),
       parentId: levelId as AnyNodeId,
     });
   }
@@ -254,7 +257,7 @@ export function planInterpretationNodes(
   } else {
     const url = options.scan?.url || '';
     creates.push({
-      node: {
+      node: asNode({
         id: scanNodeId,
         type: 'scan',
         name: 'Room scan',
@@ -273,7 +276,7 @@ export function planInterpretationNodes(
           detections,
           ...(options.scan?.scaleSource ? { scaleSource: options.scan.scaleSource } : {}),
         },
-      } as any,
+      }),
       parentId: levelId as AnyNodeId,
     });
   }
@@ -289,12 +292,12 @@ export function hasInterpretationNodes(nodes: NodeMap): boolean {
 /** Converts a RoomInterpretation into Pascal nodes as one undoable scene change. */
 export function applyInterpretationToScene(interpretation: RoomInterpretation, options: ConvertOptions = {}): ConversionPlan {
   const scene = useScene.getState();
-  const nodes = scene.nodes as NodeMap;
+  const nodes = nodeViews(scene.nodes);
   if (hasInterpretationNodes(nodes)) throw new Error('The scan interpretation is already in the scene.');
   const plan = planInterpretationNodes(interpretation, nodes, options);
   scene.applyNodeChanges({
     create: plan.creates,
-    update: plan.updates.length ? (plan.updates as any) : undefined,
+    update: plan.updates.length ? plan.updates.map((u) => ({ id: u.id, data: asNodeData(u.data) })) : undefined,
   });
   return plan;
 }
@@ -305,7 +308,7 @@ function round(value: number): number {
 
 /** Rebuilds the RoomInterpretation contract from Pascal nodes, including user corrections. */
 export function deriveInterpretationFromScene(nodes: NodeMap, base?: RoomInterpretation): RoomInterpretation | null {
-  const all = Object.values(nodes).filter(Boolean);
+  const all = Object.values(nodes).filter((n): n is NodeView => Boolean(n));
   const outlineNode = all.find((n) => getInterpretationMeta(n)?.kind === 'outline');
   if (!outlineNode) return null;
   const outlineMeta = getInterpretationMeta(outlineNode)!;
@@ -336,7 +339,7 @@ export function deriveInterpretationFromScene(nodes: NodeMap, base?: RoomInterpr
   for (const node of all) {
     const meta = getInterpretationMeta(node);
     if (meta?.kind !== 'opening') continue;
-    const host = nodes[node.wallId || node.parentId];
+    const host = nodes[node.wallId || node.parentId || ''];
     const hostMeta = getInterpretationMeta(host);
     if (!host || !hostMeta) continue;
     const width = node.width ?? 0.9;
@@ -499,7 +502,7 @@ export function convertScanToEditableNodes(
     maskRegions,
   });
   return {
-    createdNodeIds: plan.creates.map((c) => (c.node as any).id),
+    createdNodeIds: plan.creates.map((c) => c.node.id),
     wallCount: interpretation.walls.length,
     itemCount: interpretation.detections.length,
     exclusionBoxCount: maskRegions.length,

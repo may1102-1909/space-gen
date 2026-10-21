@@ -18,6 +18,7 @@ import {
   withInterpretationMeta,
   type InterpretationMeta,
 } from './scanConverter';
+import { nodeViews, type NodeView, type NodeViewMap } from './nodes';
 
 /**
  * Review and correction of a converted RoomInterpretation.
@@ -26,7 +27,7 @@ import {
  * provenance=user/status=corrected on what it touches, and keeps linked MaskRegions in sync.
  */
 
-type NodeMap = Record<string, any>;
+type NodeMap = NodeViewMap;
 
 export type ReviewKind = 'outline' | 'wall' | 'opening' | 'detection';
 export interface ElementRef {
@@ -60,7 +61,7 @@ export function confidenceColor(confidence: number, status: DetectionStatus = 'a
   return '#22c55e';
 }
 
-export function getScanNode(nodes: NodeMap): any | null {
+export function getScanNode(nodes: NodeMap): NodeView | null {
   return Object.values(nodes).find((n) => n?.type === 'scan' && Array.isArray(n.metadata?.detections)) || null;
 }
 
@@ -73,7 +74,7 @@ export function getReviewItems(nodes: NodeMap): ReviewItem[] {
   const items: ReviewItem[] = [];
   for (const node of Object.values(nodes)) {
     const meta = getInterpretationMeta(node);
-    if (!meta || meta.kind === 'zone') continue;
+    if (!node || !meta || meta.kind === 'zone') continue;
     const kind: ReviewKind = meta.kind;
     const label =
       kind === 'outline' ? 'Room outline'
@@ -97,7 +98,7 @@ export interface TrustedInterpretation {
 }
 
 /** What placement features may rely on: verified or corrected elements only. */
-export function getTrustedInterpretation(nodes: NodeMap = useScene.getState().nodes as NodeMap): TrustedInterpretation {
+export function getTrustedInterpretation(nodes: NodeMap = nodeViews()): TrustedInterpretation {
   const full = deriveInterpretationFromScene(nodes);
   if (!full) return { interpretation: null, untrusted: [], warning: null };
   const untrusted = getReviewItems(nodes).filter((item) => item.status === 'auto');
@@ -125,10 +126,10 @@ class Batch {
   readonly nodes: NodeMap;
 
   constructor() {
-    this.nodes = useScene.getState().nodes as NodeMap;
+    this.nodes = nodeViews();
   }
 
-  node(id: string): any {
+  node(id: string): NodeView {
     const base = this.nodes[id];
     if (!base) throw new Error(`Node not found: ${id}`);
     return { ...base, ...this.updates.get(id) };
@@ -142,8 +143,8 @@ class Batch {
     this.patch(id, { metadata: withInterpretationMeta(this.node(id), meta) });
   }
 
-  create(node: Record<string, unknown>, parentId: string) {
-    this.creates.push({ node: node as unknown as AnyNode, parentId: parentId as AnyNodeId });
+  create(node: Record<string, unknown>, parentId: string | null | undefined) {
+    this.creates.push({ node: node as unknown as AnyNode, parentId: (parentId || undefined) as AnyNodeId | undefined });
   }
 
   remove(id: string) {
@@ -165,7 +166,9 @@ const samePoint = (a: Point2D, b: Point2D) => Math.abs(a[0] - b[0]) < EPS && Mat
 const pt = (p: readonly number[]): Point2D => [p[0], p[1]];
 
 function interpretedNodes(batch: Batch, kind: InterpretationMeta['kind']) {
-  return Object.values(batch.nodes).filter((n) => getInterpretationMeta(n)?.kind === kind).map((n) => batch.node(n.id));
+  return Object.values(batch.nodes)
+    .filter((n): n is NodeView => getInterpretationMeta(n)?.kind === kind)
+    .map((n) => batch.node(n.id));
 }
 
 function clampOpenings(batch: Batch, wallId: string) {
@@ -227,11 +230,11 @@ function patchDetection(
   const scanRaw = getScanNode(batch.nodes);
   if (!scanRaw) throw new Error('No scan node with detections');
   const scan = batch.node(scanRaw.id);
-  const detections: DetectionInterpretation[] = scan.metadata.detections;
+  const detections: DetectionInterpretation[] = scan.metadata?.detections || [];
   const current = detections.find((d) => d.id === detectionId);
   if (!current) throw new Error(`Detection not found: ${detectionId}`);
   const next = change(current);
-  const masks: MaskRegion[] = scan.metadata.maskRegions || [];
+  const masks: MaskRegion[] = scan.metadata?.maskRegions || [];
   const linked = (m: MaskRegion) => m.id === current.maskRegionId || m.detectionId === current.id;
   batch.patch(scan.id, {
     metadata: {
@@ -301,7 +304,8 @@ export function setWallEndpoints(wallId: string, start: Point2D, end: Point2D) {
 }
 
 export function moveWall(wallId: string, delta: Point2D) {
-  const wall = useScene.getState().nodes[wallId as AnyNodeId] as any;
+  const wall = nodeViews()[wallId];
+  if (!wall) throw new Error(`Node not found: ${wallId}`);
   setWallEndpoints(wallId, [wall.start[0] + delta[0], wall.start[1] + delta[1]], [wall.end[0] + delta[0], wall.end[1] + delta[1]]);
 }
 
@@ -403,7 +407,7 @@ export function resizeOpening(
 ) {
   const batch = new Batch();
   const node = requireMeta(batch, openingId, 'opening');
-  const wall = batch.node(node.wallId || node.parentId);
+  const wall = batch.node(node.wallId || node.parentId || '');
   const len = wallLength(wall.start, wall.end);
   const width = Math.min(Math.max(0.1, change.width ?? node.width), len);
   const height = Math.max(0.1, change.height ?? node.height);

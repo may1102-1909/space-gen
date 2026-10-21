@@ -92,7 +92,7 @@ export function ChatPanel() {
           prompt,
           nodes: sceneNodes,
           // Scan rooms: the solver sees only verified or corrected elements.
-          interpretation: getTrustedInterpretation(useScene.getState().nodes as Record<string, any>).interpretation ?? undefined,
+          interpretation: getTrustedInterpretation().interpretation ?? undefined,
           selectedIds: selection,
           attachment: attachment
             ? { type: attachment.type, dataUrl: attachment.dataUrl, name: attachment.name, url: attachment.url }
@@ -114,7 +114,7 @@ export function ChatPanel() {
         proposals: data.proposals,
         proposalLabels: data.annotations,
       });
-    } catch (e: any) {
+    } catch (e) {
       console.error('[ChatPanel] Error handling spatial request:', e);
       addChatMessage({
         role: 'assistant',
@@ -417,8 +417,8 @@ function ProposalList({
       acceptProposal(p, useScene.getState().nodes as Record<string, unknown>, labels[p.id] ?? { label: 'Item', category: 'item' });
       setStatus((s) => ({ ...s, [p.id]: 'accepted' }));
       setError(null);
-    } catch (e: any) {
-      setError(e?.message ?? 'Could not apply proposal');
+    } catch (e) {
+      setError((e as Error)?.message ?? 'Could not apply proposal');
     }
   };
 

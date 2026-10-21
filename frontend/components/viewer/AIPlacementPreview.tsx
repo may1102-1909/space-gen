@@ -4,6 +4,7 @@ import React from 'react';
 import { useScene } from '@pascal-app/core';
 import { useSpaceGenStore } from '@/lib/store';
 import { getTrustedInterpretation } from '@/lib/pascal/interpretationReview';
+import { nodeViews } from '@/lib/pascal/nodes';
 import {
   Sparkles,
   Check,
@@ -25,7 +26,7 @@ export function AIPlacementPreview() {
   );
   const clearCandidatePlacements = useSpaceGenStore((state) => state.clearCandidatePlacements);
   const nodes = useScene((state) => state.nodes);
-  const trustWarning = React.useMemo(() => getTrustedInterpretation(nodes as Record<string, any>).warning, [nodes]);
+  const trustWarning = React.useMemo(() => getTrustedInterpretation(nodeViews(nodes)).warning, [nodes]);
 
   if (candidatePlacements.length === 0) return null;
 

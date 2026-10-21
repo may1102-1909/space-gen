@@ -29,7 +29,7 @@ const manifest = ProjectManifestSchema.parse(
 );
 const nodes = () => useScene.getState().nodes as Record<string, any>;
 const meta = (id: string) => getInterpretationMeta(nodes()[id])!;
-const masks = () => getScanNode(nodes()).metadata.maskRegions as any[];
+const masks = () => getScanNode(nodes())!.metadata!.maskRegions as any[];
 
 describe('interpretation review and corrections', () => {
   beforeEach(() => {

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { useScene } from '@pascal-app/core';
 import type { DetectionInterpretation, MaskRegion, Point2D, RoomInterpretation, ScanAsset } from '@/lib/contracts';
 import {
@@ -29,8 +29,9 @@ import {
   verifyElement,
   type ReviewItem,
 } from '@/lib/pascal/interpretationReview';
+import { nodeViews, type NodeView, type NodeViewMap } from '@/lib/pascal/nodes';
 
-type NodeMap = Record<string, any>;
+type NodeMap = NodeViewMap;
 type DragTarget = { kind: 'wall' | 'detection'; id: string } | { kind: 'vertex'; id: string; index: number };
 type Drag = DragTarget & { origin: Point2D; delta: Point2D };
 
@@ -43,7 +44,7 @@ interface Props {
 }
 
 export function InterpretationReviewPanel({ interpretation, scan, maskRegions }: Props) {
-  const nodes = useScene((s) => s.nodes) as NodeMap;
+  const nodes = nodeViews(useScene((s) => s.nodes));
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [error, setError] = useState('');
   const converted = hasInterpretationNodes(nodes);
@@ -150,7 +151,7 @@ function ReviewRow({ item, selected, onSelect, onVerify }: { item: ReviewItem; s
 function PlanView({ nodes, selectedKey, onSelect, run }: { nodes: NodeMap; selectedKey: string | null; onSelect: (key: string) => void; run: (fn: () => void) => void }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
-  const all = Object.values(nodes).filter(Boolean);
+  const all = Object.values(nodes).filter((n): n is NodeView => Boolean(n));
   const slab = all.find((n) => getInterpretationMeta(n)?.kind === 'outline');
   const walls = all.filter((n) => n.type === 'wall' && getInterpretationMeta(n)?.kind === 'wall');
   const openings = all.filter((n) => getInterpretationMeta(n)?.kind === 'opening');
@@ -250,7 +251,7 @@ function PlanView({ nodes, selectedKey, onSelect, run }: { nodes: NodeMap; selec
           );
         })}
         {openings.map((op) => {
-          const host = nodes[op.wallId || op.parentId];
+          const host = nodes[op.wallId || op.parentId || ''];
           if (!host) return null;
           const meta = getInterpretationMeta(op)!;
           const len = wallLength(host.start, host.end) || 1;
@@ -354,7 +355,12 @@ function ActionButton({ label, onClick, disabled }: { label: string; onClick: ()
 
 function NumberField({ label, value, onCommit, step = 0.05 }: { label: string; value: number; onCommit: (v: number) => void; step?: number }) {
   const [text, setText] = useState(String(r2(value)));
-  useEffect(() => setText(String(r2(value))), [value]);
+  // Re-seed the input when the committed value changes (state adjusted during render).
+  const [seeded, setSeeded] = useState(value);
+  if (seeded !== value) {
+    setSeeded(value);
+    setText(String(r2(value)));
+  }
   const commit = () => {
     const parsed = Number(text);
     if (!Number.isFinite(parsed)) return setText(String(r2(value)));
@@ -379,7 +385,11 @@ function NumberField({ label, value, onCommit, step = 0.05 }: { label: string; v
 
 function TextField({ label, value, onCommit }: { label: string; value: string; onCommit: (v: string) => void }) {
   const [text, setText] = useState(value);
-  useEffect(() => setText(value), [value]);
+  const [seeded, setSeeded] = useState(value);
+  if (seeded !== value) {
+    setSeeded(value);
+    setText(value);
+  }
   return (
     <label className="flex items-center justify-between gap-2">
       <span className="text-text-muted">{label}</span>
@@ -395,7 +405,7 @@ function TextField({ label, value, onCommit }: { label: string; value: string; o
   );
 }
 
-function WallFields({ node, run }: { node: any; run: (fn: () => void) => void }) {
+function WallFields({ node, run }: { node?: NodeView; run: (fn: () => void) => void }) {
   if (!node) return null;
   const set = (start: Point2D, end: Point2D) => run(() => setWallEndpoints(node.id, start, end));
   return (
@@ -408,7 +418,7 @@ function WallFields({ node, run }: { node: any; run: (fn: () => void) => void })
   );
 }
 
-function OpeningFields({ node, run }: { node: any; run: (fn: () => void) => void }) {
+function OpeningFields({ node, run }: { node?: NodeView; run: (fn: () => void) => void }) {
   if (!node) return null;
   const offset = node.position[0];
   const sill = Math.max(0, node.position[1] - node.height / 2);
@@ -443,7 +453,7 @@ function DetectionFields({ det, run }: { det?: DetectionInterpretation; run: (fn
   );
 }
 
-function OutlineFields({ node, run }: { node: any; run: (fn: () => void) => void }) {
+function OutlineFields({ node, run }: { node?: NodeView; run: (fn: () => void) => void }) {
   if (!node) return null;
   return (
     <div className="grid grid-cols-2 gap-x-3 gap-y-1">

@@ -1,5 +1,5 @@
 import { useScene, type AnyNode, type AnyNodeId } from '@pascal-app/core';
-import type { MaskRegion } from '@/lib/contracts';
+import type { DetectionInterpretation, MaskRegion, Point2D } from '@/lib/contracts';
 import type { Matrix4 } from '@/lib/contracts/primitives';
 
 export type ScanNode = Extract<AnyNode, { type: 'scan' }>;
@@ -26,6 +26,36 @@ export interface ScanMetadata {
 
 /** A node viewed as a plain record, for reading fields that only some node types carry. */
 export type NodeFields = Record<string, unknown> & { id: string; type: string };
+
+/**
+ * Read view over walls, openings, slabs/zones and the scan node, for code that branches on
+ * `type` across those kinds. Geometry fields are only meaningful on the kinds that carry them.
+ */
+export interface NodeView {
+  id: string;
+  type: string;
+  name?: string;
+  parentId?: string | null;
+  wallId?: string;
+  visible?: boolean;
+  children?: string[];
+  start: Point2D;
+  end: Point2D;
+  height: number;
+  thickness: number;
+  width: number;
+  position: [number, number, number];
+  polygon: Point2D[];
+  openingKind?: string;
+  metadata?: ScanMetadata & { detections?: DetectionInterpretation[] };
+  [key: string]: unknown;
+}
+
+export type NodeViewMap = Record<string, NodeView | undefined>;
+
+export function nodeViews(nodes: object = useScene.getState().nodes): NodeViewMap {
+  return nodes as NodeViewMap;
+}
 
 /** Partial node data as SpaceGen writes it; Pascal validates the shape per node type. */
 export type NodeData = Record<string, unknown>;

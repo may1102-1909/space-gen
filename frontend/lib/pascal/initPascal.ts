@@ -1,5 +1,9 @@
 import { loadPlugin, nodeRegistry, type AnyNodeDefinition } from '@pascal-app/core';
 import { builtinPlugin } from '@pascal-app/nodes';
+import type { ComponentType } from 'react';
+
+// The registry types renderer props loosely; this renderer is only mounted for measurement nodes.
+type RendererModule = Promise<{ default: ComponentType<{ node: Record<string, unknown> }> }>;
 
 /**
  * Pascal's built-ins with one swap: `measurement` keeps Pascal's schema and behaviour but uses
@@ -12,7 +16,7 @@ const spaceGenPlugin = {
       ? {
           ...def,
           tool: () => import('@/components/viewer/MeasureTool'),
-          renderer: { kind: 'parametric', module: () => import('@/components/viewer/EstimateMeasurementRenderer') as Promise<any> },
+          renderer: { kind: 'parametric', module: () => import('@/components/viewer/EstimateMeasurementRenderer') as unknown as RendererModule },
         }
       : def,
   ),

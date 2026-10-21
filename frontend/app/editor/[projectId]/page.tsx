@@ -13,6 +13,7 @@ import { useSpaceGenStore } from '@/lib/store';
 import type { AssetRef, MaskRegion } from '@/lib/contracts';
 import { loadProject, ProjectConflictError, saveProject, type ProjectDocument } from '@/lib/projects/api';
 import { deriveInterpretationFromScene } from '@/lib/pascal/scanConverter';
+import { nodeViews } from '@/lib/pascal/nodes';
 
 const SceneViewer = dynamic(() => import('@/components/viewer/SceneViewer'), { ssr: false });
 
@@ -100,7 +101,7 @@ export default function ProjectEditorPage() {
           try {
             const nodes = useScene.getState().nodes;
             const maskRegions = findScanNode()?.metadata?.maskRegions || base.manifest.maskRegions || [];
-            const interpretation = deriveInterpretationFromScene(nodes, base.manifest.interpretation) || base.manifest.interpretation;
+            const interpretation = deriveInterpretationFromScene(nodeViews(nodes), base.manifest.interpretation) || base.manifest.interpretation;
             const next = await saveProject({
               ...base,
               manifest: {

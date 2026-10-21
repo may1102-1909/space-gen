@@ -17,7 +17,7 @@ const nodes = () => useScene.getState().nodes as Record<string, any>;
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
 describe('scan snapping math', () => {
-  const walls = {
+  const walls: Record<string, any> = {
     w1: { id: 'w1', type: 'wall', start: [0, 0], end: [4, 0], thickness: 0.2 },
     w2: { id: 'w2', type: 'wall', start: [4, 0], end: [4, 3], thickness: 0.2 },
   };
@@ -131,6 +131,6 @@ describe('interpretation sync for Pascal tool edits', () => {
 
   it('does nothing when the scene has no interpretation', () => {
     useScene.getState().clearScene();
-    expect(planInterpretationStamps({}, { w: { id: 'w', type: 'wall', start: [0, 0], end: [1, 0] } })).toEqual([]);
+    expect(planInterpretationStamps({}, { w: { id: 'w', type: 'wall', start: [0, 0], end: [1, 0] } } as Record<string, any>)).toEqual([]);
   });
 });

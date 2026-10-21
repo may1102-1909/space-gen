@@ -39,13 +39,13 @@ export function ChatAttachmentBar({
   const isItem = selectedNode?.type === 'item';
 
   const dims = selectedNode?.dimensions;
-  const scanNode = Object.values(nodes).find((n: any) => n?.type === 'scan');
+  const scanNode = Object.values(nodes).find((n) => n?.type === 'scan');
   // Asset dimensions are product specs; anything else came from the scan and is an estimate.
   const dimsFormatted = !dims
     ? null
     : selectedNode?.asset?.dimensions
       ? `${dims[0].toFixed(2)}m × ${dims[1].toFixed(2)}m × ${dims[2].toFixed(2)}m`
-      : formatDimensions(dims, scaleSourceOf(scanNode as any));
+      : formatDimensions(dims, scaleSourceOf(scanNode));
 
   if (!attachedFile && !selectedNode) return null;
 

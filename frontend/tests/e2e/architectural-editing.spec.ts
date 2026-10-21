@@ -2,6 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
 
+import type { ProjectManifest } from '@/lib/contracts';
 import { screenshotPath, waitForE2EHooks } from './support/artifacts';
 
 const fixture = JSON.parse(fs.readFileSync(path.join(__dirname, '../fixtures/realistic_room.json'), 'utf-8'));
@@ -33,7 +34,7 @@ test('draw a wall snapped to a corner, add a door, measure, undo/redo, save, rel
   const id = fixture.id as string;
   let manifest = { ...fixture, sceneSnapshot: {} };
   let revision = 1;
-  const puts: any[] = [];
+  const puts: ProjectManifest[] = [];
   // The splat is an unchanged background layer (ADR 001); skip its download to stay within timeouts.
   await page.route('**/*.sog', (route) => route.abort());
   await page.route(`**/api/projects/${id}`, async (route) => {
@@ -95,16 +96,17 @@ test('draw a wall snapped to a corner, add a door, measure, undo/redo, save, rel
   await expect(page.getByText('Saved', { exact: true })).toBeVisible();
   const saved = puts[puts.length - 1];
   // The start snapped exactly onto the corner; the end is a free floor point.
-  const drawn = saved.interpretation.walls.find((w: any) => w.provenance === 'user');
+  const drawn = saved.interpretation.walls.find((w) => w.provenance === 'user')!;
   expect(drawn).toMatchObject({ start: [0, 0, 0], status: 'corrected' });
   expect(drawn.end[0]).toBeCloseTo(3, 1);
   expect(drawn.end[2]).toBeCloseTo(3, 1);
-  const door = saved.interpretation.openings.find((o: any) => o.wallId === drawn.id);
+  const door = saved.interpretation.openings.find((o) => o.wallId === drawn.id)!;
   expect(door).toMatchObject({ kind: 'door', provenance: 'user', status: 'corrected' });
   expect(door.offset).toBeGreaterThan(0.4);
   expect(door.offset).toBeLessThan(3.8);
   expect(saved.interpretation.provenance).toBe('user');
-  const measurements = Object.values(saved.sceneSnapshot.nodes).filter((n: any) => n.type === 'measurement') as any[];
+  const nodes = saved.sceneSnapshot.nodes as Record<string, { type: string; measurement: { points: unknown } }>;
+  const measurements = Object.values(nodes).filter((n) => n.type === 'measurement');
   expect(measurements).toHaveLength(1);
   expect(measurements[0].measurement.points).toEqual([[8, 0, 0], [8, 0, 6]]);
 

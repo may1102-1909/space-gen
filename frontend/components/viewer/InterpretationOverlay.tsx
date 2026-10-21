@@ -5,14 +5,15 @@ import * as THREE from 'three';
 import { useScene } from '@pascal-app/core';
 import { getInterpretationMeta } from '@/lib/pascal/scanConverter';
 import { confidenceColor, getDetections } from '@/lib/pascal/interpretationReview';
+import { nodeViews, type NodeView } from '@/lib/pascal/nodes';
 
 const unitBox = new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1));
 
 /** Review-mode overlay in the Pascal canvas: wall bands and detection boxes coloured by confidence. */
 export function InterpretationOverlay() {
-  const nodes = useScene((s) => s.nodes) as Record<string, any>;
+  const nodes = nodeViews(useScene((s) => s.nodes));
   const { walls, detections } = useMemo(() => {
-    const all = Object.values(nodes).filter(Boolean);
+    const all = Object.values(nodes).filter((n): n is NodeView => Boolean(n));
     return {
       walls: all.filter((n) => n.type === 'wall' && getInterpretationMeta(n)?.kind === 'wall'),
       detections: getDetections(nodes),

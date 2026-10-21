@@ -7,6 +7,7 @@ import { Html } from '@react-three/drei';
 import { create } from 'zustand';
 import type { Point2D } from '@/lib/contracts';
 import { buildSnapTargets, snapPlanPoint, type SnapResult, type SnapTargets } from '@/lib/pascal/scanSnapping';
+import { nodeViews } from '@/lib/pascal/nodes';
 
 /**
  * Mounts Pascal's own build tools (wall / slab / door / window via the registry ToolManager,
@@ -137,16 +138,18 @@ export function ArchitecturalTools() {
   const tool = useEditor((s) => s.tool);
   const nodes = useScene((s) => s.nodes);
   const scanPoints = useArchitecturalSnap((s) => s.scanPoints);
-  const targets = useMemo(() => buildSnapTargets(nodes as Record<string, any>, scanPoints), [nodes, scanPoints]);
+  const targets = useMemo(() => buildSnapTargets(nodeViews(nodes), scanPoints), [nodes, scanPoints]);
   const targetsRef = useRef(targets);
-  targetsRef.current = targets;
+  useEffect(() => {
+    targetsRef.current = targets;
+  }, [targets]);
   const active = mode === 'build' && tool !== null;
 
   useEffect(() => {
     if (!active) return;
     const uninstall = installGridSnap(() => targetsRef.current);
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') emitter.emit('tool:cancel' as any, undefined as any);
+      if (event.key === 'Escape') emitter.emit('tool:cancel', undefined);
     };
     window.addEventListener('keydown', onKey);
     return () => {

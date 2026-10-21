@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
 
+import type { ProjectManifest } from '@/lib/contracts';
 import { screenshotPath } from './support/artifacts';
 
 const fixture = JSON.parse(fs.readFileSync(path.join(__dirname, '../fixtures/realistic_room.json'), 'utf-8'));
@@ -12,7 +13,7 @@ test('user fixes a wrong wall and a misplaced detection, saves, reloads, and the
   // The fixture's sceneSnapshot is not a Pascal document; start from the interpretation alone.
   let manifest = { ...fixture, sceneSnapshot: {} };
   let revision = 1;
-  const puts: any[] = [];
+  const puts: ProjectManifest[] = [];
   // The splat is an unchanged background layer (ADR 001); software-GL splat sorting starves the
   // main thread in CI, so this UI test runs without downloading it.
   await page.route('**/*.sog', (route) => route.abort());
@@ -76,13 +77,13 @@ test('user fixes a wrong wall and a misplaced detection, saves, reloads, and the
   await expect(page.getByText('Saved', { exact: true })).toBeVisible();
 
   const saved = puts[puts.length - 1];
-  const east = saved.interpretation.walls.find((w: any) => w.id === 'wall_east');
+  const east = saved.interpretation.walls.find((w) => w.id === 'wall_east');
   expect(east).toMatchObject({ start: [7.6, 0, 0], end: [7.6, 0, 6], status: 'corrected', provenance: 'user' });
   expect(saved.interpretation.outline).toContainEqual([7.6, 0]);
-  const tv = saved.interpretation.detections.find((d: any) => d.id === 'det_tv_console');
+  const tv = saved.interpretation.detections.find((d) => d.id === 'det_tv_console')!;
   expect(tv).toMatchObject({ status: 'corrected', provenance: 'user' });
   expect(tv.obb.center).toEqual([draggedX, 0.3, draggedZ]);
-  expect(saved.maskRegions.find((m: any) => m.id === 'mask_tv_console').obb.center).toEqual([draggedX, 0.3, draggedZ]);
+  expect(saved.maskRegions.find((m) => m.id === 'mask_tv_console')!.obb.center).toEqual([draggedX, 0.3, draggedZ]);
   expect(saved.interpretation.provenance).toBe('user');
 
   await page.reload();

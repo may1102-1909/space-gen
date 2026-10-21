@@ -8,6 +8,7 @@ import {
   type SceneCommit,
 } from '@pascal-app/core';
 import { getInterpretationMeta, hasInterpretationNodes, withInterpretationMeta, type InterpretationMeta } from './scanConverter';
+import { nodeViews, type NodeView, type NodeViewMap } from './nodes';
 
 /**
  * Keeps the RoomInterpretation in sync with Pascal's own wall / door / window tools.
@@ -19,15 +20,15 @@ import { getInterpretationMeta, hasInterpretationNodes, withInterpretationMeta, 
  * own undo step: undo removes the edit and its stamp together, redo restores both.
  */
 
-type NodeMap = Record<string, any>;
+type NodeMap = NodeViewMap;
 const CORRECTED = { provenance: 'user' as const, status: 'corrected' as const };
 const WALL_FIELDS = ['start', 'end', 'thickness', 'height'];
 const OPENING_FIELDS = ['position', 'width', 'height', 'wallId', 'parentId'];
 
-const isOpening = (n: any) => n?.type === 'door' || n?.type === 'window';
+const isOpening = (n: NodeView | undefined) => n?.type === 'door' || n?.type === 'window';
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
-function openingKind(node: any): InterpretationMeta['openingKind'] {
+function openingKind(node: NodeView): InterpretationMeta['openingKind'] {
   if (node.type === 'window') return 'window';
   return node.openingKind === 'opening' ? 'opening' : 'door';
 }
@@ -36,15 +37,15 @@ function openingKind(node: any): InterpretationMeta['openingKind'] {
 export function planInterpretationStamps(before: NodeMap, current: NodeMap): Array<{ id: AnyNodeId; data: Partial<AnyNode> }> {
   if (!hasInterpretationNodes(current)) return [];
   const updates: Array<{ id: AnyNodeId; data: Partial<AnyNode> }> = [];
-  const sourceKey = (n: any) => {
+  const sourceKey = (n: NodeView | undefined) => {
     const meta = getInterpretationMeta(n);
     return meta ? `${meta.kind}:${meta.sourceId}` : null;
   };
   // Source ids still held by a node that existed before this commit, and ids the commit removed.
   const surviving = new Set<string>();
-  for (const node of Object.values(current)) if (before[node?.id]) surviving.add(sourceKey(node) || '');
+  for (const node of Object.values(current)) if (node && before[node.id]) surviving.add(sourceKey(node) || '');
   const removed = new Set<string>();
-  for (const node of Object.values(before)) if (!current[node?.id]) removed.add(sourceKey(node) || '');
+  for (const node of Object.values(before)) if (node && !current[node.id]) removed.add(sourceKey(node) || '');
   const claimed = new Set<string>();
 
   for (const node of Object.values(current)) {
@@ -76,7 +77,7 @@ export function planInterpretationStamps(before: NodeMap, current: NodeMap): Arr
 
 /** Applies a commit's stamps without creating a new history step. */
 export function stampCommit(commit: Pick<SceneCommit, 'before' | 'current'>) {
-  const updates = planInterpretationStamps(commit.before.nodes as NodeMap, useScene.getState().nodes as NodeMap);
+  const updates = planInterpretationStamps(nodeViews(commit.before.nodes), nodeViews());
   if (!updates.length) return;
   pauseSceneHistory(useScene);
   try {

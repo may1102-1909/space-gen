@@ -1,4 +1,5 @@
 import type { Point2D } from '@/lib/contracts';
+import type { NodeViewMap } from './nodes';
 
 /**
  * Plan-space (scene XZ, metres) snapping for the architectural tools.
@@ -36,7 +37,7 @@ export const SNAP_RADII: Record<Exclude<SnapKind, 'floor'>, number> = {
   'scan-point': 0.15,
 };
 
-type NodeMap = Record<string, any>;
+type NodeMap = NodeViewMap;
 
 const key = (x: number, z: number, cell: number) => `${Math.floor(x / cell)},${Math.floor(z / cell)}`;
 
@@ -86,7 +87,7 @@ export function buildSnapTargets(nodes: NodeMap, scanPoints: Point2D[] = [], cel
     if (node.type === 'wall' && node.start && node.end) {
       corners.push([node.start[0], node.start[1]], [node.end[0], node.end[1]]);
       faces.push(...wallFaces(node.start, node.end, node.thickness ?? 0.2, node.id));
-    } else if (node.metadata?.interpretation?.kind === 'outline' && Array.isArray(node.polygon)) {
+    } else if ((node.metadata?.interpretation as { kind?: string } | undefined)?.kind === 'outline' && Array.isArray(node.polygon)) {
       for (const p of node.polygon) corners.push([p[0], p[1]]);
     }
   }
