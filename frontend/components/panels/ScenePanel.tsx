@@ -33,9 +33,16 @@ import {
   resizeMaskRegion,
   removeMaskRegion,
 } from '@/lib/splat/splatMasking';
-import type { MaskRegion } from '@/lib/contracts';
+import type { AssetRef, MaskRegion } from '@/lib/contracts';
+import { uploadProjectAsset, uploadedAssetRef } from '@/lib/projects/api';
 
-export function ScenePanel() {
+interface ScenePanelProps {
+  /** Project that owns uploaded assets; uploads are disabled without one. */
+  projectId?: string;
+  onAssetUploaded?: (asset: AssetRef) => void;
+}
+
+export function ScenePanel({ projectId, onAssetUploaded }: ScenePanelProps = {}) {
   const nodes = useScene((state) => state.nodes);
   const selectedIds = useViewer((state) => state.selection.selectedIds);
   const setSelection = useViewer((state) => state.setSelection);
@@ -129,6 +136,10 @@ export function ScenePanel() {
   const uploadGlb = async (file?: File) => {
     if (!file) return;
     setAssetError(null);
+    if (!projectId) {
+      setAssetError('Open a saved project to upload GLB assets.');
+      return;
+    }
     try {
       const url = URL.createObjectURL(file);
       const gltf = await new GLTFLoader().loadAsync(url);
@@ -147,9 +158,13 @@ export function ScenePanel() {
         if (result instanceof ArrayBuffer) resolve(new Blob([result], { type: 'model/gltf-binary' }));
         else reject(new Error('GLB normalization did not produce a binary GLB'));
       }, reject, { binary: true }));
-      const normalizedUrl = URL.createObjectURL(normalizedBlob);
       URL.revokeObjectURL(url);
-      commitAsset({ name: file.name.replace(/\.glb$/i, ''), category: 'custom', src: normalizedUrl, dimensions: measured.dimensions, source: 'mine' });
+      const name = file.name.replace(/\.glb$/i, '');
+      // Persist the normalized GLB server-side; a blob: URL would not survive a reload.
+      const uploaded = await uploadProjectAsset(projectId, normalizedBlob, `${name}.glb`);
+      const assetRef = uploadedAssetRef(uploaded, name, measured.dimensions);
+      onAssetUploaded?.(assetRef);
+      commitAsset({ id: assetRef.id, name, category: 'custom', src: uploaded.url, dimensions: measured.dimensions, source: 'mine' });
     } catch (error) {
       setAssetError(error instanceof Error ? error.message : 'GLB could not be measured');
     }
@@ -210,7 +225,7 @@ export function ScenePanel() {
           <button onClick={() => uploadRef.current?.click()} className="flex items-center gap-1.5 rounded-md border border-border px-2 py-1.5 text-[11px] hover:bg-surface-elevated">
             <Upload size={12} /> GLB
           </button>
-          <input ref={uploadRef} type="file" accept=".glb,model/gltf-binary" className="hidden" onChange={(event) => void uploadGlb(event.target.files?.[0])} />
+          <input ref={uploadRef} type="file" accept=".glb,model/gltf-binary" className="hidden" aria-label="Upload GLB" onChange={(event) => { void uploadGlb(event.target.files?.[0]); event.target.value = ''; }} />
         </div>
         {assetError && <p role="alert" className="text-[10px] text-red-400">{assetError}</p>}
         {catalogOpen && <div className="max-h-32 overflow-y-auto rounded border border-border">
@@ -495,7 +510,7 @@ export function ScenePanel() {
                 <div className="flex items-center gap-2 text-[10px] text-text-muted font-mono bg-surface p-1.5 rounded border border-border/50">
                   <Maximize2 size={11} className="text-text-secondary" />
                   <span>
-                    Size: {(selectedNode.asset?.dimensions || selectedNode.dimensions)[0]}m × {(selectedNode.asset?.dimensions || selectedNode.dimensions)[1]}m × {(selectedNode.asset?.dimensions || selectedNode.dimensions)[2]}m
+                    Size: {((selectedNode.asset?.dimensions || selectedNode.dimensions) as number[]).map((value) => `${Number(value.toFixed(2))}m`).join(' × ')}
                   </span>
                 </div>
               )}
