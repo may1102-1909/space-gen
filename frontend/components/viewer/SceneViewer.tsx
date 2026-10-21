@@ -20,6 +20,7 @@ import { OrbitControls } from '@react-three/drei';
 import { ensurePascalInitialized } from '@/lib/pascal/initPascal';
 import { useScene } from '@pascal-app/core';
 import { E2ECameraHooks } from './E2ECameraHooks';
+import { findScanNode, scanMetadata } from '@/lib/pascal/nodes';
 import { SplatBackgroundCanvas, type SplatCameraState } from '@/components/splat-prototype/SplatBackgroundCanvas';
 import { ScanAlignmentTool } from './ScanAlignmentTool';
 import type { Matrix4, Vector3 } from '@/lib/contracts/primitives';
@@ -191,7 +192,6 @@ function MaskRegionVisualizer({
 }
 
 interface SceneViewerProps {
-  objects?: any[];
   selectedId?: string | null;
   onSelectObject?: (id: string | null) => void;
 }
@@ -207,11 +207,12 @@ export function SceneViewer({ selectedId, onSelectObject }: SceneViewerProps) {
   const cameraStateRef = useRef<SplatCameraState | null>(null);
   const pickerRef = useRef<ScanPicker | null>(null);
   const pointHandlerRef = useRef<((point: Vector3) => void) | null>(null);
-  const scanNode = useScene((state) => Object.values(state.nodes).find((node: any) => node?.type === 'scan') as any);
-  const scanToScene: Matrix4 = scanNode?.metadata?.scanToScene || [
+  const scanNode = useScene((state) => findScanNode(state.nodes));
+  const scanMeta = scanMetadata(scanNode);
+  const scanToScene: Matrix4 = scanMeta.scanToScene || [
     1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1,
   ];
-  const maskRegions: MaskRegion[] = scanNode?.metadata?.maskRegions || NO_MASK_REGIONS;
+  const maskRegions: MaskRegion[] = scanMeta.maskRegions || NO_MASK_REGIONS;
   const handlePickerReady = useCallback((picker: ScanPicker | null) => {
     pickerRef.current = picker;
   }, []);
@@ -234,10 +235,10 @@ export function SceneViewer({ selectedId, onSelectObject }: SceneViewerProps) {
       try {
         await ensurePascalInitialized();
         if (mounted) setIsReady(true);
-      } catch (err: any) {
+      } catch (err) {
         console.error('[SceneViewer] Failed to initialize Pascal workspace:', err);
         if (mounted) {
-          setInitError(err?.message || 'Failed to initialize 3D editor');
+          setInitError((err as Error)?.message || 'Failed to initialize 3D editor');
         }
       }
     }
@@ -326,7 +327,7 @@ export function SceneViewer({ selectedId, onSelectObject }: SceneViewerProps) {
       {/* Pascal Full 3D Viewport with Boolean CSG & Scan Overlays */}
       <SplatBackgroundCanvas
         cameraStateRef={cameraStateRef}
-        scanUrl={scanNode?.url || null}
+        scanUrl={(scanNode as { url?: string } | undefined)?.url || null}
         scanToScene={scanToScene}
         maskRegions={maskRegions}
         visible={showScans && scanNode?.visible !== false}
@@ -348,7 +349,7 @@ export function SceneViewer({ selectedId, onSelectObject }: SceneViewerProps) {
           scanId={scanNode?.id || null}
         />
         <ScanDepthOcclusionProxy
-          meshUrl={scanNode?.metadata?.meshUrl || scanNode?.metadata?.proxyMeshUrl}
+          meshUrl={scanMeta.meshUrl || scanMeta.proxyMeshUrl}
           scanToScene={scanToScene}
           enabled={showScans && scanNode?.visible !== false}
         />

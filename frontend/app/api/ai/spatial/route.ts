@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, type FunctionDeclaration, type Part } from '@google/genai';
 import { SPATIAL_TOOL_DECLARATIONS, ToolCallPayload } from '@/lib/ai/tools';
 import { EditableSceneSummary } from '@/lib/pascal/sceneBridge';
 
@@ -47,7 +47,7 @@ Coordinate convention:
   - modify_architecture(wallId, action, thickness, height, finish)
 Always provide a concise, friendly explanation in text alongside any tool calls.`;
 
-        const contents: any[] = [{ text: prompt }];
+        const contents: Part[] = [{ text: prompt }];
 
         if (attachment?.type === 'image' && attachment.dataUrl) {
           const match = attachment.dataUrl.match(/^data:(image\/[a-zA-Z]+);base64,(.+)$/);
@@ -67,16 +67,16 @@ Always provide a concise, friendly explanation in text alongside any tool calls.
           config: {
             systemInstruction,
             // Function declarations for spatial tools
-            tools: [{ functionDeclarations: SPATIAL_TOOL_DECLARATIONS as any }],
+            tools: [{ functionDeclarations: SPATIAL_TOOL_DECLARATIONS as unknown as FunctionDeclaration[] }],
           },
         });
 
         const toolCalls: ToolCallPayload[] = [];
-        const functionCalls = (response as any).functionCalls;
+        const functionCalls = response.functionCalls;
         if (functionCalls && Array.isArray(functionCalls)) {
           for (const fc of functionCalls) {
             toolCalls.push({
-              name: fc.name,
+              name: fc.name ?? '',
               args: fc.args || {},
             });
           }
@@ -92,10 +92,10 @@ Always provide a concise, friendly explanation in text alongside any tool calls.
           text: responseText,
           toolCalls,
         });
-      } catch (geminiError: any) {
+      } catch (geminiError) {
         console.warn(
           '[Spatial API] Gemini call failed or hit rate-limit; falling back to local heuristic reasoning:',
-          geminiError?.message
+          (geminiError as Error)?.message
         );
       }
     }
@@ -103,10 +103,10 @@ Always provide a concise, friendly explanation in text alongside any tool calls.
     // 2. Intelligent Deterministic Local Fallback (zero external API required)
     const localResult = solveLocally(prompt, sceneSummary, selectedIds, attachment);
     return NextResponse.json(localResult);
-  } catch (err: any) {
+  } catch (err) {
     console.error('[Spatial API] Error processing request:', err);
     return NextResponse.json(
-      { error: err?.message || 'Internal spatial processing error' },
+      { error: (err as Error)?.message || 'Internal spatial processing error' },
       { status: 500 }
     );
   }

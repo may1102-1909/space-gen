@@ -1,6 +1,6 @@
-import { useScene, AnyNode } from '@pascal-app/core';
+import { useScene } from '@pascal-app/core';
 import { applySceneActions, SceneAction, SplatExclusionBox } from './sceneBridge';
-import { SplatCropVolume } from '../splat/splatCropManager';
+import { asNode } from './nodes';
 
 export interface RawScanObject {
   id: string;
@@ -152,13 +152,13 @@ export function convertScanToEditableNodes(
   actions.push({
     action: 'create_node',
     parentId: levelId,
-    node: {
+    node: asNode({
       type: 'slab',
       id: slabId,
       name: `${manifest.name || 'Room'} Floor Slab`,
       thickness: 0.2,
       polygon: manifest.boundaryPolygon,
-    } as any,
+    }),
   });
   createdNodeIds.push(slabId);
 
@@ -175,7 +175,7 @@ export function convertScanToEditableNodes(
     actions.push({
       action: 'create_node',
       parentId: levelId,
-      node: {
+      node: asNode({
         type: 'wall',
         id: wallId,
         name: `Wall #${i + 1}`,
@@ -183,7 +183,7 @@ export function convertScanToEditableNodes(
         end,
         height: manifest.wallHeight || 3.0,
         thickness: manifest.wallThickness || 0.2,
-      } as any,
+      }),
     });
     createdNodeIds.push(wallId);
   }
@@ -198,7 +198,7 @@ export function convertScanToEditableNodes(
       actions.push({
         action: 'create_node',
         parentId: parentWallId,
-        node: {
+        node: asNode({
           type: op.type,
           id: openingId,
           name: `${op.type === 'door' ? 'Door' : 'Window'}`,
@@ -206,7 +206,7 @@ export function convertScanToEditableNodes(
           width: op.width,
           height: op.height,
           ...(op.elevation !== undefined ? { elevation: op.elevation } : {}),
-        } as any,
+        }),
       });
       createdNodeIds.push(openingId);
     }
@@ -224,7 +224,7 @@ export function convertScanToEditableNodes(
     actions.push({
       action: 'create_node',
       parentId: levelId,
-      node: {
+      node: asNode({
         type: 'item',
         id: itemId,
         name: obj.label,
@@ -246,7 +246,7 @@ export function convertScanToEditableNodes(
           rotation: [0, 0, 0],
           scale: [1, 1, 1],
         },
-      } as any,
+      }),
     });
     createdNodeIds.push(itemId);
 

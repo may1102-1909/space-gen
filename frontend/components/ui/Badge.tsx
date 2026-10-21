@@ -8,7 +8,7 @@ export function Badge({ children, variant = 'default' }: { children: React.React
   }
   
   return (
-    <span className={`px-2 py-0.5 rounded text-[10px] uppercase font-semibold border ${(variants as any)[variant]}`}>
+    <span className={`px-2 py-0.5 rounded text-[10px] uppercase font-semibold border ${variants[variant]}`}>
       {children}
     </span>
   )

@@ -3,6 +3,7 @@
 import React, { useEffect } from 'react';
 import { useViewer, type WallMode } from '@pascal-app/viewer';
 import { useScene } from '@pascal-app/core';
+import { useStore } from 'zustand';
 import { useSpaceGenStore } from '@/lib/store';
 import { undoSceneAction, redoSceneAction } from '@/lib/pascal/sceneBridge';
 import {
@@ -48,8 +49,8 @@ export function EditorToolbar({ activeTool, onSelectTool, onOpenConvertModal, is
   const showScans = useViewer((state) => state.showScans);
   const setShowScans = useViewer((state) => state.setShowScans);
 
-  const canUndo = (useScene as any).temporal?.getState?.()?.pastStates?.length > 0;
-  const canRedo = (useScene as any).temporal?.getState?.()?.futureStates?.length > 0;
+  const canUndo = useStore(useScene.temporal, (state) => state.pastStates.length > 0);
+  const canRedo = useStore(useScene.temporal, (state) => state.futureStates.length > 0);
 
   useEffect(() => {
     const handleHistoryShortcut = (event: KeyboardEvent) => {

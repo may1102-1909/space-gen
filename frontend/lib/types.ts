@@ -38,7 +38,7 @@ export interface SceneGraph {
   room_type: string
   style: string
   dimensions?: Dimensions
-  lighting?: Record<string, any>
+  lighting?: Record<string, unknown>
   objects: SceneObject[]
   relationships: Array<{ subject: string; relation: string; object: string }>
 }

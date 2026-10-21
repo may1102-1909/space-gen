@@ -2,6 +2,7 @@ import { useScene, AnyNodeId } from '@pascal-app/core';
 import { useViewer } from '@pascal-app/viewer';
 import { applySceneActions, SceneAction, SplatExclusionBox } from '@/lib/pascal/sceneBridge';
 import { addExclusionVolumeToScan } from '@/lib/splat/splatCropManager';
+import { asNode, asNodeData, asNodeId, type NodeFields } from '@/lib/pascal/nodes';
 import { ToolCallPayload } from './tools';
 
 export interface ExecutionResult {
@@ -33,11 +34,11 @@ export function executeSpatialToolCalls(
 
     switch (name) {
       case 'find_nodes': {
-        const { type, category, query } = args;
+        const { type, category, query } = args as { type?: string; category?: string; query?: string };
         const matches = Object.values(scene.nodes).filter((node) => {
           if (!node) return false;
           if (type && node.type !== type) return false;
-          if (category && (node as any).category !== category) return false;
+          if (category && (node as unknown as NodeFields).category !== category) return false;
           if (query) {
             const q = query.toLowerCase();
             const nodeName = (node.name || '').toLowerCase();
@@ -57,8 +58,9 @@ export function executeSpatialToolCalls(
       }
 
       case 'update_node_transform': {
-        const { nodeId, position, rotation, dimensions } = args;
+        const { nodeId, position, rotation, dimensions } = args as { nodeId: string; position?: [number, number, number]; rotation?: [number, number, number]; dimensions?: [number, number, number] };
         const targetNode = scene.nodes[nodeId as AnyNodeId];
+        const target = targetNode as unknown as NodeFields | undefined;
 
         if (!targetNode) {
           results.push({
@@ -71,15 +73,15 @@ export function executeSpatialToolCalls(
         }
 
         // If moving an item that has an underlying scan, mask the old bounding box
-        if (targetNode.type === 'item' && scanNode && (targetNode as any).position) {
-          const oldPos = (targetNode as any).position as [number, number, number];
-          const oldDims = (targetNode as any).dimensions || [1, 1, 1];
+        if (targetNode.type === 'item' && scanNode && target?.position) {
+          const oldPos = target.position as [number, number, number];
+          const oldDims = (target.dimensions as [number, number, number] | undefined) || [1, 1, 1];
           addExclusionVolumeToScan(scanNode.id, {
             id: `box_moved_${nodeId}_${Date.now()}`,
             type: 'box',
             center: oldPos,
             size: [oldDims[0] * 1.05, oldDims[1] * 1.05, oldDims[2] * 1.05],
-            rotation: (targetNode as any).rotation,
+            rotation: target.rotation as [number, number, number] | undefined,
             mode: 'exclude',
             label: `Mask old footprint of ${targetNode.name || nodeId}`,
           });
@@ -104,8 +106,9 @@ export function executeSpatialToolCalls(
       }
 
       case 'replace_item_asset': {
-        const { nodeId, newModelUrl, newName, dimensions, materialStyle } = args;
+        const { nodeId, newModelUrl, newName, dimensions, materialStyle } = args as { nodeId: string; newModelUrl: string; newName?: string; dimensions?: [number, number, number]; materialStyle?: Record<string, unknown> };
         const targetNode = scene.nodes[nodeId as AnyNodeId];
+        const target = targetNode as unknown as NodeFields | undefined;
 
         if (!targetNode) {
           results.push({
@@ -118,15 +121,15 @@ export function executeSpatialToolCalls(
         }
 
         // Add SuperSplat exclusion box over the item's current footprint so raw splats vanish
-        if (scanNode && (targetNode as any).position) {
-          const pos = (targetNode as any).position as [number, number, number];
-          const dims = (targetNode as any).dimensions || [1, 1, 1];
+        if (scanNode && target?.position) {
+          const pos = target.position as [number, number, number];
+          const dims = (target.dimensions as [number, number, number] | undefined) || [1, 1, 1];
           addExclusionVolumeToScan(scanNode.id, {
             id: `box_replace_${nodeId}_${Date.now()}`,
             type: 'box',
             center: pos,
             size: [dims[0] * 1.05, dims[1] * 1.05, dims[2] * 1.05],
-            rotation: (targetNode as any).rotation,
+            rotation: target.rotation as [number, number, number] | undefined,
             mode: 'exclude',
             label: `Replaced ${targetNode.name || nodeId}`,
           });
@@ -152,7 +155,7 @@ export function executeSpatialToolCalls(
       }
 
       case 'spawn_items_smartly': {
-        const { items } = args;
+        const { items } = args as { items?: Array<{ name?: string; category?: string; position?: [number, number, number]; rotation?: [number, number, number]; dimensions?: [number, number, number]; modelUrl?: string }> };
         if (!Array.isArray(items)) continue;
 
         const spawnedIds: string[] = [];
@@ -160,7 +163,7 @@ export function executeSpatialToolCalls(
           const itemId = `item_${item.category || 'furniture'}_${Date.now()}_${index}`;
           actions.push({
             action: 'create_node',
-            node: {
+            node: asNode({
               type: 'item',
               id: itemId,
               name: item.name || `${item.category} ${index + 1}`,
@@ -182,7 +185,7 @@ export function executeSpatialToolCalls(
                 rotation: [0, 0, 0],
                 scale: [1, 1, 1],
               },
-            } as any,
+            }),
             parentId: activeLevelId,
           });
           spawnedIds.push(itemId);
@@ -199,7 +202,7 @@ export function executeSpatialToolCalls(
       }
 
       case 'modify_architecture': {
-        const { wallId, action, thickness, height, finish } = args;
+        const { wallId, action, thickness, height, finish } = args as { wallId: string; action?: string; thickness?: number; height?: number; finish?: string };
         const targetWall = scene.nodes[wallId as AnyNodeId];
 
         if (!targetWall) {
@@ -212,7 +215,7 @@ export function executeSpatialToolCalls(
           continue;
         }
 
-        const wallPatch: Record<string, any> = {};
+        const wallPatch: Record<string, unknown> = {};
         if (thickness !== undefined) wallPatch.thickness = thickness;
         if (height !== undefined) wallPatch.height = height;
         if (finish !== undefined) wallPatch.finish = finish;
@@ -226,7 +229,7 @@ export function executeSpatialToolCalls(
 
         // Apply direct update for wall properties
         scene.applyNodeChanges({
-          update: [{ id: wallId as AnyNodeId, data: wallPatch as any }],
+          update: [{ id: asNodeId(wallId), data: asNodeData(wallPatch) }],
         });
 
         allModifiedIds.push(wallId);
@@ -248,7 +251,7 @@ export function executeSpatialToolCalls(
 
   // Highlight all modified items in the 3D viewport
   if (allModifiedIds.length > 0) {
-    useViewer.getState().setSelection({ selectedIds: allModifiedIds as any });
+    useViewer.getState().setSelection({ selectedIds: allModifiedIds.map(asNodeId) });
   }
 
   return results;

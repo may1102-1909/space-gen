@@ -15,7 +15,7 @@ import {
 describe('T08: Splat Masking & Replacement Integration Unit Tests', () => {
   beforeEach(() => {
     useScene.getState().clearScene();
-    const temporal = (useScene as any).temporal;
+    const temporal = useScene.temporal;
     if (temporal && typeof temporal.getState === 'function') {
       temporal.getState().clear();
     }
@@ -101,7 +101,7 @@ describe('T08: Splat Masking & Replacement Integration Unit Tests', () => {
       ],
     });
 
-    const temporal = (useScene as any).temporal;
+    const temporal = useScene.temporal;
     if (temporal && typeof temporal.getState === 'function') {
       temporal.getState().clear();
     }

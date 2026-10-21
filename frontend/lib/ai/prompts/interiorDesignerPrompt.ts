@@ -1,3 +1,4 @@
+import type { EditableSceneSummary } from '@/lib/pascal/sceneBridge';
 /**
  * Spatial AI Architectural & Interior Layout Prompts
  * Rules for realistic furniture grouping, circulation clearances, and orientation.
@@ -30,7 +31,7 @@ export function buildPlacementPlanningPrompt(
   dimensions: [number, number, number],
   requestedCount: number,
   userInstruction: string,
-  sceneSummary: Record<string, any>
+  sceneSummary: Pick<EditableSceneSummary, 'zones' | 'items' | 'walls'>
 ): string {
   return `Asset to Place:
 - Name: "${assetName}"
@@ -43,7 +44,7 @@ User Instruction: "${userInstruction}"
 Current Scene Architecture:
 - Zones: ${JSON.stringify(sceneSummary.zones || [])}
 - Existing Furniture: ${JSON.stringify(
-    (sceneSummary.items || []).map((i: any) => ({
+    (sceneSummary.items || []).map((i) => ({
       name: i.name,
       category: i.category,
       position: i.position,
@@ -51,7 +52,7 @@ Current Scene Architecture:
     }))
   )}
 - Walls: ${JSON.stringify(
-    (sceneSummary.walls || []).map((w: any) => ({
+    (sceneSummary.walls || []).map((w) => ({
       name: w.name,
       start: w.start,
       end: w.end,

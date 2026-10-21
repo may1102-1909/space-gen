@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { useScene } from '@pascal-app/core';
 import { useViewer } from '@pascal-app/viewer';
 import { useSpaceGenStore } from '@/lib/store';
@@ -8,7 +8,6 @@ import {
   Layers,
   Box,
   BoxSelect,
-  Grid3X3,
   Shapes,
   Eye,
   EyeOff,
@@ -16,8 +15,6 @@ import {
   ChevronRight,
   Maximize2,
   Sliders,
-  DoorOpen,
-  Frame,
   Plus,
   Upload,
 } from 'lucide-react';
@@ -25,7 +22,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { api } from '@/lib/api';
 import type { FurnitureItem } from '@/lib/types';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { createItemNode, normalizeGlbBounds, replaceItemAsset, fetchCatalogItems } from '@/lib/pascal/itemEditing';
+import { createItemNode, normalizeGlbBounds, fetchCatalogItems, type ItemNode } from '@/lib/pascal/itemEditing';
+import { asNode, asNodeId, updateNodeData } from '@/lib/pascal/nodes';
 import {
   replaceItemWithMask,
   toggleMaskGhostMode,
@@ -36,6 +34,22 @@ import {
 import type { AssetRef, MaskRegion } from '@/lib/contracts';
 import { uploadProjectAsset, uploadedAssetRef } from '@/lib/projects/api';
 
+/** The node fields this panel reads; Pascal nodes are a union, so all are optional here. */
+interface PanelNode {
+  id: string;
+  type: string;
+  name?: string;
+  visible?: boolean;
+  category?: string;
+  position?: [number, number, number];
+  dimensions?: [number, number, number];
+  asset?: { dimensions?: [number, number, number] };
+  height?: number;
+  thickness?: number;
+  opacity?: number;
+  metadata?: { maskRegionId?: string; maskRegions?: MaskRegion[]; exclusionBoxes?: unknown[] };
+}
+
 interface ScenePanelProps {
   /** Project that owns uploaded assets; uploads are disabled without one. */
   projectId?: string;
@@ -43,7 +57,7 @@ interface ScenePanelProps {
 }
 
 export function ScenePanel({ projectId, onAssetUploaded }: ScenePanelProps = {}) {
-  const nodes = useScene((state) => state.nodes);
+  const nodes = useScene((state) => state.nodes) as unknown as Record<string, PanelNode | undefined>;
   const selectedIds = useViewer((state) => state.selection.selectedIds);
   const setSelection = useViewer((state) => state.setSelection);
   const selectedObjectId = useSpaceGenStore((state) => state.selectedObjectId);
@@ -54,19 +68,23 @@ export function ScenePanel({ projectId, onAssetUploaded }: ScenePanelProps = {})
   const uploadRef = useRef<HTMLInputElement>(null);
 
   const activeId = selectedIds[0] || selectedObjectId || null;
-  const selectedNode = activeId ? (nodes as Record<string, any>)[activeId] : null;
-  const scanNode = Object.values(nodes).find((n) => n?.type === 'scan') as any;
+  const selectedNode = activeId ? nodes[activeId] ?? null : null;
+  const scanNode = Object.values(nodes).find((n) => n?.type === 'scan');
   const maskRegions: MaskRegion[] = scanNode?.metadata?.maskRegions || [];
   const linkedMask = maskRegions.find(
     (m) => m.itemId === activeId || m.id === selectedNode?.metadata?.maskRegionId
   );
   const [positionDraft, setPositionDraft] = useState<[string, string, string]>(['0', '0', '0']);
 
-  useEffect(() => {
-    if (selectedNode?.type === 'item') {
-      setPositionDraft((selectedNode.position || [0, 0, 0]).map((value: number) => String(value)) as [string, string, string]);
-    }
-  }, [activeId, selectedNode?.position?.[0], selectedNode?.position?.[1], selectedNode?.position?.[2]]);
+  // Re-seed the inputs when the selection or its stored position changes (state adjusted during
+  // render, per React's guidance, rather than in an effect).
+  const selectedPosition = selectedNode?.type === 'item' ? selectedNode.position || [0, 0, 0] : null;
+  const positionKey = selectedPosition ? `${activeId}:${selectedPosition.join(',')}` : null;
+  const [draftKey, setDraftKey] = useState<string | null>(null);
+  if (positionKey !== draftKey) {
+    setDraftKey(positionKey);
+    if (selectedPosition) setPositionDraft(selectedPosition.map((value) => String(value)) as [string, string, string]);
+  }
 
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
     new Set(['items', 'walls', 'scans', 'zones'])
@@ -82,20 +100,18 @@ export function ScenePanel({ projectId, onAssetUploaded }: ScenePanelProps = {})
   };
 
   const handleSelectNode = (id: string) => {
-    setSelection({ selectedIds: [id as any] });
+    setSelection({ selectedIds: [asNodeId(id)] });
     setSelectedObjectId(id);
   };
 
-  const handleUpdateNodeProp = (key: string, value: any) => {
+  const handleUpdateNodeProp = (key: string, value: unknown) => {
     if (!activeId) return;
-    (useScene.getState().updateNode as any)(activeId, {
-      [key]: value,
-    });
+    updateNodeData(activeId, { [key]: value });
   };
 
   const handleDeleteNode = () => {
     if (!activeId) return;
-    (useScene.getState().deleteNode as any)(activeId);
+    useScene.getState().deleteNode(asNodeId(activeId));
     setSelection({ selectedIds: [] });
     setSelectedObjectId(null);
   };
@@ -108,16 +124,16 @@ export function ScenePanel({ projectId, onAssetUploaded }: ScenePanelProps = {})
     const assetPayload = { ...asset, src: resolvedSrc };
 
     const currentActiveId = activeId || useViewer.getState().selection.selectedIds[0] || useSpaceGenStore.getState().selectedObjectId;
-    const currentSelectedNode = currentActiveId ? ((scene.nodes as Record<string, any>)[currentActiveId] || selectedNode) : selectedNode;
+    const currentSelectedNode = currentActiveId ? scene.nodes[asNodeId(currentActiveId)] : undefined;
 
     if (currentSelectedNode?.type === 'item') {
-      replaceItemWithMask(currentSelectedNode as any, assetPayload);
+      replaceItemWithMask(currentSelectedNode as ItemNode, assetPayload);
     } else {
       const levelId = Object.values(scene.nodes).find((node) => node?.type === 'level')?.id;
       const node = { ...createItemNode(assetPayload), parentId: levelId || null };
-      scene.applyNodeChanges({ create: [{ node: node as any, parentId: levelId as any }] });
+      scene.applyNodeChanges({ create: [{ node: asNode({ ...node }), parentId: levelId }] });
       setSelectedObjectId(node.id);
-      setSelection({ selectedIds: [node.id as any] });
+      setSelection({ selectedIds: [node.id] });
     }
     setCatalogOpen(false);
   };
@@ -171,11 +187,11 @@ export function ScenePanel({ projectId, onAssetUploaded }: ScenePanelProps = {})
   };
 
   // Group nodes by category
-  const walls: any[] = [];
-  const items: any[] = [];
-  const scans: any[] = [];
-  const zones: any[] = [];
-  const slabs: any[] = [];
+  const walls: PanelNode[] = [];
+  const items: PanelNode[] = [];
+  const scans: PanelNode[] = [];
+  const zones: PanelNode[] = [];
+  const slabs: PanelNode[] = [];
 
   for (const node of Object.values(nodes)) {
     if (!node) continue;
@@ -369,9 +385,7 @@ export function ScenePanel({ projectId, onAssetUploaded }: ScenePanelProps = {})
                         title="Toggle visibility"
                         onClick={(e) => {
                           e.stopPropagation();
-                          (useScene.getState().updateNode as any)(scan.id, {
-                            visible: !scan.visible,
-                          });
+                          updateNodeData(scan.id, { visible: !scan.visible });
                         }}
                         className="p-1 hover:text-text-primary"
                       >

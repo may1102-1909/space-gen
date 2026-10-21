@@ -36,12 +36,12 @@ export function SplatPrototypeView() {
 
   // Candidates (a)/(b) are attempted for real, each followed by a classic WebGLRenderer control run
   // through the same harness; the panel shows what the browser actually did.
-  const [attempts, setAttempts] = useState<CandidateAttempt[] | 'running' | null>(null);
+  const [finished, setFinished] = useState<{ option: EvalOption; results: CandidateAttempt[] } | null>(null);
+  const attempts: CandidateAttempt[] | 'running' = finished?.option === currentOption ? finished.results : 'running';
   useEffect(() => {
     if (currentOption !== 'option_a' && currentOption !== 'option_b') return;
     let alive = true;
     const candidate = currentOption === 'option_a' ? 'webgpu' : 'webgpu-force-webgl';
-    setAttempts('running');
     (async () => {
       const results: CandidateAttempt[] = [];
       for (const run of [candidate, 'webgl-control'] as const) {
@@ -49,7 +49,7 @@ export function SplatPrototypeView() {
         console.info(`[ADR001] ${run}:`, JSON.stringify(result));
         results.push(result);
       }
-      if (alive) setAttempts(results);
+      if (alive) setFinished({ option: currentOption, results });
     })();
     return () => { alive = false; };
   }, [currentOption]);
@@ -66,7 +66,7 @@ export function SplatPrototypeView() {
         onMetricsUpdate={handleMetricsUpdate}
       />
 
-      {(currentOption === 'option_a' || currentOption === 'option_b') && attempts && (
+      {(currentOption === 'option_a' || currentOption === 'option_b') && (
         <div className="absolute inset-0 z-10 flex items-center justify-center p-6 pointer-events-none">
           <div role="status" aria-label="Candidate attempt" className="max-w-lg bg-black/90 p-5 border border-amber-500 rounded-xl shadow-2xl font-mono text-xs text-slate-200 pointer-events-auto">
             <h4 className="text-sm font-bold text-amber-400 mb-2">

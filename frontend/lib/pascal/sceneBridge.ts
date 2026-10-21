@@ -1,4 +1,5 @@
 import { useScene, AnyNode, AnyNodeId } from '@pascal-app/core';
+import { asNodeData, asNodeId, findScanNode, scanMetadata, type ItemNode, type NodeFields } from './nodes';
 import { replaceItemAsset } from './itemEditing';
 import { createMaskRegionForNode } from '../splat/splatMasking';
 import type { MaskRegion } from '@/lib/contracts';
@@ -25,7 +26,7 @@ export interface EditableSceneSummary {
     name: string;
     category?: string;
     levelId: string | null;
-    polygon?: any;
+    polygon?: unknown;
   }>;
   walls: Array<{
     id: string;
@@ -76,7 +77,7 @@ export type SceneAction =
       newModelUrl: string;
       newName?: string;
       dimensions?: [number, number, number];
-      materialStyle?: Record<string, any>;
+      materialStyle?: Record<string, unknown>;
     }
   | {
       action: 'delete_node';
@@ -106,6 +107,9 @@ export function getEditableSceneSummary(): EditableSceneSummary {
 
   for (const node of Object.values(nodes)) {
     if (!node) continue;
+    // Read type-specific fields from a plain-record view; Pascal's union types vary by node type.
+    const f = node as unknown as NodeFields;
+    const parentId = (f.parentId as string | null | undefined) || null;
 
     switch (node.type) {
       case 'site':
@@ -120,8 +124,8 @@ export function getEditableSceneSummary(): EditableSceneSummary {
         levels.push({
           id: node.id,
           name: node.name || 'Level',
-          elevation: (node as any).elevation ?? 0,
-          height: (node as any).height ?? 3.0,
+          elevation: (f.elevation as number | undefined) ?? 0,
+          height: (f.height as number | undefined) ?? 3.0,
         });
         if (!activeLevelId) activeLevelId = node.id;
         break;
@@ -130,9 +134,9 @@ export function getEditableSceneSummary(): EditableSceneSummary {
         zones.push({
           id: node.id,
           name: node.name || 'Zone',
-          category: (node as any).category,
-          levelId: (node as any).parentId || null,
-          polygon: (node as any).polygon,
+          category: f.category as string | undefined,
+          levelId: parentId,
+          polygon: f.polygon,
         });
         break;
 
@@ -140,42 +144,43 @@ export function getEditableSceneSummary(): EditableSceneSummary {
         walls.push({
           id: node.id,
           name: node.name || 'Wall',
-          start: (node as any).start || [0, 0],
-          end: (node as any).end || [1, 0],
-          height: (node as any).height ?? 3.0,
-          thickness: (node as any).thickness ?? 0.2,
-          levelId: (node as any).parentId || null,
+          start: (f.start as [number, number] | undefined) || [0, 0],
+          end: (f.end as [number, number] | undefined) || [1, 0],
+          height: (f.height as number | undefined) ?? 3.0,
+          thickness: (f.thickness as number | undefined) ?? 0.2,
+          levelId: parentId,
         });
         break;
 
       case 'item': {
-        const itemNode = node as any;
-        const dims = itemNode.asset?.dimensions || itemNode.dimensions || [0.8, 0.8, 0.8];
-        const src = itemNode.asset?.src || itemNode.modelUrl;
+        const dims = node.asset?.dimensions || (f.dimensions as [number, number, number] | undefined) || [0.8, 0.8, 0.8];
+        const src = node.asset?.src || (f.modelUrl as string | undefined);
         items.push({
           id: node.id,
           name: node.name || 'Item',
-          category: itemNode.category || itemNode.asset?.category,
-          position: itemNode.position || [0, 0, 0],
-          rotation: itemNode.rotation || [0, 0, 0],
+          category: (f.category as string | undefined) || node.asset?.category,
+          position: node.position || [0, 0, 0],
+          rotation: node.rotation || [0, 0, 0],
           dimensions: dims,
           modelUrl: src,
-          levelId: itemNode.parentId || null,
+          levelId: parentId,
         });
         break;
       }
 
-      case 'scan':
+      case 'scan': {
+        const metadata = scanMetadata(node);
         scans.push({
           id: node.id,
           name: node.name || 'Scan',
-          url: (node as any).url,
-          visible: (node as any).visible ?? true,
-          opacity: (node as any).opacity ?? 100,
-          exclusionBoxes: (node as any).metadata?.exclusionBoxes || [],
-          maskRegions: (node as any).metadata?.maskRegions || [],
+          url: f.url as string | undefined,
+          visible: (f.visible as boolean | undefined) ?? true,
+          opacity: (f.opacity as number | undefined) ?? 100,
+          exclusionBoxes: (metadata.exclusionBoxes as unknown as SplatExclusionBox[] | undefined) || [],
+          maskRegions: metadata.maskRegions || [],
         });
         break;
+      }
     }
   }
 
@@ -210,50 +215,53 @@ export function applySceneActions(actions: SceneAction[]): void {
         break;
 
       case 'update_transform': {
-        const patch: Record<string, any> = {};
+        const patch: Record<string, unknown> = {};
         if (act.position) patch.position = act.position;
         if (act.rotation) patch.rotation = act.rotation;
         if (act.dimensions) patch.dimensions = act.dimensions;
         updates.push({
-          id: act.nodeId as AnyNodeId,
-          data: patch as any,
+          id: asNodeId(act.nodeId),
+          data: asNodeData(patch),
         });
         break;
       }
 
       case 'replace_asset': {
-        const existingNode = (scene.nodes as Record<string, any>)[act.nodeId];
-        if (!existingNode || existingNode.type !== 'item') break;
+        const found = scene.nodes[asNodeId(act.nodeId)];
+        if (!found || found.type !== 'item') break;
+        const existingNode: ItemNode = found;
+        const legacyCategory = (existingNode as unknown as NodeFields).category as string | undefined;
         const dims = act.dimensions || existingNode.asset?.dimensions || [1, 1, 1];
         const mask = createMaskRegionForNode(existingNode);
         const replaced = replaceItemAsset(existingNode, {
           id: existingNode.asset?.id,
           name: act.newName || existingNode.asset?.name || existingNode.name || 'Item',
-          category: existingNode.asset?.category || existingNode.category || 'item',
+          category: existingNode.asset?.category || legacyCategory || 'item',
           src: act.newModelUrl,
           dimensions: dims,
         });
         updates.push({
-          id: act.nodeId as AnyNodeId,
-          data: {
+          id: asNodeId(act.nodeId),
+          data: asNodeData({
             ...replaced,
             metadata: {
               ...(existingNode.metadata || {}),
               maskRegionId: mask.id,
             },
-          } as any,
+          }),
         });
-        const targetScan = Object.values(scene.nodes).find((n) => n?.type === 'scan') as any;
+        const targetScan = findScanNode(scene.nodes);
         if (targetScan) {
-          const currentMasks: MaskRegion[] = targetScan.metadata?.maskRegions || [];
+          const metadata = scanMetadata(targetScan);
+          const currentMasks: MaskRegion[] = metadata.maskRegions || [];
           updates.push({
-            id: targetScan.id as AnyNodeId,
-            data: {
+            id: asNodeId(targetScan.id),
+            data: asNodeData({
               metadata: {
-                ...targetScan.metadata,
+                ...metadata,
                 maskRegions: [...currentMasks.filter((m) => m.itemId !== existingNode.id), mask],
               },
-            } as any,
+            }),
           });
         }
         break;
@@ -269,18 +277,18 @@ export function applySceneActions(actions: SceneAction[]): void {
           act.scanNodeId ||
           Object.values(scene.nodes).find((n) => n?.type === 'scan')?.id;
 
-        if (targetScanId && (scene.nodes as Record<string, any>)[targetScanId]) {
-          const scanNode = (scene.nodes as Record<string, any>)[targetScanId];
-          const currentBoxes: SplatExclusionBox[] =
-            scanNode.metadata?.exclusionBoxes || [];
+        const scanNode = targetScanId ? scene.nodes[asNodeId(targetScanId)] : undefined;
+        if (targetScanId && scanNode) {
+          const metadata = scanMetadata(scanNode);
+          const currentBoxes = (metadata.exclusionBoxes as unknown as SplatExclusionBox[] | undefined) || [];
           updates.push({
-            id: targetScanId as AnyNodeId,
-            data: {
+            id: asNodeId(targetScanId),
+            data: asNodeData({
               metadata: {
-                ...scanNode.metadata,
+                ...metadata,
                 exclusionBoxes: [...currentBoxes, act.box],
               },
-            } as any,
+            }),
           });
         }
         break;
@@ -300,18 +308,12 @@ export function applySceneActions(actions: SceneAction[]): void {
  * Triggers a 1-step undo via Zundo temporal store.
  */
 export function undoSceneAction(): void {
-  const temporal = (useScene as any).temporal;
-  if (temporal && typeof temporal.getState === 'function') {
-    temporal.getState().undo();
-  }
+  useScene.temporal.getState().undo();
 }
 
 /**
  * Triggers a 1-step redo via Zundo temporal store.
  */
 export function redoSceneAction(): void {
-  const temporal = (useScene as any).temporal;
-  if (temporal && typeof temporal.getState === 'function') {
-    temporal.getState().redo();
-  }
+  useScene.temporal.getState().redo();
 }

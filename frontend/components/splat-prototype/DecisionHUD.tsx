@@ -217,7 +217,7 @@ export const DecisionHUD: React.FC<DecisionHUDProps> = ({
             <span className="text-slate-400">Item Model:</span>
             <select
               value={itemType}
-              onChange={(e) => onChangeItemType(e.target.value as any)}
+              onChange={(e) => onChangeItemType(e.target.value as DecisionHUDProps['itemType'])}
               className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-200 text-xs focus:outline-none focus:border-cyan-500"
             >
               <option value="chair">Modern Chair</option>

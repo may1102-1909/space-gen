@@ -5,7 +5,7 @@
 
 export interface ToolCallPayload {
   name: string;
-  args: Record<string, any>;
+  args: Record<string, unknown>;
 }
 
 export const SPATIAL_TOOL_DECLARATIONS = [

@@ -119,10 +119,10 @@ export function ChatPanel() {
           timestamp: Date.now(),
         });
       }
-    } catch (err: any) {
+    } catch (err) {
       addChatMessage({
         role: 'assistant',
-        content: `Error during 3D asset replacement: ${err?.message || 'Unknown error'}`,
+        content: `Error during 3D asset replacement: ${(err as Error)?.message || 'Unknown error'}`,
         timestamp: Date.now(),
       });
     } finally {
@@ -182,10 +182,10 @@ export function ChatPanel() {
             timestamp: Date.now(),
           });
         }
-      } catch (err: any) {
+      } catch (err) {
         addChatMessage({
           role: 'assistant',
-          content: `Failed to replace asset: ${err?.message}`,
+          content: `Failed to replace asset: ${(err as Error)?.message}`,
           timestamp: Date.now(),
         });
       } finally {
@@ -235,10 +235,10 @@ export function ChatPanel() {
             },
           ],
         });
-      } catch (err: any) {
+      } catch (err) {
         addChatMessage({
           role: 'assistant',
-          content: `Failed to compute placement proposals: ${err?.message}`,
+          content: `Failed to compute placement proposals: ${(err as Error)?.message}`,
           timestamp: Date.now(),
         });
       } finally {
@@ -299,7 +299,7 @@ export function ChatPanel() {
         })),
         canUndo: executionResults.some((r) => r.success && r.modifiedNodeIds.length > 0),
       });
-    } catch (e: any) {
+    } catch (e) {
       console.error('[ChatPanel] Error handling spatial request:', e);
       addChatMessage({
         role: 'assistant',

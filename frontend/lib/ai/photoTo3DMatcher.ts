@@ -1,5 +1,6 @@
 import { useScene, AnyNodeId } from '@pascal-app/core';
 import { applySceneActions, SplatExclusionBox } from '@/lib/pascal/sceneBridge';
+import type { NodeFields } from '@/lib/pascal/nodes';
 import { addExclusionVolumeToScan } from '@/lib/splat/splatCropManager';
 import catalogData from '@/public/catalog/catalogManifest.json';
 
@@ -200,9 +201,9 @@ export async function replaceItemWithPhotoReference(
   const descriptors = await extractVisualDescriptorsFromPhoto(photoDataUrl, userPromptHint);
   const matchedAsset = matchCatalogAsset(descriptors);
 
-  const prevPos = ((targetNode as any).position || [0, 0, 0]) as [number, number, number];
-  const prevRot = ((targetNode as any).rotation || [0, 0, 0]) as [number, number, number];
-  const prevDims = ((targetNode as any).dimensions || [1, 1, 1]) as [number, number, number];
+  const prevPos = (((targetNode as unknown as NodeFields).position as number[] | undefined) || [0, 0, 0]) as [number, number, number];
+  const prevRot = (((targetNode as unknown as NodeFields).rotation as number[] | undefined) || [0, 0, 0]) as [number, number, number];
+  const prevDims = (((targetNode as unknown as NodeFields).dimensions as number[] | undefined) || [1, 1, 1]) as [number, number, number];
 
   // 1. Add SuperSplat exclusion volume to mask old splat Gaussians
   const scanNode = Object.values(scene.nodes).find((n) => n?.type === 'scan');

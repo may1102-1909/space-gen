@@ -232,16 +232,19 @@ export const AholoViewer: React.FC<AholoViewerProps> = ({
     onResetViewReady,
     onViewerReady,
   });
-  callbacksRef.current = {
-    onLoading,
-    onProgress,
-    onLoaded,
-    onError,
-    onFpsUpdate,
-    onDataLoaded,
-    onResetViewReady,
-    onViewerReady,
-  };
+  // Refresh after each render (not during it) so long-lived viewer listeners see the latest callbacks.
+  useEffect(() => {
+    callbacksRef.current = {
+      onLoading,
+      onProgress,
+      onLoaded,
+      onError,
+      onFpsUpdate,
+      onDataLoaded,
+      onResetViewReady,
+      onViewerReady,
+    };
+  });
 
   // Sync camera aspect ratio with viewer size
   const syncAspect = useCallback((camera: PerspectiveCamera, viewer: Viewer) => {

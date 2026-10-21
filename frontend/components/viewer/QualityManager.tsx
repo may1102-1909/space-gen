@@ -9,24 +9,21 @@ export type QualityTier = 'max' | 'balanced' | 'performance'
  * Auto-detects device capability, monitors FPS, and adjusts quality dynamically.
  */
 export function useQualityManager() {
-  const [tier, setTier] = useState<QualityTier>('max')
+  // Detected once on the client; this hook only runs inside an R3F Canvas, which never renders on the server.
+  const [tier, setTier] = useState<QualityTier>(() => (typeof window === 'undefined' ? 'max' : detectQualityTier()))
   const [fps, setFps] = useState(60)
   const [autoAdjust, setAutoAdjust] = useState(false)
   const frameCountRef = useRef(0)
-  const lastTimeRef = useRef(performance.now())
+  const lastTimeRef = useRef<number | null>(null)
   const lowFpsCountRef = useRef(0)
   const highFpsCountRef = useRef(0)
 
-  // Detect initial quality tier from GPU
-  useEffect(() => {
-    const detected = detectQualityTier()
-    setTier(detected)
-  }, [])
 
   // FPS tracking
   const trackFrame = useCallback(() => {
     frameCountRef.current++
     const now = performance.now()
+    if (lastTimeRef.current === null) lastTimeRef.current = now
     const elapsed = now - lastTimeRef.current
 
     if (elapsed >= 1000) {

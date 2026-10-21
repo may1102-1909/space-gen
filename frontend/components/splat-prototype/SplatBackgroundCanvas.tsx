@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { SparkRenderer, SplatMesh } from '@sparkjsdev/spark';
 import type { MaskRegion } from '@/lib/contracts';
@@ -69,15 +69,22 @@ export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const loadedCountRef = useRef(0);
   const loadedFormatRef = useRef('');
+  // Latest props for the long-lived render loop, refreshed after every render.
   const pickerCallbackRef = useRef(onPickerReady);
-  pickerCallbackRef.current = onPickerReady;
   const legacyCameraStateRef = useRef(cameraState);
-  legacyCameraStateRef.current = cameraState;
+  const cameraStatePropRef = useRef(cameraStateRef);
+  const metricsCallbackRef = useRef(onMetricsUpdate);
+  useEffect(() => {
+    pickerCallbackRef.current = onPickerReady;
+    legacyCameraStateRef.current = cameraState;
+    cameraStatePropRef.current = cameraStateRef;
+    metricsCallbackRef.current = onMetricsUpdate;
+  });
 
-  // FPS calculation refs
+  // FPS calculation refs (lastFpsTime is seeded on the first animation frame)
   const frameCountRef = useRef(0);
-  const lastFpsTimeRef = useRef(performance.now());
-  const currentFpsRef = useRef(60);
+  const lastFpsTimeRef = useRef<number | null>(null);
+  const currentFpsRef = useRef(0);
 
   // 1. Initialize WebGL2 & Spark Renderer once on mount
   useEffect(() => {
@@ -105,8 +112,9 @@ export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
       renderer.setSize(width, height);
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
       rendererRef.current = renderer;
-    } catch (err: any) {
-      setErrorMsg(`Failed to initialize WebGL2 context: ${err.message}`);
+    } catch (err) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- surfacing a WebGL context failure from the external renderer is the intent
+      setErrorMsg(`Failed to initialize WebGL2 context: ${(err as Error).message}`);
       return;
     }
 
@@ -122,7 +130,7 @@ export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
       sparkRef.current = spark;
       // SparkRenderer is a THREE.Mesh whose render hooks run only while it is in the scene graph.
       scene.add(spark);
-    } catch (err: any) {
+    } catch (err) {
       console.warn('[SplatCanvas] SparkRenderer init warning:', err);
       return;
     }
@@ -134,6 +142,7 @@ export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
 
       // FPS tracking
       frameCountRef.current++;
+      if (lastFpsTimeRef.current === null) lastFpsTimeRef.current = time;
       if (time - lastFpsTimeRef.current >= 500) {
         currentFpsRef.current = Math.round(
           (frameCountRef.current * 1000) / (time - lastFpsTimeRef.current)
@@ -141,8 +150,8 @@ export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
         frameCountRef.current = 0;
         lastFpsTimeRef.current = time;
 
-        if (onMetricsUpdate && loadedCountRef.current > 0) {
-          onMetricsUpdate({
+        if (metricsCallbackRef.current && loadedCountRef.current > 0) {
+          metricsCallbackRef.current({
             fps: currentFpsRef.current,
             splatCount: loadedCountRef.current,
             format: loadedFormatRef.current,
@@ -152,7 +161,7 @@ export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
       }
 
       if (rendererRef.current && sceneRef.current && cameraRef.current && sparkRef.current) {
-        const state = cameraStateRef?.current || legacyCameraStateRef.current;
+        const state = cameraStatePropRef.current?.current || legacyCameraStateRef.current;
         if (state) {
           const camera = cameraRef.current;
           camera.position.set(...state.position);
@@ -239,8 +248,9 @@ export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
       });
       splatMeshRef.current = splatMesh;
       scene.add(splatMesh);
-    } catch (err: any) {
-      setErrorMsg(`Could not load scan: ${err.message}`);
+    } catch (err) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- Spark throws synchronously for unsupported scan URLs; show it
+      setErrorMsg(`Could not load scan: ${(err as Error).message}`);
     }
     return () => {
       cancelled = true;
