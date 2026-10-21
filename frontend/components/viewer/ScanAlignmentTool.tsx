@@ -163,7 +163,7 @@ export function ScanAlignmentTool({
   };
 
   return (
-    <aside className="absolute left-4 top-20 z-20 w-80 rounded-xl border border-border bg-surface/95 p-4 text-text-primary shadow-xl backdrop-blur">
+    <aside className="absolute bottom-4 right-4 z-20 w-80 rounded-xl border border-border bg-surface/95 p-4 text-text-primary shadow-xl backdrop-blur">
       <div className="flex items-start justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold flex items-center gap-1.5">
