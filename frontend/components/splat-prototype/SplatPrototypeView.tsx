@@ -1,6 +1,9 @@
 'use client';
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
+import { attemptSparkOnWebGPURenderer, type CandidateAttempt } from '@/lib/splat/rendererCandidates';
+
+const SCAN_URL = '/Hurstville_Museum_Gallery.sog';
 import { SplatBackgroundCanvas, SplatCameraState } from './SplatBackgroundCanvas';
 import { PascalForegroundOverlay } from './PascalForegroundOverlay';
 import { DecisionHUD, EvalOption } from './DecisionHUD';
@@ -10,9 +13,9 @@ export function SplatPrototypeView() {
   const [cameraState, setCameraState] = useState<SplatCameraState | null>(null);
 
   // Metrics
-  const [fps, setFps] = useState(60);
-  const [splatCount, setSplatCount] = useState(161576);
-  const [format, setFormat] = useState('pcsogszip (.sog)');
+  const [fps, setFps] = useState(0);
+  const [splatCount, setSplatCount] = useState(0);
+  const [format, setFormat] = useState('');
   const [isLoaded, setIsLoaded] = useState(false);
 
   // Verification Controls
@@ -31,23 +34,54 @@ export function SplatPrototypeView() {
     []
   );
 
-  const getCanvasRenderMode = (): 'synced' | 'unsupported_webgpu' | 'forced_webgl_fail' => {
-    if (currentOption === 'option_a') return 'unsupported_webgpu';
-    if (currentOption === 'option_b') return 'forced_webgl_fail';
-    return 'synced';
-  };
+  // Candidates (a)/(b) are attempted for real, each followed by a classic WebGLRenderer control run
+  // through the same harness; the panel shows what the browser actually did.
+  const [attempts, setAttempts] = useState<CandidateAttempt[] | 'running' | null>(null);
+  useEffect(() => {
+    if (currentOption !== 'option_a' && currentOption !== 'option_b') return;
+    let alive = true;
+    const candidate = currentOption === 'option_a' ? 'webgpu' : 'webgpu-force-webgl';
+    setAttempts('running');
+    (async () => {
+      const results: CandidateAttempt[] = [];
+      for (const run of [candidate, 'webgl-control'] as const) {
+        const result = await attemptSparkOnWebGPURenderer(run, SCAN_URL);
+        console.info(`[ADR001] ${run}:`, JSON.stringify(result));
+        results.push(result);
+      }
+      if (alive) setAttempts(results);
+    })();
+    return () => { alive = false; };
+  }, [currentOption]);
 
   return (
     <div className="w-full h-full relative overflow-hidden bg-slate-950 select-none">
       {/* 1. Underlying WebGL2 Gaussian Splat Canvas (Option C) */}
       <SplatBackgroundCanvas
+        scanUrl={SCAN_URL}
         cameraState={cameraState}
         enableMasking={enableMasking}
         maskPosition={[0, -0.6, itemDepthMode === 'front' ? 0.2 : -2.5]}
         maskSize={[1.4, 1.2, 1.4]}
         onMetricsUpdate={handleMetricsUpdate}
-        renderMode={getCanvasRenderMode()}
       />
+
+      {(currentOption === 'option_a' || currentOption === 'option_b') && attempts && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center p-6 pointer-events-none">
+          <div role="status" aria-label="Candidate attempt" className="max-w-lg bg-black/90 p-5 border border-amber-500 rounded-xl shadow-2xl font-mono text-xs text-slate-200 pointer-events-auto">
+            <h4 className="text-sm font-bold text-amber-400 mb-2">
+              Candidate {currentOption === 'option_a' ? '(a) Spark on WebGPURenderer' : '(b) Spark on WebGPURenderer({ forceWebGL: true })'}
+            </h4>
+            {attempts === 'running' ? <p>Attempting…</p> : attempts.map((attempt) => (
+              <div key={attempt.candidate} data-candidate={attempt.candidate} className="mt-2">
+                <p className="text-slate-300">{attempt.candidate}</p>
+                <p className={attempt.ok ? 'text-emerald-300' : 'text-red-300'}>{attempt.ok ? 'Result: rendered (see pixel count)' : `Result: ${attempt.error}`}</p>
+                <ol className="mt-1 list-decimal pl-5 text-slate-400">{attempt.steps.map((step) => <li key={step}>{step}</li>)}</ol>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* 2. Foreground Pascal / WebGPU 3D Scene Layer */}
       {currentOption === 'option_c' && (

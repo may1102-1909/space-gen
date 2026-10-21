@@ -71,7 +71,7 @@ export const DecisionHUD: React.FC<DecisionHUDProps> = ({
               <span>FPS</span>
             </div>
             <div className="text-base font-mono font-bold text-emerald-400 mt-0.5">
-              {currentOption === 'option_c' ? (fps > 0 ? fps : 60) : 0}
+              {currentOption === 'option_c' && isLoaded ? fps : '—'}
             </div>
           </div>
 
@@ -119,7 +119,7 @@ export const DecisionHUD: React.FC<DecisionHUDProps> = ({
                 (c) Dual-Canvas Synced (Recommended)
               </div>
               <p className="text-[10px] text-slate-400 mt-0.5 leading-snug">
-                Spark WebGL2 background + Pascal WebGPU foreground. Solid 60 FPS, full .sog support, OBB masking.
+                Spark WebGL2 background + Pascal WebGPU foreground. .sog support, OBB masking. FPS above is measured live.
               </p>
             </div>
           </button>
@@ -136,7 +136,7 @@ export const DecisionHUD: React.FC<DecisionHUDProps> = ({
             <div>
               <div className="font-semibold text-xs">(a) Spark inside WebGPURenderer</div>
               <p className="text-[10px] text-slate-400 mt-0.5 leading-snug">
-                Fails immediately: Spark requires WebGL2 context & GLSL shaders; WebGPU throws TypeError on `getContext`.
+                Attempts Spark on a three/webgpu WebGPURenderer in this browser and shows the actual result.
               </p>
             </div>
           </button>
@@ -153,7 +153,7 @@ export const DecisionHUD: React.FC<DecisionHUDProps> = ({
             <div>
               <div className="font-semibold text-xs">(b) Force Pascal to WebGL + Spark</div>
               <p className="text-[10px] text-slate-400 mt-0.5 leading-snug">
-                Fails: `forceWebGL` uses WebGLBackend with TSL NodeMaterials; classic WebGLRenderer breaks Pascal outline/SSGI.
+                Attempts Spark on WebGPURenderer with forceWebGL: true and shows the actual result.
               </p>
             </div>
           </button>

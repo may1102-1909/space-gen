@@ -36,7 +36,6 @@ export interface SplatBackgroundCanvasProps {
     format: string;
     isLoaded: boolean;
   }) => void;
-  renderMode?: 'synced' | 'unsupported_webgpu' | 'forced_webgl_fail';
 }
 
 // Stable defaults so the mask effect does not rebuild Spark edits on every render.
@@ -56,7 +55,6 @@ export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
   maskSize = DEFAULT_MASK_SIZE,
   maskRegions = NO_MASK_REGIONS,
   onMetricsUpdate,
-  renderMode = 'synced',
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -70,6 +68,7 @@ export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const loadedCountRef = useRef(0);
+  const loadedFormatRef = useRef('');
   const pickerCallbackRef = useRef(onPickerReady);
   pickerCallbackRef.current = onPickerReady;
   const legacyCameraStateRef = useRef(cameraState);
@@ -146,7 +145,7 @@ export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
           onMetricsUpdate({
             fps: currentFpsRef.current,
             splatCount: loadedCountRef.current,
-            format: 'pcsogszip (.sog)',
+            format: loadedFormatRef.current,
             isLoaded: true,
           });
         }
@@ -190,21 +189,6 @@ export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
     };
   }, []);
 
-  // Update diagnostic simulation message when renderMode changes
-  useEffect(() => {
-    if (renderMode === 'unsupported_webgpu') {
-      setErrorMsg(
-        'SIMULATION ERROR (Option A): WebGPURenderer is incompatible with @sparkjsdev/spark. Spark called `renderer.getContext()`, which returned undefined (WebGPU uses GPUCanvasContext). Spark crashed with: TypeError: renderer.properties is undefined.'
-      );
-    } else if (renderMode === 'forced_webgl_fail') {
-      setErrorMsg(
-        'SIMULATION ERROR (Option B): Three.js WebGPURenderer({ forceWebGL: true }) uses WebGLBackend with TSL NodeMaterial pipelines. Spark RawShaderMaterial GLSL compilation failed: Backend requires NodeMaterials.'
-      );
-    } else {
-      setErrorMsg(null);
-    }
-  }, [renderMode]);
-
   // 2. Load the active Pascal ScanNode's source unchanged into Spark.
   useEffect(() => {
     const scene = sceneRef.current;
@@ -231,7 +215,7 @@ export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
           onMetricsUpdate?.({
             fps: currentFpsRef.current,
             splatCount: loadedCountRef.current,
-            format: scanUrl.split(/[?#]/)[0].split('.').pop()?.toUpperCase() || 'SCAN',
+            format: (loadedFormatRef.current = scanUrl.split(/[?#]/)[0].split('.').pop()?.toUpperCase() || 'SCAN'),
             isLoaded: true,
           });
           const picker = (clientX: number, clientY: number) => {
@@ -339,7 +323,7 @@ export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
         <div className="absolute inset-0 z-10 flex items-center justify-center bg-red-950/60 p-6 text-red-200 pointer-events-none">
           <div className="max-w-lg bg-black/90 p-5 border border-red-500 rounded-xl shadow-2xl font-mono text-xs pointer-events-auto">
             <h4 className="text-sm font-bold text-red-400 mb-2 flex items-center gap-2">
-              <span>⚠</span> Evaluation Diagnostic Failure
+              <span>⚠</span> Scan load failed
             </h4>
             <p className="leading-relaxed text-red-200/90">{errorMsg}</p>
             <div className="mt-4 pt-3 border-t border-red-900/60 flex justify-end">
