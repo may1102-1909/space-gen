@@ -74,9 +74,7 @@ def test_create_project_from_manifest(client):
         },
         "maskRegions": [],
         "sceneSnapshot": {
-            "nodes": {
-                "item_table": {"id": "item_table", "type": "item", "position": [0, 0, 0], "rotation": [0, 0, 0]}
-            },
+            "nodes": {"item_table": {"id": "item_table", "type": "item", "position": [0, 0, 0], "rotation": [0, 0, 0]}},
             "rootNodeIds": ["item_table"],
             "collections": {},
             "materials": {},
