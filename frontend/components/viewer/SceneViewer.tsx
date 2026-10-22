@@ -35,11 +35,16 @@ import { TransformGizmo } from './TransformGizmo';
 import { ProposalGhosts } from './ProposalGhosts';
 import { pendingPreviewMasks, useProposalPreviews } from '@/lib/pascal/proposalPreview';
 import { InterpretationOverlay } from './InterpretationOverlay';
-import { ArchitecturalTools, useArchitecturalSnap } from './ArchitecturalTools';
+import { ArchitecturalTools, armArchitecturalTool, useArchitecturalSnap } from './ArchitecturalTools';
 import { installArchitecturalSync } from '@/lib/pascal/architecturalSync';
 import { planFeaturePoints } from '@/lib/pascal/scanSnapping';
 import { useSpaceGenStore } from '@/lib/store';
 import { Loader2 } from 'lucide-react';
+import { useNavigation, viewModeLayers } from '@/lib/navigation/navigationStore';
+import { OrbitConfinement } from './OrbitConfinement';
+import { WalkthroughController } from './WalkthroughController';
+import { PascalLayerFade } from './PascalLayerFade';
+import { NavigationOverlay } from './NavigationOverlay';
 
 type ScanPicker = (clientX: number, clientY: number) => Vector3 | null;
 type OrbitControlsImpl = React.ComponentRef<typeof OrbitControls>;
@@ -89,7 +94,9 @@ function ScanCameraBridge({
         far: perspective.far,
       };
     }
-  });
+    // Priority 5: after OrbitControls, the room confinement and the walk controller, so the splat canvas
+    // renders the exact camera of this frame (position, rotation, fov, near) with no one-frame lag.
+  }, 5);
 
   useEffect(() => {
     if (!isPicking) return;
@@ -271,6 +278,17 @@ export function SceneViewer({ selectedId, onSelectObject, reviewMode = false, pr
   const selectedIds = useViewer((state) => state.selection.selectedIds);
   const showScans = useViewer((state) => state.showScans);
   const setSelectedObjectId = useSpaceGenStore((state) => state.setSelectedObjectId);
+  const viewMode = useNavigation((state) => state.viewMode);
+  const navMode = useNavigation((state) => state.navMode);
+  const setNavMode = useNavigation((state) => state.setNavMode);
+  const layers = viewModeLayers(viewMode);
+  const walking = navMode === 'walk';
+
+  // Walking disables editing: drop any armed tool on entry; leaving restores orbit.
+  useEffect(() => {
+    if (walking) armArchitecturalTool(null);
+  }, [walking]);
+  useEffect(() => () => setNavMode('orbit'), [setNavMode]);
 
   // Initialize Pascal without injecting demo content. Project loading owns scene contents.
   useEffect(() => {
@@ -328,16 +346,19 @@ export function SceneViewer({ selectedId, onSelectObject, reviewMode = false, pr
   return (
     <div className="w-full h-full relative overflow-hidden bg-background">
       {/* Floating Mode Switcher & CAD Toolbars */}
-      <EditorToolbar
-        activeTool={activeTool}
-        onSelectTool={setActiveTool}
-        onOpenConvertModal={projectId && onScanImported ? () => setIsConvertModalOpen(true) : undefined}
-        isAligningScan={isAligningScan}
-        onToggleScanAlignment={() => {
-          setIsAligningScan((current) => !current);
-          setIsPickingScanPoint(false);
-        }}
-      />
+      <div inert={walking} className={walking ? 'opacity-40' : undefined} data-testid="editor-toolbar-shell">
+        <EditorToolbar
+          activeTool={activeTool}
+          onSelectTool={setActiveTool}
+          onOpenConvertModal={projectId && onScanImported ? () => setIsConvertModalOpen(true) : undefined}
+          isAligningScan={isAligningScan}
+          onToggleScanAlignment={() => {
+            setIsAligningScan((current) => !current);
+            setIsPickingScanPoint(false);
+          }}
+        />
+      </div>
+      <NavigationOverlay editable />
 
       {isAligningScan && (
         <ScanAlignmentTool
@@ -383,15 +404,19 @@ export function SceneViewer({ selectedId, onSelectObject, reviewMode = false, pr
         scanToScene={scanToScene}
         maskRegions={maskRegions}
         visible={showScans && scanNode?.visible !== false}
+        hidden={!layers.splat}
         onPickerReady={handlePickerReady}
       />
       <Viewer perf={false} useBvh={true} transparent>
-        <OrbitControls makeDefault target={SCAN_FOCUS_TARGET} enableDamping={false} />
+        <OrbitControls makeDefault target={SCAN_FOCUS_TARGET} enableDamping={false} enabled={!walking} />
         {E2E_HOOKS_ENABLED && <E2ECameraHooks />}
         <CameraReaderRegistrar />
-        <TransformGizmo />
-        <ProposalGhosts />
-        <ArchitecturalTools />
+        <PascalLayerFade />
+        <OrbitConfinement enabled={!walking} />
+        {walking && <WalkthroughController />}
+        {!walking && <TransformGizmo />}
+        {!walking && <ProposalGhosts />}
+        {!walking && <ArchitecturalTools />}
         {reviewMode && <InterpretationOverlay />}
         <MaskRegionVisualizer
           maskRegions={maskRegions}

@@ -67,6 +67,7 @@ def build_shared_project(document: ProjectDocument, token: str, base_url: str) -
         ],
         "viewpoints": dump["viewpoints"],
         "heroImages": [h for h in dump["heroImages"] if _web_url(h["url"])],
+        "sceneKind": dump.get("sceneKind"),
         "assets": [
             {
                 "id": a["id"],

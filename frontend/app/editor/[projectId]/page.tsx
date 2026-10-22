@@ -20,6 +20,7 @@ import { editHistoryHost, readEditHistory } from '@/lib/pascal/sceneBridge';
 import { clearProposalPreviews, withoutProposalGhosts } from '@/lib/pascal/proposalPreview';
 import { replaceScanNode, setScanAlignment } from '@/lib/pascal/scanNodes';
 import type { ImportedScan } from '@/lib/scan/splatImport';
+import { useNavigation } from '@/lib/navigation/navigationStore';
 import { VariantBar } from '@/components/variants/VariantBar';
 import { VariantCompare } from '@/components/variants/VariantCompare';
 import { activeVariant, createVariant, deleteVariant, duplicateVariant, normalizeVariants, renameVariant, switchVariant, type Snapshot, type VariantSet } from '@/lib/variants/variants';
@@ -92,6 +93,7 @@ export default function ProjectEditorPage() {
     documentRef.current = doc;
     setDocument(doc);
     applyProjectDocument(doc);
+    useNavigation.getState().setSceneKindOverride(doc.manifest.sceneKind ?? null);
     clearActiveModel();
     dirty.current = false;
     conflictRevision.current = null;
@@ -237,6 +239,18 @@ export default function ProjectEditorPage() {
     generation.current += 1;
     void saveNowRef.current?.();
   }, []);
+
+  // The interior/exterior override lives in the manifest (view and nav mode stay per-session).
+  useEffect(() => useNavigation.subscribe((state, previous) => {
+    const base = documentRef.current;
+    if (!loaded.current || !base || state.sceneKindOverride === previous.sceneKindOverride) return;
+    documentRef.current = { ...base, manifest: { ...base.manifest, sceneKind: state.sceneKindOverride ?? undefined } };
+    dirty.current = true;
+    generation.current += 1;
+    setStatus('unsaved');
+    // No save is scheduled: a save landing mid-gesture (e.g. between two wall clicks) disturbs Pascal's draft tools.
+    // The override rides along with the next autosave or the Save button (status shows Unsaved changes).
+  }), []);
 
   const handleAssetUploaded = useCallback((asset: AssetRef) => {
     const base = documentRef.current;

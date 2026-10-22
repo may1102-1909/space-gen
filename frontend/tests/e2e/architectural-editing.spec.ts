@@ -14,6 +14,8 @@ async function screenOf(page: Page, point: Vec3) {
 
 async function topView(page: Page) {
   await waitForE2EHooks(page);
+  // A plan view from above the ceiling is outside the room, so interior confinement must be lifted.
+  await page.getByRole('group', { name: 'Scene kind' }).getByRole('button', { name: 'Exterior' }).click();
   await page.evaluate(() => window.__spacegenE2E!.setCamera([4, 10, 9], [4, 0, 3]));
 }
 

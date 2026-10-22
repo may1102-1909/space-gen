@@ -25,6 +25,8 @@ export interface SplatBackgroundCanvasProps {
   scanUrl?: string | null;
   scanToScene?: number[];
   visible?: boolean;
+  /** Hides the whole canvas (Mesh view); the scene stays loaded so switching back is instant. */
+  hidden?: boolean;
   onPickerReady?: (picker: ((clientX: number, clientY: number) => [number, number, number] | null) | null) => void;
   enableMasking?: boolean;
   maskPosition?: [number, number, number];
@@ -49,6 +51,7 @@ export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
   scanUrl,
   scanToScene,
   visible = true,
+  hidden = false,
   onPickerReady,
   enableMasking = false,
   maskPosition = DEFAULT_MASK_POSITION,
@@ -203,6 +206,7 @@ export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
       if (!containerRef.current || !rendererRef.current || !cameraRef.current) return;
       const w = containerRef.current.clientWidth;
       const h = containerRef.current.clientHeight;
+      if (!w || !h) return; // display:none (Mesh view)
       cameraRef.current.aspect = w / h;
       cameraRef.current.updateProjectionMatrix();
       rendererRef.current.setSize(w, h);
@@ -218,6 +222,16 @@ export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
       renderer.dispose();
     };
   }, []);
+
+  // Re-measure and redraw when the canvas is shown again.
+  const wasHiddenRef = useRef(hidden);
+  useEffect(() => {
+    const wasHidden = wasHiddenRef.current;
+    wasHiddenRef.current = hidden;
+    if (hidden || !wasHidden) return;
+    needsRenderRef.current = true;
+    window.dispatchEvent(new Event('resize'));
+  }, [hidden]);
 
   // 2. Load the active Pascal ScanNode's source unchanged into Spark.
   useEffect(() => {
@@ -365,7 +379,7 @@ export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
   }, []);
 
   return (
-    <div ref={containerRef} className="absolute inset-0 w-full h-full pointer-events-none">
+    <div ref={containerRef} data-testid="splat-layer" data-hidden={hidden} style={hidden ? { display: 'none' } : undefined} className="absolute inset-0 w-full h-full pointer-events-none">
       <canvas ref={canvasRef} data-testid="splat-canvas" className="w-full h-full block" />
       {errorMsg && (
         <div className="absolute inset-0 z-10 flex items-center justify-center bg-red-950/60 p-6 text-red-200 pointer-events-none">

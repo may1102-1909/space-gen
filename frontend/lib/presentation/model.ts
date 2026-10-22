@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { HeroImageSchema, ScanAssetSchema, ViewpointSchema } from '@/lib/contracts';
+import { HeroImageSchema, SceneKindSchema, ScanAssetSchema, ViewpointSchema } from '@/lib/contracts';
 
 /** The sanitized, read-only project served by GET /api/share/{token}. */
 export const SharedProjectSchema = z.object({
@@ -11,6 +11,7 @@ export const SharedProjectSchema = z.object({
   variants: z.array(z.object({ id: z.string(), name: z.string(), description: z.string().nullable().optional(), sceneSnapshot: z.record(z.string(), z.any()) })),
   viewpoints: z.array(ViewpointSchema),
   heroImages: z.array(HeroImageSchema),
+  sceneKind: SceneKindSchema.nullable().optional(),
   assets: z.array(z.object({
     id: z.string(), name: z.string(), url: z.string(),
     dimensions: z.object({ width: z.number(), height: z.number(), depth: z.number() }),

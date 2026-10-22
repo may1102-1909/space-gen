@@ -13,6 +13,12 @@ import { SplatBackgroundCanvas, type SplatCameraState } from '@/components/splat
 import { E2ECameraHooks } from '@/components/viewer/E2ECameraHooks';
 import type { MaskRegion } from '@/lib/contracts';
 import type { Matrix4 } from '@/lib/contracts/primitives';
+import { useNavigation, viewModeLayers } from '@/lib/navigation/navigationStore';
+import type { SceneKind } from '@/lib/navigation/room';
+import { OrbitConfinement } from '@/components/viewer/OrbitConfinement';
+import { WalkthroughController } from '@/components/viewer/WalkthroughController';
+import { PascalLayerFade } from '@/components/viewer/PascalLayerFade';
+import { NavigationOverlay } from '@/components/viewer/NavigationOverlay';
 import { lerpPose, TRANSITION_SECONDS, type CameraPose } from '@/lib/presentation/tour';
 
 const IDENTITY: Matrix4 = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
@@ -36,6 +42,11 @@ function CameraRig({ cameraStateRef, pose, flightKey }: { cameraStateRef: React.
 
   useEffect(() => {
     const to = poseRef.current;
+    // A tour step while walking returns to orbit (the walk controller restores the orbit camera).
+    if (!first.current && useNavigation.getState().navMode === 'walk') {
+      useNavigation.getState().setNavMode('orbit');
+      return;
+    }
     if (first.current) {
       first.current = false;
       camera.position.set(...to.position);
@@ -61,6 +72,10 @@ function CameraRig({ cameraStateRef, pose, flightKey }: { cameraStateRef: React.
       controls?.update();
       if (f.t >= 1) flight.current = null;
     }
+  });
+
+  // After OrbitControls, the room confinement and the walk controller: the splat gets this frame's camera.
+  useFrame(() => {
     const perspective = camera as THREE.PerspectiveCamera;
     cameraStateRef.current = {
       position: [perspective.position.x, perspective.position.y, perspective.position.z],
@@ -70,7 +85,7 @@ function CameraRig({ cameraStateRef, pose, flightKey }: { cameraStateRef: React.
       near: perspective.near,
       far: perspective.far,
     };
-  });
+  }, 5);
   return null;
 }
 
@@ -79,15 +94,27 @@ interface PresentationViewerProps {
   sceneSnapshot: Record<string, unknown>;
   /** Fallback scan when the snapshot has no scan node. */
   fallbackScan?: { url: string; scanToScene: Matrix4 };
+  /** Manual interior/exterior choice saved with the project; auto-detected from the scene when absent. */
+  sceneKind?: SceneKind | null;
   pose: CameraPose | null;
   flightKey: string;
 }
 
 /** The read-only 3D view: Pascal scene plus splat, orbit controls and the tour camera. No editing tools. */
-export default function PresentationViewer({ sceneSnapshot, fallbackScan, pose, flightKey }: PresentationViewerProps) {
+export default function PresentationViewer({ sceneSnapshot, fallbackScan, sceneKind: savedKind, pose, flightKey }: PresentationViewerProps) {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const cameraStateRef = useRef<SplatCameraState | null>(null);
+  const viewMode = useNavigation((state) => state.viewMode);
+  const navMode = useNavigation((state) => state.navMode);
+  const layers = viewModeLayers(viewMode);
+  const walking = navMode === 'walk';
+  // The sanitized share carries the designer's override; clients cannot change it.
+  const setOverride = useNavigation((state) => state.setSceneKindOverride);
+  useEffect(() => {
+    setOverride(savedKind ?? null);
+    return () => { setOverride(null); useNavigation.getState().setNavMode('orbit'); };
+  }, [savedKind, setOverride]);
 
   useEffect(() => {
     let alive = true;
@@ -111,10 +138,14 @@ export default function PresentationViewer({ sceneSnapshot, fallbackScan, pose, 
   if (!ready) return <div className="flex h-full items-center justify-center gap-2 text-text-muted"><Loader2 className="h-5 w-5 animate-spin" />Loading scene…</div>;
   return (
     <div className="relative h-full w-full overflow-hidden bg-background">
-      <SplatBackgroundCanvas cameraStateRef={cameraStateRef} scanUrl={scanUrl} scanToScene={scanToScene} maskRegions={masks} visible />
+      <SplatBackgroundCanvas cameraStateRef={cameraStateRef} scanUrl={scanUrl} scanToScene={scanToScene} maskRegions={masks} visible hidden={!layers.splat} />
+      <NavigationOverlay />
       <Viewer perf={false} useBvh transparent>
-        <OrbitControls makeDefault target={DEFAULT_POSE.target} enableDamping={false} />
+        <OrbitControls makeDefault target={DEFAULT_POSE.target} enableDamping={false} enabled={!walking} />
         {E2E_HOOKS_ENABLED && <E2ECameraHooks />}
+        <PascalLayerFade />
+        <OrbitConfinement enabled={!walking} />
+        {walking && <WalkthroughController />}
         <CameraRig cameraStateRef={cameraStateRef} pose={pose ?? DEFAULT_POSE} flightKey={flightKey} />
         <SceneEnvironment />
         <WallSystem />

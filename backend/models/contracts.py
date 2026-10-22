@@ -296,6 +296,7 @@ class ProjectManifest(BaseModel):
     activeVariantId: str
     viewpoints: List[Viewpoint] = Field(default_factory=list)
     heroImages: List[HeroImage] = Field(default_factory=list)
+    sceneKind: Optional[Literal["interior", "exterior"]] = None
 
 
 # ---------------------------------------------------------------------------

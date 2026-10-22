@@ -53,6 +53,7 @@ export default function PresentationPage() {
       <PresentationViewer
         sceneSnapshot={variant.sceneSnapshot}
         fallbackScan={project.scan.url ? { url: project.scan.url, scanToScene: project.scan.scanToScene } : undefined}
+        sceneKind={project.sceneKind ?? null}
         pose={current ? poseOf(current) : null}
         flightKey={`${current?.id ?? 'start'}:${stops}`}
       />

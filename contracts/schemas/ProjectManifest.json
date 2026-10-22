@@ -1076,6 +1076,22 @@
       },
       "title": "Heroimages",
       "type": "array"
+    },
+    "sceneKind": {
+      "anyOf": [
+        {
+          "enum": [
+            "interior",
+            "exterior"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Scenekind"
     }
   },
   "required": [
