@@ -28,6 +28,7 @@ import type { MaskRegion } from '@/lib/contracts';
 import { EditorToolbar, ActiveTool } from '@/components/layout/EditorToolbar';
 import { ScanSegmentationOverlay } from './ScanSegmentationOverlay';
 import { ScanToEditableModal } from '../capture/ScanToEditableModal';
+import type { ImportedScan } from '@/lib/scan/splatImport';
 import { AIPlacementPreview } from './AIPlacementPreview';
 import { TransformGizmo } from './TransformGizmo';
 import { ProposalGhosts } from './ProposalGhosts';
@@ -227,11 +228,14 @@ interface SceneViewerProps {
   onSelectObject?: (id: string | null) => void;
   /** Shows confidence-coloured scan interpretation overlays. */
   reviewMode?: boolean;
+  /** Project whose asset store receives imported scans; enables Convert Scan. */
+  projectId?: string;
+  onScanImported?: (imported: ImportedScan) => void;
 }
 
 const IDENTITY_MATRIX: Matrix4 = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
 
-export function SceneViewer({ selectedId, onSelectObject, reviewMode = false }: SceneViewerProps) {
+export function SceneViewer({ selectedId, onSelectObject, reviewMode = false, projectId, onScanImported }: SceneViewerProps) {
   const [isReady, setIsReady] = useState(false);
   const [initError, setInitError] = useState<string | null>(null);
   const [activeTool, setActiveTool] = useState<ActiveTool>('select');
@@ -326,7 +330,7 @@ export function SceneViewer({ selectedId, onSelectObject, reviewMode = false }: 
       <EditorToolbar
         activeTool={activeTool}
         onSelectTool={setActiveTool}
-        onOpenConvertModal={() => setIsConvertModalOpen(true)}
+        onOpenConvertModal={projectId && onScanImported ? () => setIsConvertModalOpen(true) : undefined}
         isAligningScan={isAligningScan}
         onToggleScanAlignment={() => {
           setIsAligningScan((current) => !current);
@@ -359,10 +363,14 @@ export function SceneViewer({ selectedId, onSelectObject, reviewMode = false }: 
       <ScanSegmentationOverlay />
 
       {/* Modal to Convert Scan to Parametric Walls + 3D Meshes */}
-      <ScanToEditableModal
-        isOpen={isConvertModalOpen}
-        onClose={() => setIsConvertModalOpen(false)}
-      />
+      {projectId && onScanImported && (
+        <ScanToEditableModal
+          isOpen={isConvertModalOpen}
+          onClose={() => setIsConvertModalOpen(false)}
+          projectId={projectId}
+          onImported={onScanImported}
+        />
+      )}
 
       {/* AI Smart Placement Interactive Proposal HUD */}
       <AIPlacementPreview />

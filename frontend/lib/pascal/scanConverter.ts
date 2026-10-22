@@ -247,6 +247,9 @@ export function planInterpretationNodes(
     updates.push({
       id: scanNodeId as AnyNodeId,
       data: {
+        // A root scan beside the new site would be dropped on load (Pascal keeps only site roots).
+        // shortcut: a level created in this same change can't be a reparent target (updates apply first).
+        ...(existingLevel && !existingScan.parentId ? { parentId: levelId } : {}),
         metadata: {
           ...(existingScan.metadata || {}),
           detections,

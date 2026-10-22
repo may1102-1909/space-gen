@@ -17,6 +17,8 @@ import { deriveInterpretationFromScene } from '@/lib/pascal/scanConverter';
 import { nodeViews } from '@/lib/pascal/nodes';
 import { editHistoryHost, readEditHistory } from '@/lib/pascal/sceneBridge';
 import { clearProposalPreviews, withoutProposalGhosts } from '@/lib/pascal/proposalPreview';
+import { replaceScanNode, setScanAlignment } from '@/lib/pascal/scanNodes';
+import type { ImportedScan } from '@/lib/scan/splatImport';
 
 const SceneViewer = dynamic(() => import('@/components/viewer/SceneViewer'), { ssr: false });
 
@@ -191,6 +193,28 @@ export default function ProjectEditorPage() {
     documentRef.current = { ...base, manifest: { ...base.manifest, assets } };
   }, []);
 
+  const handleScanImported = useCallback(({ scan, format, job }: ImportedScan) => {
+    const base = documentRef.current;
+    if (!base || !job.result) return;
+    const { interpretation, scanToScene } = job.result;
+    // The manifest carries the new interpretation until "Build editable room" turns it into Pascal nodes.
+    const next: ProjectDocument = {
+      ...base,
+      manifest: {
+        ...base.manifest,
+        scan: { ...base.manifest.scan, url: scan.url, format, scanToScene, scaleSource: 'none' },
+        interpretation,
+        maskRegions: [],
+      },
+    };
+    documentRef.current = next;
+    setDocument(next);
+    const scanId = replaceScanNode(scan.url, format);
+    // Auto-level: the suggested placement is its own undo step; the alignment tool fine-tunes it.
+    setScanAlignment(scanId, scanToScene);
+    setReviewMode(true);
+  }, []);
+
   if (!document) return <main className="flex min-h-screen items-center justify-center bg-background text-text-muted">{status === 'error' ? error : 'Loading project…'}</main>;
   const label = status === 'saving' ? 'Saving…' : status === 'unsaved' ? 'Unsaved changes' : status === 'error' ? 'Save failed' : status === 'conflict' ? 'Conflict' : 'Saved';
   return <EditorLayout>
@@ -207,7 +231,7 @@ export default function ProjectEditorPage() {
     )}
     {drawingsOpen && <DrawingsPanel projectName={document.manifest.name} onClose={() => setDrawingsOpen(false)} />}
     <div className="w-[280px] border-r border-border bg-surface flex flex-col shrink-0 h-full overflow-hidden"><ScenePanel projectId={params.projectId} onAssetUploaded={handleAssetUploaded} /></div>
-    <div className="flex-1 bg-background relative overflow-hidden h-full"><SceneViewer selectedId={selectedObjectId} onSelectObject={setSelectedObjectId} reviewMode={reviewMode} /></div>
+    <div className="flex-1 bg-background relative overflow-hidden h-full"><SceneViewer selectedId={selectedObjectId} onSelectObject={setSelectedObjectId} reviewMode={reviewMode} projectId={params.projectId} onScanImported={handleScanImported} /></div>
     <div className="w-[380px] border-l border-border bg-surface flex flex-col shrink-0 h-full overflow-hidden">{reviewMode ? <InterpretationReviewPanel interpretation={document.manifest.interpretation} scan={document.manifest.scan} maskRegions={document.manifest.maskRegions} /> : <ChatPanel projectId={params.projectId} onAssetUploaded={handleAssetUploaded} onOpenReview={() => setReviewMode(true)} />}</div>
   </EditorLayout>;
 }
