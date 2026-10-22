@@ -145,7 +145,8 @@ export function buildRoom(interpretation: RoomInterpretation): RoomGeometry {
       height: o.height,
       sill: o.sill,
     };
-    if (o.kind === 'door') doors.push(geom);
+    // A floor-level open passage (no door leaf) still needs the same clear approach as a door.
+    if (o.kind === 'door' || (o.kind === 'opening' && o.sill < 0.1)) doors.push(geom);
     else if (o.kind === 'window') windows.push(geom);
   }
 

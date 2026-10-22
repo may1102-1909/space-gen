@@ -12,7 +12,7 @@ import {
   type PlacementAssetSpec,
   type PlacementLayout,
 } from '@/lib/placement';
-import { item, realistic, rectRoom } from './fixtures';
+import { item, lRoom, realistic, rectRoom } from './fixtures';
 
 const chair: PlacementAssetSpec = {
   url: '/assets/models/chair.glb',
@@ -155,5 +155,28 @@ describe('solver outputs', () => {
     expect(parsePlacementCount('add three stools')).toBe(3);
     expect(parsePlacementCount('arrange chairs')).toBe(2);
     expect(parsePlacementCount('place 40 chairs')).toBe(12);
+  });
+});
+
+describe('solvePlacement — non-rectangular rooms and determinism', () => {
+  const stool: PlacementAssetSpec = { url: '/s.glb', name: 'Stool', category: 'stool', dimensions: { width: 0.4, height: 0.6, depth: 0.4 } };
+
+  it('keeps every placement of every layout inside an L-shaped room', () => {
+    const room = lRoom();
+    const layouts = solvePlacement({ asset: stool, count: 3, topK: 5 }, { items: [] }, room);
+    expect(layouts.length).toBeGreaterThan(0);
+    for (const layout of layouts) {
+      for (const p of layout.placements) {
+        // The [3,6] x [3,6] quadrant is cut away.
+        expect(p.position[0] < 3 || p.position[2] < 3).toBe(true);
+        expect(p.violations.filter((v) => v.severity === 'error')).toEqual([]);
+      }
+    }
+  });
+
+  it('is deterministic', () => {
+    const room = rectRoom(6, 5);
+    const scene = { items: [item('table_1', 'dining_table', [3, 0, 2.5], [1.8, 0.75, 0.9])] };
+    expect(solvePlacement({ asset: chair, count: 4 }, scene, room)).toEqual(solvePlacement({ asset: chair, count: 4 }, scene, room));
   });
 });

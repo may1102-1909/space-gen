@@ -112,6 +112,14 @@ describe('checkDoorClearance', () => {
     const near = item('a', 'chair', [2.5, 0, 3], [0.5, 0.9, 0.5]);
     expect(checkDoorClearance(near, ctx(room), cfg({ doorSwingFactor: 0.5, doorClearanceMargin: 0 }))).toEqual([]);
   });
+
+  it('keeps floor-level open passages clear but not high openings', () => {
+    const arch = opening({ id: 'arch', wallId: 'wall_s', kind: 'opening', offset: 2.5, width: 0.9, height: 2.1, sill: 0 });
+    const hatch = opening({ id: 'hatch', wallId: 'wall_s', kind: 'opening', offset: 2.5, width: 0.9, height: 0.6, sill: 1.0 });
+    const chair = item('a', 'chair', [2.5, 0, 3], [0.5, 0.9, 0.5]);
+    expect(rules(checkDoorClearance(chair, ctx(rectRoom(5, 4, [arch])), cfg()))).toEqual(['door-clearance']);
+    expect(checkDoorClearance(chair, ctx(rectRoom(5, 4, [hatch])), cfg())).toEqual([]);
+  });
 });
 
 describe('checkWalkway', () => {
