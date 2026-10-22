@@ -32,11 +32,12 @@ def room_cameras(
     margin: float = 0.5,
     eye_heights: Sequence[float] = (1.5,),
     target_height: float = 0.7,
+    max_views: int = 48,
 ) -> List[CameraView]:
     """Cameras at inset outline corners, edge midpoints and the centroid, all looking across the room.
 
     Corner/edge cameras look at the centroid and +-35 deg around it; the centroid camera looks 8 ways.
-    Positions outside a concave outline are dropped.
+    Positions outside a concave outline are dropped; detailed outlines are thinned to `max_views` evenly.
     """
     poly = np.asarray(outline, float)
     c = poly.mean(axis=0)
@@ -56,9 +57,11 @@ def room_cameras(
                 eye = (q[0], min(y, ceiling_height - 0.2), q[1])
                 tgt = (q[0] + np.cos(a), target_height, q[1] + np.sin(a))
                 cams.append(look_at_view(eye, tgt, K, width, height))
-    for a in np.deg2rad(np.arange(0, 360, 45)):
+    for a in np.deg2rad(np.arange(0, 360, 45)) if point_in_polygon(c, poly) else []:
         eye = (c[0], min(eye_heights[0], ceiling_height - 0.2), c[1])
         cams.append(look_at_view(eye, (c[0] + np.cos(a), target_height, c[1] + np.sin(a)), K, width, height))
+    if len(cams) > max_views:
+        cams = [cams[i] for i in np.linspace(0, len(cams) - 1, max_views).round().astype(int)]
     return cams
 
 
