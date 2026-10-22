@@ -197,13 +197,17 @@ def _poll(client, job_id, timeout=300.0):
 
 
 def test_fake_mode_separates_objects_and_stores_meshes(api, tmp_path):
-    client, _, project_id, scan_id, _ = api
+    client, holder, project_id, scan_id, _ = api
     job_id = _convert(client, project_id, scan_id)
-    body, details = _poll(client, job_id)
+    body, _ = _poll(client, job_id)
     assert body["status"] == "completed", body
     ConversionJobStatus.model_validate(body)
     assert body["stage"] == "ready" and body["objectsCount"] == 3
-    assert any(d.startswith("Uploading") for d in details) and any(d.startswith("Segmenting on GPU") for d in details)
+    # Polling can miss short-lived stages on a fast runner; the dispatcher records every detail it showed.
+    history = holder["dispatcher"].get(job_id).history
+    assert any(d.startswith("Uploading") for d in history) and any(
+        d.startswith("Segmenting on GPU") for d in history
+    ), history
     assert body["stages"][2] == {
         "name": "objects",
         "status": "completed",

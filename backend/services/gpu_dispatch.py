@@ -69,6 +69,7 @@ class ObjectsState:
     objects: list[SegmentedObject] = field(default_factory=list)
     surfaces: list[ShellSurfaceTexture] = field(default_factory=list)
     error: Optional[str] = None
+    history: list[str] = field(default_factory=list)  # every distinct detail shown, in order
 
 
 def start_fake_worker(work_root: Path) -> tuple[subprocess.Popen, str]:
@@ -124,14 +125,19 @@ class ObjectsDispatcher:
     def get(self, conversion_id: str) -> Optional[ObjectsState]:
         with self._lock:
             state = self._states.get(conversion_id)
-            return replace(state, objects=list(state.objects), surfaces=list(state.surfaces)) if state else None
+            if state is None:
+                return None
+            return replace(
+                state, objects=list(state.objects), surfaces=list(state.surfaces), history=list(state.history)
+            )
 
     def start(self, spec: ObjectsSpec) -> None:
         if not self.enabled:
             return
         with self._lock:
             self._specs[spec.conversion_id] = spec
-            self._states[spec.conversion_id] = ObjectsState(status="running", detail="Waiting for the GPU worker…")
+            waiting = "Waiting for the GPU worker…"
+            self._states[spec.conversion_id] = ObjectsState(status="running", detail=waiting, history=[waiting])
         threading.Thread(target=self._run, args=(spec,), daemon=True, name=f"objects-{spec.conversion_id[:8]}").start()
 
     def retry(self, conversion_id: str) -> bool:
@@ -147,6 +153,9 @@ class ObjectsDispatcher:
             state = self._states[conversion_id]
             for key, value in fields.items():
                 setattr(state, key, value)
+            detail = fields.get("detail")
+            if detail and (not state.history or state.history[-1] != detail):
+                state.history.append(detail)
 
     def _client(self) -> httpx.Client:
         if self._client_factory:
