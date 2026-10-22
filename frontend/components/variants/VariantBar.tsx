@@ -20,7 +20,7 @@ export function VariantBar({ variants, activeId, onSwitch, onCreate, onDuplicate
   const [renaming, setRenaming] = useState<string | null>(null);
   const active = variants.find((v) => v.id === activeId);
   return (
-    <div role="group" aria-label="Variants" className="flex items-center gap-1.5 rounded-lg border border-border bg-surface px-2 py-1.5 text-sm shadow">
+    <div role="group" aria-label="Variants" className="flex flex-wrap items-center gap-1.5 text-sm">
       {renaming === null ? (
         <select aria-label="Active variant" value={activeId} onChange={(e) => onSwitch(e.target.value)} className="rounded border border-border bg-background px-2 py-1">
           {variants.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}

@@ -287,8 +287,7 @@ export default function ProjectEditorPage() {
     })()}
     {shareOpen && <ShareDialog projectId={params.projectId} viewpoints={document.manifest.viewpoints ?? []} onClose={() => setShareOpen(false)} onAddViewpoint={(vp) => changeViewpoints((all) => [...all, vp])} onRemoveViewpoint={(id) => changeViewpoints((all) => all.filter((v) => v.id !== id))} />}
     {drawingsOpen && <DrawingsPanel projectName={document.manifest.name} onClose={() => setDrawingsOpen(false)} />}
-    <div className="w-[280px] border-r border-border bg-surface flex flex-col shrink-0 h-full overflow-hidden"><ScenePanel projectId={params.projectId} onAssetUploaded={handleAssetUploaded} /></div>
-    <div className="flex-1 bg-background relative overflow-hidden h-full"><div className="absolute right-3 top-3 z-40"><VariantBar
+    <div className="w-[280px] border-r border-border bg-surface flex flex-col shrink-0 h-full overflow-hidden"><div className="border-b border-border p-2"><VariantBar
       variants={document.manifest.variants.length ? document.manifest.variants : normalizeVariants(document.manifest, {}).variants}
       activeId={document.manifest.activeVariantId}
       onSwitch={(id) => variantOp((set, scene) => switchVariant(set, scene, id))}
@@ -297,7 +296,8 @@ export default function ProjectEditorPage() {
       onRename={(name) => variantOp((set, scene) => renameVariant(set, scene, set.activeVariantId, name))}
       onDelete={() => { if (window.confirm('Delete this variant? This cannot be undone.')) variantOp((set, scene) => deleteVariant(set, scene, set.activeVariantId)); }}
       onCompare={() => { const base = documentRef.current; if (base) setCompare(normalizeVariants(base.manifest, liveScene())); }}
-    /></div><SceneViewer selectedId={selectedObjectId} onSelectObject={setSelectedObjectId} reviewMode={reviewMode} projectId={params.projectId} onScanImported={handleScanImported} /></div>
+    /></div><ScenePanel projectId={params.projectId} onAssetUploaded={handleAssetUploaded} /></div>
+    <div className="flex-1 bg-background relative overflow-hidden h-full"><SceneViewer selectedId={selectedObjectId} onSelectObject={setSelectedObjectId} reviewMode={reviewMode} projectId={params.projectId} onScanImported={handleScanImported} /></div>
     <div className="w-[380px] border-l border-border bg-surface flex flex-col shrink-0 h-full overflow-hidden">{reviewMode ? <InterpretationReviewPanel interpretation={document.manifest.interpretation} scan={document.manifest.scan} maskRegions={document.manifest.maskRegions} /> : <ChatPanel projectId={params.projectId} onAssetUploaded={handleAssetUploaded} onOpenReview={() => setReviewMode(true)} />}</div>
   </EditorLayout>;
 }
