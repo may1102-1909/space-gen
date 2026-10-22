@@ -275,3 +275,33 @@ def synthetic_references(seed: int = 0) -> List[Tuple[ReferenceRoom, np.ndarray,
             positions, opacity = generate(room, seed=seed)
             out.append((to_reference(room, source), positions * factor, opacity))
     return out
+
+
+def write_gaussian_ply(path, room: SyntheticRoom, seed: int = 0) -> int:
+    """Write a renderable 3DGS PLY (degree-0 SH, small isotropic splats) of a synthetic room."""
+    from plyfile import PlyData, PlyElement
+
+    positions, opacity = generate(room, seed=seed)
+    fields = ["x", "y", "z", "f_dc_0", "f_dc_1", "f_dc_2", "opacity", "scale_0", "scale_1", "scale_2"]
+    fields += ["rot_0", "rot_1", "rot_2", "rot_3"]
+    vertex = np.zeros(len(positions), dtype=[(name, "f4") for name in fields])
+    vertex["x"], vertex["y"], vertex["z"] = positions.T
+    height = positions[:, 1] - positions[:, 1].min()
+    shade = 0.4 + 0.6 * height / max(float(height.max()), 1e-6)
+    for channel, tint in zip(("f_dc_0", "f_dc_1", "f_dc_2"), (1.0, 0.92, 0.8)):
+        vertex[channel] = (shade * tint - 0.5) / 0.28209479  # SH degree-0 coefficient
+    vertex["opacity"] = opacity
+    for axis in ("scale_0", "scale_1", "scale_2"):
+        vertex[axis] = np.log(0.025)
+    vertex["rot_0"] = 1.0
+    PlyData([PlyElement.describe(vertex, "vertex")]).write(str(path))
+    return len(positions)
+
+
+if __name__ == "__main__":
+    # E2E fixture: `python -m tests.synthetic_rooms <out.ply> [density]` writes the "rectangle" room.
+    import dataclasses
+    import sys
+
+    density = float(sys.argv[2]) if len(sys.argv) > 2 else 800.0
+    print(write_gaussian_ply(sys.argv[1], dataclasses.replace(ROOMS[0], density=density)))

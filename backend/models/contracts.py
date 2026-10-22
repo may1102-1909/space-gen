@@ -315,6 +315,31 @@ class RoomStructureJobStatus(BaseModel):
     result: Optional[RoomStructureResult] = None
 
 
+ConversionStageName = Literal["uploaded", "structure", "objects", "ready"]
+ConversionStageState = Literal["pending", "running", "completed", "failed"]
+
+
+class ConversionStage(BaseModel):
+    name: ConversionStageName
+    status: ConversionStageState
+    detail: str = ""
+
+
+class ConversionJobStatus(BaseModel):
+    """Splat import -> editable room. `stage` is the furthest stage reached; `objects` waits on the GPU worker."""
+
+    jobId: str
+    projectId: str
+    scanAssetId: str
+    pointsAssetId: str
+    status: Literal["queued", "running", "completed", "failed"]
+    stage: ConversionStageName
+    stages: List[ConversionStage]
+    progress: int = 0
+    error: Optional[str] = None
+    result: Optional[RoomStructureResult] = None
+
+
 __all__ = [
     # Legacy re-exports
     "Material",
@@ -331,6 +356,8 @@ __all__ = [
     "ReconstructionJobStatus",
     "RoomStructureResult",
     "RoomStructureJobStatus",
+    "ConversionStage",
+    "ConversionJobStatus",
     # Geometry & Primitives
     "Provenance",
     "Vector3",

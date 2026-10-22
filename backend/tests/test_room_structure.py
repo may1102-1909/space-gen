@@ -12,15 +12,17 @@ from fastapi.testclient import TestClient
 from plyfile import PlyData, PlyElement
 
 from main import app
-from models.contracts import OpeningInterpretation, RoomInterpretation
+from models.contracts import ConversionJobStatus, OpeningInterpretation, RoomInterpretation
+from routes.projects import get_project_repository
 from routes.room_structure import RoomStructureJobStore, get_job_store, get_reconstruction_root
+from services.project_repository import FilesystemProjectRepository
 from services.room_structure import (
     RoomStructureError,
     extract_room_structure,
     load_colmap_points,
     load_splat_ply,
 )
-from tests.synthetic_rooms import ROOMS, generate, recovery_errors
+from tests.synthetic_rooms import ROOMS, generate, recovery_errors, write_gaussian_ply
 
 BACKEND = Path(__file__).resolve().parents[1]
 
@@ -179,3 +181,96 @@ def test_job_endpoint_reports_failures_and_bad_input(client, tmp_path):
     bad_hint = {"reconstructionJobId": "tiny", "upHint": [0, 0, 0]}
     assert client.post("/api/room-structure/jobs", json=bad_hint).status_code == 400
     assert client.get("/api/room-structure/jobs/nope").status_code == 404
+
+
+@pytest.fixture
+def project(client, tmp_path):
+    """A project with the synthetic rectangle room stored as a .ply asset, plus a non-PLY asset."""
+    app.dependency_overrides[get_project_repository] = lambda: FilesystemProjectRepository(tmp_path / "projects")
+    project_id = client.post("/api/projects", json={"name": "Import"}).json()["manifest"]["id"]
+    ply = tmp_path / "room.ply"
+    write_gaussian_ply(ply, ROOMS[0])
+    with ply.open("rb") as handle:
+        scan = client.post(f"/api/projects/{project_id}/assets", files={"file": ("room.ply", handle)}).json()
+    glb = client.post(f"/api/projects/{project_id}/assets", files={"file": ("chair.glb", b"glTF")}).json()
+    return project_id, scan["filename"], glb["filename"]
+
+
+def _poll_conversion(client, job_id, timeout=60.0):
+    deadline = time.time() + timeout
+    seen = set()
+    while time.time() < deadline:
+        body = client.get(f"/api/room-structure/conversions/{job_id}").json()
+        seen.add(body["stage"])
+        if body["status"] in ("completed", "failed"):
+            return body, seen
+        time.sleep(0.05)
+    raise AssertionError("conversion job did not finish")
+
+
+def test_structure_job_reads_a_project_asset(client, project):
+    project_id, scan_id, _ = project
+    created = client.post("/api/room-structure/jobs", json={"projectId": project_id, "assetId": scan_id})
+    assert created.status_code == 202, created.text
+    body = _poll(client, created.json()["jobId"])
+    assert body["status"] == "completed", body.get("error")
+    assert len(body["result"]["interpretation"]["walls"]) == 4
+    # The bare content hash resolves to the stored file too.
+    bare = client.post("/api/room-structure/jobs", json={"projectId": project_id, "assetId": scan_id.split(".")[0]})
+    assert bare.status_code == 202
+
+
+def test_project_asset_input_is_validated_and_path_confined(client, project):
+    project_id, scan_id, glb_id = project
+    post = lambda **body: client.post("/api/room-structure/jobs", json=body).status_code  # noqa: E731
+    assert post(projectId=project_id) == 400  # assetId missing
+    assert post(reconstructionJobId="scan01", projectId=project_id, assetId=scan_id) == 400  # two sources
+    assert post() == 400
+    assert post(projectId=project_id, assetId="../../project.json") == 400
+    assert post(projectId=project_id, assetId="..\\..\\project.json") == 400
+    assert post(projectId=project_id, assetId="0" * 64 + ".ply") == 404
+    assert post(projectId=project_id, assetId=glb_id) == 400  # not a PLY
+    assert post(projectId="../etc", assetId=scan_id) == 400
+    assert post(projectId="missing-project", assetId=scan_id) == 404
+    assert post(projectId=project_id, assetId=scan_id, upHint=[0, 0, 0]) == 400
+
+
+def test_conversion_job_reports_stages(client, project):
+    project_id, scan_id, glb_id = project
+    created = client.post("/api/room-structure/conversions", json={"projectId": project_id, "scanAssetId": scan_id})
+    assert created.status_code == 202, created.text
+    first = created.json()
+    assert first["stages"][0] == {"name": "uploaded", "status": "completed", "detail": first["stages"][0]["detail"]}
+    assert [s["name"] for s in first["stages"]] == ["uploaded", "structure", "objects", "ready"]
+
+    body, seen = _poll_conversion(client, first["jobId"])
+    assert body["status"] == "completed", body.get("error")
+    assert body["stage"] == "ready" and seen <= {"structure", "ready"}
+    states = {s["name"]: s["status"] for s in body["stages"]}
+    assert states == {"uploaded": "completed", "structure": "completed", "objects": "pending", "ready": "completed"}
+    assert body["scanAssetId"] == scan_id and body["pointsAssetId"] == scan_id
+    assert len(body["result"]["interpretation"]["walls"]) == 4
+    ConversionJobStatus.model_validate(body)
+
+    # A non-PLY scan (e.g. .sog/.spz) needs decoded points; a GLB stands in for one here.
+    no_points = {"projectId": project_id, "scanAssetId": glb_id}
+    assert client.post("/api/room-structure/conversions", json=no_points).status_code == 400
+    with_points = {**no_points, "pointsAssetId": scan_id}
+    assert client.post("/api/room-structure/conversions", json=with_points).status_code == 202
+    escape = {"projectId": project_id, "scanAssetId": "../project.json"}
+    assert client.post("/api/room-structure/conversions", json=escape).status_code == 400
+    assert client.get("/api/room-structure/conversions/nope").status_code == 404
+
+
+def test_conversion_job_surfaces_structure_failure(client, project, tmp_path):
+    project_id, _, _ = project
+    _write_splat(tmp_path / "tiny.ply", np.zeros((10, 3)), np.zeros(10))
+    with (tmp_path / "tiny.ply").open("rb") as handle:
+        tiny = client.post(f"/api/projects/{project_id}/assets", files={"file": ("tiny.ply", handle)}).json()
+    created = client.post(
+        "/api/room-structure/conversions", json={"projectId": project_id, "scanAssetId": tiny["filename"]}
+    )
+    body, _ = _poll_conversion(client, created.json()["jobId"])
+    assert body["status"] == "failed" and "Too few" in body["error"]
+    assert {s["name"]: s["status"] for s in body["stages"]}["structure"] == "failed"
+    assert body["stage"] == "structure"

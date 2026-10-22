@@ -17,6 +17,7 @@ sys.path.insert(0, str(REPO_ROOT / "backend"))
 
 from models.contracts import (
     AssetRef,
+    ConversionJobStatus,
     EditProposal,
     EditRecord,
     MaskRegion,
@@ -37,6 +38,7 @@ TARGET_MODELS = {
     "EditRecord": EditRecord,
     "AssetRef": AssetRef,
     "Variant": Variant,
+    "ConversionJobStatus": ConversionJobStatus,
 }
 
 

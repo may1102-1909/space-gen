@@ -9,3 +9,4 @@ export * from './scan';
 export * from './interpretation';
 export * from './proposal';
 export * from './manifest';
+export * from './conversion';
