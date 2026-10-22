@@ -56,3 +56,7 @@ frontend/test-results/
 frontend/playwright-report/
 .pytest_cache/
 backend/.pytest_cache/
+
+# Claude Code agent worktrees and machine-specific settings
+.claude/worktrees/
+.claude/settings.json

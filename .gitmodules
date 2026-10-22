@@ -1,0 +1,21 @@
+[submodule ".claude/skills/MengTo-Skills"]
+	path = .claude/skills/MengTo-Skills
+	url = https://github.com/MengTo/Skills.git
+[submodule ".claude/skills/alton47-threejs-skills"]
+	path = .claude/skills/alton47-threejs-skills
+	url = https://github.com/alton47/threejs-skills.git
+[submodule ".claude/skills/composio-awesome-skills"]
+	path = .claude/skills/composio-awesome-skills
+	url = https://github.com/ComposioHQ/awesome-claude-skills.git
+[submodule ".claude/skills/jaccen-gaussian-skills"]
+	path = .claude/skills/jaccen-gaussian-skills
+	url = https://github.com/jaccen/Awesome-Gaussian-Skills.git
+[submodule ".claude/skills/khasky-awesome-agents-md"]
+	path = .claude/skills/khasky-awesome-agents-md
+	url = https://github.com/khasky/awesome-agents-md.git
+[submodule ".claude/skills/ponytail"]
+	path = .claude/skills/ponytail
+	url = https://github.com/DietrichGebert/ponytail.git
+[submodule ".claude/skills/prorenderbureau-scene-skills"]
+	path = .claude/skills/prorenderbureau-scene-skills
+	url = https://github.com/prorenderbureau/scene-agent-skills.git
