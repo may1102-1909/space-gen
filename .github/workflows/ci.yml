@@ -8,8 +8,49 @@ on:
 
 jobs:
   frontend-build-and-test:
-    name: Frontend Lint, Typecheck, Test, Build & E2E
+    name: Frontend Lint, Typecheck, Test & Build
     runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies (clean npm ci)
+        run: npm ci
+
+      - name: Run ESLint
+        run: npm run lint
+
+      - name: Run TypeScript typecheck (tsc --noEmit)
+        run: npm run typecheck
+
+      - name: Run Unit Tests (Vitest)
+        run: npm run test
+
+      - name: Build Next.js 16 Application
+        run: npm run build
+
+  # Runners have no GPU: Chromium uses SwiftShader (the editor renders ~0.5 fps), so the 24 specs take ~50 min
+  # in series. They are sharded across parallel jobs (Playwright splits whole spec files, workers stay at 1).
+  frontend-e2e:
+    name: Frontend E2E (shard ${{ matrix.shard }}/5)
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5]
 
     defaults:
       run:
@@ -45,18 +86,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run ESLint
-        run: npm run lint
-
-      - name: Run TypeScript typecheck (tsc --noEmit)
-        run: npm run typecheck
-
-      - name: Run Unit Tests (Vitest)
-        run: npm run test
-
-      - name: Build Next.js 16 Application
-        run: npm run build
-
       # The e2e build enables the NEXT_PUBLIC_E2E test hooks and points the client at the e2e backend.
       - name: Build Next.js 16 Application for E2E
         run: npm run build:e2e
@@ -64,10 +93,8 @@ jobs:
       - name: Install Playwright Browsers & OS Dependencies
         run: npx playwright install --with-deps chromium
 
-      # Runners have no GPU: Chromium uses SwiftShader (the editor renders ~1 fps), hence the long timeout.
-      - name: Run Playwright E2E (incl. T09 Phase 1 loop against the real backend)
-        run: npm run test:e2e
-        timeout-minutes: 40
+      - name: Run Playwright E2E shard ${{ matrix.shard }}/5 (incl. T09 Phase 1 loop against the real backend)
+        run: npm run test:e2e -- --shard=${{ matrix.shard }}/5
         env:
           E2E_SOFTWARE_GL: '1'
 
@@ -75,7 +102,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: playwright-report
+          name: playwright-report-shard-${{ matrix.shard }}
           path: |
             frontend/playwright-report/
             frontend/test-results/

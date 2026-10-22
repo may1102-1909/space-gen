@@ -32,7 +32,8 @@ async function clickAt(page: Page, point: Vec3) {
 }
 
 test('draw a wall snapped to a corner, add a door, measure, undo/redo, save, reload', async ({ page }) => {
-  test.setTimeout(180000);
+  // ~75-100 s locally on software GL (~2.5x slower on CI runners); the explicit 180 s capped below the 300 s config default.
+  test.setTimeout(process.env.E2E_SOFTWARE_GL ? 300000 : 180000);
   const id = fixture.id as string;
   let manifest = { ...fixture, sceneSnapshot: {} };
   let revision = 1;

@@ -42,6 +42,22 @@ const camera = (page: Page) => page.evaluate(() => window.__spacegenE2E!.getCame
 const walk = (page: Page) => page.evaluate(() => window.__spacegenWalk!.state());
 const inside = (p: Vec3) => p[0] >= ROOM.minX && p[0] <= ROOM.maxX && p[2] >= ROOM.minZ && p[2] <= ROOM.maxZ && p[1] >= 0.3 - 1e-3 && p[1] <= ROOM.ceiling;
 
+/**
+ * Resolves after n rendered frames. Walking advances once per frame and BVHEcctrl clamps its step to 1/45 s
+ * (physics stability), so on software GL (~0.5 fps) a fixed key hold covers only a fraction of a metre:
+ * distance depends on frames rendered, not wall-clock time. Wait on frames, not milliseconds.
+ */
+const frames = (page: Page, n: number) =>
+  page.evaluate(
+    (count) =>
+      new Promise<void>((resolve) => {
+        let seen = 0;
+        const tick = () => (++seen >= count ? resolve() : requestAnimationFrame(tick));
+        requestAnimationFrame(tick);
+      }),
+    n,
+  );
+
 async function zoomOutAndOrbit(page: Page) {
   const box = (await page.getByTestId('pascal-layer').boundingBox())!;
   const cx = box.x + box.width / 2;
@@ -104,20 +120,34 @@ test('Walk: collides with walls in every view mode, switches view modes, Esc res
   expect(spawn.fov).toBe(60);
   expect(spawn.near).toBeLessThanOrEqual(0.05);
 
-  // Face north (-z) and hold W for ~1 s: moved forward.
+  // Face north (-z) and hold W: moved forward. The capsule must first settle onto the floor (eye height steady across frames).
   await page.evaluate(() => window.__spacegenWalk!.setLook(0, 0));
-  await page.waitForTimeout(500); // let the capsule settle onto the floor
+  await expect
+    .poll(async () => {
+      const before = (await walk(page)).eye[1];
+      await frames(page, 1);
+      return Math.abs((await walk(page)).eye[1] - before) < 1e-3;
+    })
+    .toBe(true);
   const start = await walk(page);
   await page.keyboard.down('KeyW');
-  await page.waitForTimeout(1000);
+  await expect
+    .poll(async () => start.eye[2] - (await walk(page)).eye[2], { message: 'W walks forward (-z at yaw 0)', timeout: 120000 })
+    .toBeGreaterThan(0.1);
   const moved = await walk(page);
-  expect(start.eye[2] - moved.eye[2], 'W walks forward (-z at yaw 0)').toBeGreaterThan(0.1);
   expect(Math.abs(moved.eye[0] - start.eye[0])).toBeLessThan(0.2);
 
-  // Keep walking into the north wall (z = 0): it stops before it.
-  await page.waitForTimeout(6000);
+  // Keep walking into the north wall (z = 0): it stops before it. Wait until the camera is near the wall
+  // and holds still across further rendered frames (still holding W, so only the wall can be stopping it).
+  await expect
+    .poll(async () => {
+      const z = (await walk(page)).eye[2];
+      await frames(page, 5);
+      return z < 1 && Math.abs((await walk(page)).eye[2] - z) < 0.05;
+    }, { timeout: 240000 })
+    .toBe(true);
   const atWall = await walk(page);
-  await page.waitForTimeout(1000);
+  await frames(page, 5);
   const later = await walk(page);
   await page.keyboard.up('KeyW');
   expect(atWall.eye[2]).toBeGreaterThan(0.05);

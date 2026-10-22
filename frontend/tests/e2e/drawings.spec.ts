@@ -7,7 +7,8 @@ import { screenshotPath } from './support/artifacts';
 const fixture = JSON.parse(fs.readFileSync(path.join(__dirname, '../fixtures/realistic_room.json'), 'utf-8'));
 
 test('fixture project -> Drawings: dimensioned plan, elevations, SVG export', async ({ page }) => {
-  test.setTimeout(120000);
+  // 1:50 + 1:100 + elevations took ~100 s locally on software GL; the explicit 120 s capped below the 300 s config default.
+  test.setTimeout(process.env.E2E_SOFTWARE_GL ? 300000 : 120000);
   // Tall enough for the whole 1:50 sheet in the screenshot.
   await page.setViewportSize({ width: 1500, height: 1400 });
   const id = fixture.id as string;
