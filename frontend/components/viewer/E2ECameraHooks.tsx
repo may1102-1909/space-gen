@@ -22,6 +22,8 @@ export interface SpacegenE2EHooks {
   setCamera(position: Vec3, target: Vec3): void;
   /** Viewport-space (CSS px) bounding rect of an OBB's 8 corners under the current editor camera. */
   projectObb(obb: OrientedBoundingBox): ScreenRect;
+  /** Current camera position and orbit target. */
+  getCamera(): { position: Vec3; target: Vec3 };
   /** Viewport-space (CSS px) position of a scene point under the current editor camera. */
   projectPoint(point: Vec3): { x: number; y: number };
   /** The placement tool's preview: its node type and the type of the scene node it snapped onto (null while it floats). */
@@ -74,6 +76,10 @@ export function E2ECameraHooks() {
           camera.lookAt(...target);
         }
         camera.updateMatrixWorld();
+      },
+      getCamera() {
+        const t = controls?.target ?? new THREE.Vector3();
+        return { position: [camera.position.x, camera.position.y, camera.position.z], target: [t.x, t.y, t.z] };
       },
       projectObb(obb) {
         camera.updateMatrixWorld();

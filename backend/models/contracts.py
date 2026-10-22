@@ -251,6 +251,7 @@ class AssetRef(BaseModel):
     dimensions: ProposalAssetDimensions
     categories: List[str]
     thumbnail: Optional[str] = None
+    productUrl: Optional[str] = None
 
 
 class Variant(BaseModel):
@@ -260,6 +261,25 @@ class Variant(BaseModel):
     sceneSnapshot: Dict[str, Any]
     createdAt: str
     parentVariantId: Optional[str] = None
+
+
+class Viewpoint(BaseModel):
+    """A named camera pose a designer saved for the client presentation tour (scene frame, metres)."""
+
+    id: str
+    name: str
+    position: Vector3
+    target: Vector3
+    fov: Optional[float] = None
+
+
+class HeroImage(BaseModel):
+    """An AI-generated render shown in the client presentation, labelled as such."""
+
+    id: str
+    url: str
+    caption: Optional[str] = None
+    variantId: Optional[str] = None
 
 
 class ProjectManifest(BaseModel):
@@ -274,6 +294,8 @@ class ProjectManifest(BaseModel):
     history: List[EditRecord]
     variants: List[Variant]
     activeVariantId: str
+    viewpoints: List[Viewpoint] = Field(default_factory=list)
+    heroImages: List[HeroImage] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -351,6 +373,8 @@ __all__ = [
     # Geometry & Primitives
     "Provenance",
     "Vector3",
+    "Viewpoint",
+    "HeroImage",
     "Matrix4",
     "Point2D",
     "BoundingBox3D",

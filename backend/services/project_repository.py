@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import os
 import re
+import secrets
 import tempfile
 import threading
 from contextlib import contextmanager
@@ -43,6 +45,28 @@ class InvalidProjectIdError(ValueError):
     pass
 
 
+class ShareNotFoundError(Exception):
+    pass
+
+
+SHARE_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{32,128}$")
+SHARE_ID_RE = re.compile(r"^[0-9a-f]{16}$")
+
+
+@dataclass(frozen=True)
+class ShareRecord:
+    """A read-only share link. Only the SHA-256 of the bearer token is ever stored."""
+
+    id: str
+    label: str
+    created_at: str
+    revoked_at: str | None = None
+
+
+def hash_share_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
 @dataclass(frozen=True)
 class ProjectDocument:
     manifest: ProjectManifest
@@ -60,6 +84,10 @@ class ProjectRepository(Protocol):
     def delete(self, project_id: str) -> None: ...
     async def save_asset(self, project_id: str, upload: UploadFile) -> tuple[str, int]: ...
     def asset_path(self, project_id: str, filename: str) -> Path: ...
+    def create_share(self, project_id: str, label: str) -> tuple[ShareRecord, str]: ...
+    def list_shares(self, project_id: str) -> list[ShareRecord]: ...
+    def revoke_share(self, project_id: str, share_id: str) -> None: ...
+    def resolve_share(self, token: str) -> str | None: ...
 
 
 class FilesystemProjectRepository:
@@ -258,3 +286,89 @@ class FilesystemProjectRepository:
         if not target.is_relative_to(assets_dir):
             raise ValueError("Asset path escapes project storage.")
         return target
+
+    # --- share links (bearer capabilities; tokens stored hashed in <project>/shares.json) ---
+
+    def _shares_path(self, project_id: str) -> Path:
+        return self._project_dir(project_id) / "shares.json"
+
+    def _read_shares(self, project_id: str) -> list[dict[str, Any]]:
+        path = self._shares_path(project_id)
+        if not path.is_file():
+            return []
+        return list(json.loads(path.read_text(encoding="utf-8")).get("shares", []))
+
+    def _write_shares(self, project_id: str, shares: list[dict[str, Any]]) -> None:
+        directory = self._project_dir(project_id)
+        handle, temp_name = tempfile.mkstemp(prefix="shares-", suffix=".tmp", dir=directory)
+        try:
+            with os.fdopen(handle, "w", encoding="utf-8") as temp_file:
+                json.dump({"shares": shares}, temp_file, separators=(",", ":"))
+                temp_file.flush()
+                os.fsync(temp_file.fileno())
+            os.replace(temp_name, self._shares_path(project_id))
+        finally:
+            if os.path.exists(temp_name):
+                os.unlink(temp_name)
+
+    @staticmethod
+    def _share_record(item: dict[str, Any]) -> ShareRecord:
+        return ShareRecord(
+            id=item["id"], label=item.get("label", ""), created_at=item["createdAt"], revoked_at=item.get("revokedAt")
+        )
+
+    def _require_project(self, project_id: str) -> None:
+        if not self._manifest_path(project_id).is_file():
+            raise ProjectNotFoundError(project_id)
+
+    def create_share(self, project_id: str, label: str) -> tuple[ShareRecord, str]:
+        from datetime import datetime, timezone
+
+        with self._lock:
+            self._require_project(project_id)
+            token = secrets.token_urlsafe(32)
+            item = {
+                "id": secrets.token_hex(8),
+                "tokenHash": hash_share_token(token),
+                "label": label,
+                "createdAt": datetime.now(timezone.utc).isoformat(),
+                "revokedAt": None,
+            }
+            self._write_shares(project_id, [*self._read_shares(project_id), item])
+            return self._share_record(item), token
+
+    def list_shares(self, project_id: str) -> list[ShareRecord]:
+        with self._lock:
+            self._require_project(project_id)
+            return [self._share_record(item) for item in self._read_shares(project_id)]
+
+    def revoke_share(self, project_id: str, share_id: str) -> None:
+        from datetime import datetime, timezone
+
+        with self._lock:
+            self._require_project(project_id)
+            shares = self._read_shares(project_id)
+            for item in shares:
+                if item["id"] == share_id:
+                    item["revokedAt"] = item.get("revokedAt") or datetime.now(timezone.utc).isoformat()
+                    self._write_shares(project_id, shares)
+                    return
+            raise ShareNotFoundError(share_id)
+
+    def resolve_share(self, token: str) -> str | None:
+        """Project id for a live token, else None. shortcut: scans every project's shares.json, index when projects number in the thousands."""
+        if not SHARE_TOKEN_RE.fullmatch(token):
+            return None
+        digest = hash_share_token(token)
+        with self._lock:
+            for directory in self.root.iterdir():
+                if not (directory.is_dir() and PROJECT_ID_RE.fullmatch(directory.name)):
+                    continue
+                try:
+                    shares = self._read_shares(directory.name)
+                except (OSError, ValueError):
+                    continue
+                for item in shares:
+                    if hmac.compare_digest(item.get("tokenHash", ""), digest) and not item.get("revokedAt"):
+                        return directory.name
+        return None

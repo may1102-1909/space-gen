@@ -20,6 +20,7 @@ import { OrbitControls } from '@react-three/drei';
 import { ensurePascalInitialized } from '@/lib/pascal/initPascal';
 import { useScene } from '@pascal-app/core';
 import { E2ECameraHooks } from './E2ECameraHooks';
+import { CameraReaderRegistrar } from './CameraReaderRegistrar';
 import { findScanNode, scanMetadata } from '@/lib/pascal/nodes';
 import { SplatBackgroundCanvas, type SplatCameraState } from '@/components/splat-prototype/SplatBackgroundCanvas';
 import { ScanAlignmentTool } from './ScanAlignmentTool';
@@ -387,6 +388,7 @@ export function SceneViewer({ selectedId, onSelectObject, reviewMode = false, pr
       <Viewer perf={false} useBvh={true} transparent>
         <OrbitControls makeDefault target={SCAN_FOCUS_TARGET} enableDamping={false} />
         {E2E_HOOKS_ENABLED && <E2ECameraHooks />}
+        <CameraReaderRegistrar />
         <TransformGizmo />
         <ProposalGhosts />
         <ArchitecturalTools />

@@ -9,9 +9,10 @@ import { ScenePanel } from '@/components/panels/ScenePanel';
 import { ChatPanel } from '@/components/panels/ChatPanel';
 import { InterpretationReviewPanel } from '@/components/panels/InterpretationReviewPanel';
 import { DrawingsPanel } from '@/components/panels/DrawingsPanel';
+import { ShareDialog } from '@/components/share/ShareDialog';
 import { EditorLayout } from '@/components/layout/EditorLayout';
 import { useSpaceGenStore } from '@/lib/store';
-import type { AssetRef, MaskRegion } from '@/lib/contracts';
+import type { AssetRef, MaskRegion, Viewpoint } from '@/lib/contracts';
 import { loadProject, ProjectConflictError, saveProject, type ProjectDocument } from '@/lib/projects/api';
 import { deriveInterpretationFromScene } from '@/lib/pascal/scanConverter';
 import { nodeViews } from '@/lib/pascal/nodes';
@@ -73,6 +74,7 @@ export default function ProjectEditorPage() {
   const [reviewMode, setReviewMode] = useState(false);
   const [drawingsOpen, setDrawingsOpen] = useState(false);
   const [compare, setCompare] = useState<VariantSet | null>(null);
+  const [shareOpen, setShareOpen] = useState(false);
   const loaded = useRef(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const documentRef = useRef<ProjectDocument | null>(null);
@@ -224,6 +226,17 @@ export default function ProjectEditorPage() {
     const current = normalizeVariants(base.manifest, scene);
     try { applyVariantSet(op(current, scene), current.activeVariantId); } catch (e) { setError((e as Error).message); }
   };
+  // Viewpoints live in the manifest, not the Pascal scene, so they need an explicit save.
+  const changeViewpoints = useCallback((update: (current: Viewpoint[]) => Viewpoint[]) => {
+    const base = documentRef.current;
+    if (!base) return;
+    const next = { ...base, manifest: { ...base.manifest, viewpoints: update(base.manifest.viewpoints ?? []) } };
+    documentRef.current = next;
+    setDocument(next);
+    dirty.current = true;
+    generation.current += 1;
+    void saveNowRef.current?.();
+  }, []);
 
   const handleAssetUploaded = useCallback((asset: AssetRef) => {
     const base = documentRef.current;
@@ -256,7 +269,7 @@ export default function ProjectEditorPage() {
 
   if (!document) return <main className="flex min-h-screen items-center justify-center bg-background text-text-muted">{status === 'error' ? error : 'Loading project…'}</main>;
   const label = status === 'saving' ? 'Saving…' : status === 'unsaved' ? 'Unsaved changes' : status === 'error' ? 'Save failed' : status === 'conflict' ? 'Conflict' : 'Saved';
-  return <EditorLayout>
+  return <EditorLayout onShare={() => setShareOpen(true)}>
     <div className="absolute left-3 top-3 z-50 flex items-center gap-3 rounded-lg border border-border bg-surface px-3 py-2 text-sm shadow"><Link href="/projects" className="text-accent">Projects</Link><span className="font-medium">{document.manifest.name}</span><span aria-live="polite" className={status === 'error' || status === 'conflict' ? 'text-red-500' : 'text-text-muted'}>{label}</span><button onClick={() => void saveNowRef.current?.()} disabled={status === 'conflict'} className="rounded bg-accent px-3 py-1 text-white disabled:opacity-50">Save</button><button aria-pressed={reviewMode} onClick={() => setReviewMode(v => !v)} className={`rounded border px-3 py-1 ${reviewMode ? 'border-accent text-accent' : 'border-border'}`}>Review scan</button><button onClick={() => setDrawingsOpen(true)} className="rounded border border-border px-3 py-1">Drawings</button>{error && status !== 'conflict' && <span role="alert" className="text-red-500">{error}</span>}</div>
     {status === 'conflict' && (
       <div role="alertdialog" aria-label="Save conflict" className="absolute left-1/2 top-16 z-50 w-[420px] -translate-x-1/2 rounded-lg border border-red-500/50 bg-surface p-4 text-sm shadow-xl">
@@ -272,6 +285,7 @@ export default function ProjectEditorPage() {
       const other = compare.variants.find((v) => v.id !== compare.activeVariantId) ?? compare.variants[0];
       return <VariantCompare variants={compare.variants} initialA={other.id} initialB={compare.activeVariantId} scan={document.manifest.scan} onClose={() => setCompare(null)} />;
     })()}
+    {shareOpen && <ShareDialog projectId={params.projectId} viewpoints={document.manifest.viewpoints ?? []} onClose={() => setShareOpen(false)} onAddViewpoint={(vp) => changeViewpoints((all) => [...all, vp])} onRemoveViewpoint={(id) => changeViewpoints((all) => all.filter((v) => v.id !== id))} />}
     {drawingsOpen && <DrawingsPanel projectName={document.manifest.name} onClose={() => setDrawingsOpen(false)} />}
     <div className="w-[280px] border-r border-border bg-surface flex flex-col shrink-0 h-full overflow-hidden"><ScenePanel projectId={params.projectId} onAssetUploaded={handleAssetUploaded} /></div>
     <div className="flex-1 bg-background relative overflow-hidden h-full"><div className="absolute right-3 top-3 z-40"><VariantBar
