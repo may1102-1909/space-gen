@@ -3,6 +3,8 @@
 import { useEffect } from 'react';
 import * as THREE from 'three';
 import { useThree } from '@react-three/fiber';
+import { useScene, type AnyNodeId } from '@pascal-app/core';
+import { usePlacementPreview } from '@/lib/pascal/pascalEditor';
 import type { OrientedBoundingBox } from '@/lib/contracts';
 
 type Vec3 = [number, number, number];
@@ -21,6 +23,8 @@ export interface SpacegenE2EHooks {
   projectObb(obb: OrientedBoundingBox): ScreenRect;
   /** Viewport-space (CSS px) position of a scene point under the current editor camera. */
   projectPoint(point: Vec3): { x: number; y: number };
+  /** The placement tool's preview: its node type and the type of the scene node it snapped onto (null while it floats). */
+  placementPreview(): { type: string; host: string | null } | null;
 }
 
 /** Splat-layer diagnostics, registered by SplatBackgroundCanvas when NEXT_PUBLIC_E2E=1. */
@@ -85,6 +89,12 @@ export function E2ECameraHooks() {
         const v = new THREE.Vector3(...point).project(camera);
         const rect = gl.domElement.getBoundingClientRect();
         return { x: rect.left + ((v.x + 1) / 2) * rect.width, y: rect.top + ((1 - v.y) / 2) * rect.height };
+      },
+      placementPreview() {
+        const { node } = usePlacementPreview.getState();
+        if (!node) return null;
+        const host = node.parentId ? useScene.getState().nodes[node.parentId as AnyNodeId] : undefined;
+        return { type: node.type, host: host?.type ?? null };
       },
     };
     return () => {
