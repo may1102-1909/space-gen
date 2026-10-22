@@ -62,12 +62,13 @@ export function TransformGizmo() {
       updateNodeData(selectedObjectId, {
         position: [object.position.x, Math.max(0, object.position.y), object.position.z],
         rotation: [object.rotation.x, object.rotation.y, object.rotation.z],
-        scale: [object.scale.x, object.scale.y, object.scale.z],
+        // The registered group carries no node scale, so only a scale drag may write it.
+        ...(gizmoMode === 'scale' ? { scale: [object.scale.x, object.scale.y, object.scale.z] } : {}),
       })
     }
     controls.addEventListener('dragging-changed', handleDraggingChange)
     return () => controls.removeEventListener('dragging-changed', handleDraggingChange)
-  }, [target, selectedObjectId])
+  }, [target, selectedObjectId, gizmoMode])
 
   if (!selectedObjectId || !target) return null
   return <TransformControls ref={transformRef} object={target} mode={gizmoMode} size={0.85} space="local" />

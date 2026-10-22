@@ -2,7 +2,7 @@ import { useScene, AnyNode, AnyNodeId } from '@pascal-app/core';
 import { asNodeData, asNodeId, findScanNode, scanMetadata, type ItemNode, type NodeFields } from './nodes';
 import { replaceItemAsset } from './itemEditing';
 import { createMaskRegionForNode } from '../splat/splatMasking';
-import type { MaskRegion } from '@/lib/contracts';
+import type { EditRecord, MaskRegion } from '@/lib/contracts';
 
 export interface SplatExclusionBox {
   id: string;
@@ -88,7 +88,35 @@ export type SceneAction =
       action: 'add_splat_exclusion';
       scanNodeId?: string;
       box: SplatExclusionBox;
+    }
+  | {
+      /** Adds (or replaces, by id) a MaskRegion on the scan node. */
+      action: 'add_mask_region';
+      mask: MaskRegion;
+    }
+  | {
+      /** Appends to the edit history mirrored into the manifest on save. */
+      action: 'append_edit_record';
+      record: EditRecord;
     };
+
+/**
+ * The node whose metadata.editHistory holds the project's EditRecords: the scan node, else the
+ * site or first level. Keeping them in the Pascal scene makes an accepted edit and its record one
+ * undo step.
+ */
+export function editHistoryHost(nodes: Record<string, unknown> = useScene.getState().nodes): NodeFields | undefined {
+  const list = Object.values(nodes) as Array<NodeFields | undefined>;
+  return list.find((n) => n?.type === 'scan') ?? list.find((n) => n?.type === 'site') ?? list.find((n) => n?.type === 'level');
+}
+
+/** EditRecords stored in the scene, or null when the scene has no node to hold them. */
+export function readEditHistory(nodes: Record<string, unknown> = useScene.getState().nodes): EditRecord[] | null {
+  const host = editHistoryHost(nodes);
+  if (!host) return null;
+  const history = (host.metadata as { editHistory?: EditRecord[] } | undefined)?.editHistory;
+  return Array.isArray(history) ? history : [];
+}
 
 /**
  * Returns a compact, structured JSON snapshot of the scene graph
@@ -203,8 +231,16 @@ export function getEditableSceneSummary(): EditableSceneSummary {
 export function applySceneActions(actions: SceneAction[]): void {
   const scene = useScene.getState();
   const creates: Array<{ node: AnyNode; parentId?: AnyNodeId }> = [];
-  const updates: Array<{ id: AnyNodeId; data: Partial<AnyNode> }> = [];
   const deletes: AnyNodeId[] = [];
+  // Several actions may patch one node (e.g. two masks on the scan node): merge them so each
+  // action sees the earlier ones and the last patch does not drop the others.
+  const patches = new Map<string, Record<string, unknown>>();
+  const patch = (id: string, data: Record<string, unknown>) => patches.set(id, { ...patches.get(id), ...data });
+  const current = <T extends AnyNode>(node: T): T => ({ ...node, ...patches.get(node.id) }) as T;
+  const scanNode = (id?: string) => {
+    const found = id ? scene.nodes[asNodeId(id)] : findScanNode(scene.nodes);
+    return found?.type === 'scan' ? current(found) : undefined;
+  };
 
   for (const act of actions) {
     switch (act.action) {
@@ -216,22 +252,19 @@ export function applySceneActions(actions: SceneAction[]): void {
         break;
 
       case 'update_transform': {
-        const patch: Record<string, unknown> = {};
-        if (act.position) patch.position = act.position;
-        if (act.rotation) patch.rotation = act.rotation;
-        if (act.scale) patch.scale = act.scale;
-        if (act.dimensions) patch.dimensions = act.dimensions;
-        updates.push({
-          id: asNodeId(act.nodeId),
-          data: asNodeData(patch),
-        });
+        const data: Record<string, unknown> = {};
+        if (act.position) data.position = act.position;
+        if (act.rotation) data.rotation = act.rotation;
+        if (act.scale) data.scale = act.scale;
+        if (act.dimensions) data.dimensions = act.dimensions;
+        patch(act.nodeId, data);
         break;
       }
 
       case 'replace_asset': {
         const found = scene.nodes[asNodeId(act.nodeId)];
         if (!found || found.type !== 'item') break;
-        const existingNode: ItemNode = found;
+        const existingNode: ItemNode = current(found);
         const legacyCategory = (existingNode as unknown as NodeFields).category as string | undefined;
         const dims = act.dimensions || existingNode.asset?.dimensions || [1, 1, 1];
         const mask = createMaskRegionForNode(existingNode);
@@ -242,28 +275,22 @@ export function applySceneActions(actions: SceneAction[]): void {
           src: act.newModelUrl,
           dimensions: dims,
         });
-        updates.push({
-          id: asNodeId(act.nodeId),
-          data: asNodeData({
-            ...replaced,
-            metadata: {
-              ...(existingNode.metadata || {}),
-              maskRegionId: mask.id,
-            },
-          }),
+        patch(act.nodeId, {
+          ...replaced,
+          metadata: {
+            ...(existingNode.metadata || {}),
+            maskRegionId: mask.id,
+          },
         });
-        const targetScan = findScanNode(scene.nodes);
+        const targetScan = scanNode();
         if (targetScan) {
           const metadata = scanMetadata(targetScan);
           const currentMasks: MaskRegion[] = metadata.maskRegions || [];
-          updates.push({
-            id: asNodeId(targetScan.id),
-            data: asNodeData({
-              metadata: {
-                ...metadata,
-                maskRegions: [...currentMasks.filter((m) => m.itemId !== existingNode.id), mask],
-              },
-            }),
+          patch(targetScan.id, {
+            metadata: {
+              ...metadata,
+              maskRegions: [...currentMasks.filter((m) => m.itemId !== existingNode.id), mask],
+            },
           });
         }
         break;
@@ -275,29 +302,42 @@ export function applySceneActions(actions: SceneAction[]): void {
 
       case 'add_splat_exclusion': {
         // Find target scan node (default to first scan if not specified)
-        const targetScanId =
-          act.scanNodeId ||
-          Object.values(scene.nodes).find((n) => n?.type === 'scan')?.id;
-
-        const scanNode = targetScanId ? scene.nodes[asNodeId(targetScanId)] : undefined;
-        if (targetScanId && scanNode) {
-          const metadata = scanMetadata(scanNode);
+        const target = scanNode(act.scanNodeId);
+        if (target) {
+          const metadata = scanMetadata(target);
           const currentBoxes = (metadata.exclusionBoxes as unknown as SplatExclusionBox[] | undefined) || [];
-          updates.push({
-            id: asNodeId(targetScanId),
-            data: asNodeData({
-              metadata: {
-                ...metadata,
-                exclusionBoxes: [...currentBoxes, act.box],
-              },
-            }),
+          patch(target.id, {
+            metadata: {
+              ...metadata,
+              exclusionBoxes: [...currentBoxes, act.box],
+            },
           });
         }
+        break;
+      }
+
+      case 'add_mask_region': {
+        const target = scanNode();
+        if (!target) break;
+        const metadata = scanMetadata(target);
+        patch(target.id, {
+          metadata: { ...metadata, maskRegions: [...(metadata.maskRegions || []).filter((m) => m.id !== act.mask.id), act.mask] },
+        });
+        break;
+      }
+
+      case 'append_edit_record': {
+        const host = editHistoryHost(scene.nodes);
+        if (!host) break;
+        const metadata = { ...(host.metadata as Record<string, unknown> | undefined), ...(patches.get(host.id)?.metadata as Record<string, unknown> | undefined) };
+        const history = Array.isArray(metadata.editHistory) ? (metadata.editHistory as EditRecord[]) : [];
+        patch(host.id, { metadata: { ...metadata, editHistory: [...history, act.record] } });
         break;
       }
     }
   }
 
+  const updates = [...patches].map(([id, data]) => ({ id: asNodeId(id), data: asNodeData(data) }));
   // Commit all changes in a single operation
   scene.applyNodeChanges({
     create: creates.length > 0 ? creates : undefined,

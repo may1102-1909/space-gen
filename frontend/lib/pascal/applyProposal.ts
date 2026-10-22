@@ -3,7 +3,7 @@
  * Pascal store, and it runs from a user click, never from AI output directly.
  */
 import type { AnyNode } from '@pascal-app/core';
-import type { EditProposal } from '@/lib/contracts';
+import type { EditProposal, EditRecord, MaskRegion } from '@/lib/contracts';
 import { createItemNode } from './itemEditing';
 import { applySceneActions, type SceneAction } from './sceneBridge';
 
@@ -65,7 +65,45 @@ export function proposalToSceneActions(
   }
 }
 
+/** The manifest history entry for an accepted proposal; `targetNodeId` is the created node for adds. */
+export function editRecordFor(proposal: EditProposal, actions: SceneAction[], meta: ProposalLabel): EditRecord {
+  const created = actions.find((a) => a.action === 'create_node');
+  const verb = { add: 'Added', move: 'Moved', replace: 'Replaced', remove: 'Removed' }[proposal.op];
+  return {
+    id: `edit_${proposal.id}_${Date.now().toString(36)}`,
+    timestamp: new Date().toISOString(),
+    proposalId: proposal.id,
+    op: proposal.op,
+    targetNodeId: created?.action === 'create_node' ? created.node.id : (proposal.targetNodeId ?? null),
+    description: `${verb} ${meta.label}: ${proposal.rationale}`,
+    userComment: null,
+  };
+}
+
+export interface AcceptedProposal {
+  proposal: EditProposal;
+  meta: ProposalLabel;
+  /** Mask to commit with the edit (a removed scanned object); replace masks come from replace_asset. */
+  mask?: MaskRegion | null;
+}
+
+/**
+ * Applies accepted proposals, their masks and their EditRecords as ONE undoable scene
+ * transaction. Throws (changing nothing) if any proposal cannot be applied.
+ */
+export function acceptProposals(accepted: AcceptedProposal[], nodes: Record<string, unknown>): void {
+  const actions = accepted.flatMap(({ proposal, meta, mask }) => {
+    const own = proposalToSceneActions(proposal, nodes, meta);
+    return [
+      ...own,
+      ...(mask && proposal.op === 'remove' ? [{ action: 'add_mask_region', mask } as const] : []),
+      { action: 'append_edit_record', record: editRecordFor(proposal, own, meta) } as const,
+    ];
+  });
+  applySceneActions(actions);
+}
+
 /** Applies an accepted proposal as one undoable scene transaction. */
 export function acceptProposal(proposal: EditProposal, nodes: Record<string, unknown>, meta: ProposalLabel): void {
-  applySceneActions(proposalToSceneActions(proposal, nodes, meta));
+  acceptProposals([{ proposal, meta }], nodes);
 }

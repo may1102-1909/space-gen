@@ -3,7 +3,9 @@
 import { useEffect } from 'react';
 import * as THREE from 'three';
 import { useThree } from '@react-three/fiber';
+import { sceneRegistry } from '@pascal-app/core';
 import type { OrientedBoundingBox } from '@/lib/contracts';
+import { useProposalPreviews } from '@/lib/pascal/proposalPreview';
 
 type Vec3 = [number, number, number];
 
@@ -21,6 +23,10 @@ export interface SpacegenE2EHooks {
   projectObb(obb: OrientedBoundingBox): ScreenRect;
   /** Viewport-space (CSS px) position of a scene point under the current editor camera. */
   projectPoint(point: Vec3): { x: number; y: number };
+  /** Pending proposal ghosts: their node id and the proposal's scene-frame base position. */
+  proposalGhosts(): Array<{ proposalId: string; ghostId: string; position: Vec3 }>;
+  /** World position of the Object3D Pascal rendered for a node, or null when not mounted. */
+  renderedNodePosition(nodeId: string): Vec3 | null;
 }
 
 /** Splat-layer diagnostics, registered by SplatBackgroundCanvas when NEXT_PUBLIC_E2E=1. */
@@ -85,6 +91,18 @@ export function E2ECameraHooks() {
         const v = new THREE.Vector3(...point).project(camera);
         const rect = gl.domElement.getBoundingClientRect();
         return { x: rect.left + ((v.x + 1) / 2) * rect.width, y: rect.top + ((1 - v.y) / 2) * rect.height };
+      },
+      proposalGhosts() {
+        return Object.values(useProposalPreviews.getState().previews).flatMap((e) =>
+          e.status === 'pending' && e.ghostId && e.proposal.transform ? [{ proposalId: e.proposal.id, ghostId: e.ghostId, position: e.proposal.transform.position }] : [],
+        );
+      },
+      renderedNodePosition(nodeId) {
+        const object = sceneRegistry.nodes.get(nodeId);
+        if (!object) return null;
+        object.updateWorldMatrix(true, false);
+        const p = object.getWorldPosition(new THREE.Vector3());
+        return [p.x, p.y, p.z];
       },
     };
     return () => {
