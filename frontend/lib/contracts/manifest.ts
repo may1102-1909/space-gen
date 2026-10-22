@@ -53,6 +53,10 @@ export const HeroImageSchema = z.object({
 });
 export type HeroImage = z.infer<typeof HeroImageSchema>;
 
+/** Whether navigation is confined to the room (interior) or free (exterior architecture). */
+export const SceneKindSchema = z.enum(['interior', 'exterior']);
+export type SceneKind = z.infer<typeof SceneKindSchema>;
+
 export const ProjectManifestSchema = z.object({
   schemaVersion: z.string(),
   id: z.string(),
@@ -67,5 +71,7 @@ export const ProjectManifestSchema = z.object({
   activeVariantId: z.string(),
   viewpoints: z.array(ViewpointSchema).optional(),
   heroImages: z.array(HeroImageSchema).optional(),
+  /** Manual interior/exterior override; auto-detected from the scene when absent. */
+  sceneKind: SceneKindSchema.nullable().optional(),
 });
 export type ProjectManifest = z.infer<typeof ProjectManifestSchema>;
