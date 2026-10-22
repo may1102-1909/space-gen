@@ -1,18 +1,25 @@
 """Objects stage of a splat conversion: push the scan to the GPU worker, poll it, store its meshes.
 
 Runs in a background thread per conversion (never inside an HTTP request). Modes (GPU_WORKER_MODE):
-colab = the remote worker behind a tunnel (docs/gpu-worker-setup.md); fake = the same worker app and
-CPU pipeline in-process (numpy renderer, geometric masks) so the flow works without a GPU; off = skipped.
+colab = the remote worker behind a tunnel (docs/gpu-worker-setup.md); fake = the same worker app on the
+CPU pipeline (numpy renderer, geometric masks) in a local child process, so the flow works without a GPU;
+off = skipped.
 """
 
 from __future__ import annotations
 
 import asyncio
+import atexit
 import json
 import logging
+import os
 import shutil
+import socket
+import subprocess
+import sys
 import tempfile
 import threading
+import time
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -64,23 +71,30 @@ class ObjectsState:
     error: Optional[str] = None
 
 
-def fake_worker_client(work_root: Path) -> httpx.Client:
-    """The real worker app, served in-process, running the CPU pipeline on geometric pseudo-masks."""
-    from fastapi.testclient import TestClient
-
-    from gpu_worker.render import NumpyRenderer
-    from gpu_worker.server import create_app
-    from gpu_worker.synthetic import GeometricMaskDetector
-
-    renderer = NumpyRenderer()
-    app = create_app(
-        FAKE_TOKEN,
-        work_root,
-        detector_factory=lambda splat: GeometricMaskDetector(splat, renderer),
-        renderer_factory=lambda: renderer,
-        pipeline_kwargs={"view_size": (128, 96), "target_triangles": 5000},
+def start_fake_worker(work_root: Path) -> tuple[subprocess.Popen, str]:
+    """Runs gpu_worker.fake_server in a child process (a CPU pipeline in this process would starve the API
+    server's GIL for seconds at a time); returns the process and its base URL once it answers."""
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    work_root.mkdir(parents=True, exist_ok=True)
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "gpu_worker.fake_server", str(port), str(work_root)],
+        cwd=Path(__file__).resolve().parents[1],
+        env={**os.environ, "GPU_WORKER_TOKEN": FAKE_TOKEN},
+        stdin=subprocess.PIPE,  # the child exits when this pipe closes, i.e. when the backend goes away
     )
-    return TestClient(app, headers={"Authorization": f"Bearer {FAKE_TOKEN}"}, raise_server_exceptions=False)
+    atexit.register(proc.kill)
+    url = f"http://127.0.0.1:{port}"
+    deadline = time.monotonic() + 120
+    while time.monotonic() < deadline and proc.poll() is None:
+        try:
+            httpx.get(f"{url}/health", headers={"Authorization": f"Bearer {FAKE_TOKEN}"}, timeout=2).raise_for_status()
+            return proc, url
+        except httpx.HTTPError:
+            time.sleep(0.25)
+    proc.kill()
+    raise WorkerError("The local fake GPU worker did not start (GPU_WORKER_MODE=fake); see the backend log.")
 
 
 class ObjectsDispatcher:
@@ -97,7 +111,8 @@ class ObjectsDispatcher:
         self.mode, self.url, self.token, self.timeout, self.poll = mode, url.rstrip("/"), token, timeout, poll
         self.work_root = Path(work_root or settings.data_dir / "gpu_worker")
         self._client_factory = client_factory
-        self._fake_client: Optional[httpx.Client] = None
+        self._fake: Optional[tuple[subprocess.Popen, str]] = None
+        self._fake_lock = threading.Lock()
         self._states: dict[str, ObjectsState] = {}
         self._specs: dict[str, ObjectsSpec] = {}
         self._lock = threading.Lock()
@@ -137,10 +152,11 @@ class ObjectsDispatcher:
         if self._client_factory:
             return self._client_factory()
         if self.mode == "fake":
-            with self._lock:  # one in-process worker, so a retry resumes its finished upload
-                if self._fake_client is None:
-                    self._fake_client = fake_worker_client(self.work_root / "fake")
-                return self._fake_client
+            # Own lock: start-up takes seconds and must not block status reads (self._lock).
+            with self._fake_lock:  # one worker process, so a retry resumes its finished upload
+                if self._fake is None or self._fake[0].poll() is not None:
+                    self._fake = start_fake_worker(self.work_root / "fake")
+                return worker.make_client(self._fake[1], FAKE_TOKEN, timeout=300)
         if not (self.url and self.token):
             raise WorkerError(
                 "GPU_WORKER_MODE=colab needs GPU_WORKER_URL and GPU_WORKER_TOKEN in backend/.env "
@@ -151,12 +167,8 @@ class ObjectsDispatcher:
     def _run(self, spec: ObjectsSpec) -> None:
         cid = spec.conversion_id
         try:
-            client = self._client()
-            try:
+            with self._client() as client:
                 self._dispatch(client, spec)
-            finally:
-                if client is not self._fake_client:
-                    client.close()
         except WorkerError as error:
             self._set(cid, status="failed", error=str(error), detail="Separating objects failed.")
         except httpx.HTTPStatusError as error:
@@ -170,7 +182,7 @@ class ObjectsDispatcher:
             self._set(cid, status="failed", error=f"Unexpected error: {error}", detail="Separating objects failed.")
 
     def _offline_message(self, error: Exception) -> str:
-        where = self.url or "the in-process worker"
+        where = self.url or "the local fake worker"
         return (
             f"Cannot reach the GPU worker at {where} ({type(error).__name__}). Is the Colab notebook still running? "
             "Quick-tunnel URLs change on every restart: copy the new GPU_WORKER_URL into backend/.env, "

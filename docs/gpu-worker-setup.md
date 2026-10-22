@@ -10,7 +10,7 @@ Set in `backend/.env` (untracked; never commit the URL or token):
 | :--- | :--- |
 | `off` (default) | Skipped; the import stops after the room structure, as before. |
 | `colab` | Uploads the scan to the worker at `GPU_WORKER_URL` with `GPU_WORKER_TOKEN`. |
-| `fake` | Runs the same worker app and pipeline in-process on the CPU (numpy renderer, geometric masks instead of SAM). For development and CI with small synthetic scans; real scans are far too slow and are not segmented semantically. |
+| `fake` | Runs the same worker app and pipeline on the CPU in a local child process (`gpu_worker/fake_server.py`; numpy renderer, geometric masks instead of SAM), started on first use and stopped with the backend. For development and CI with small synthetic scans; real scans are far too slow and are not segmented semantically. |
 
 ## Run it with Colab
 

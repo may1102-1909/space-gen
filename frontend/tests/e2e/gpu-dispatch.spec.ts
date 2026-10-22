@@ -7,7 +7,7 @@ import { screenshotPath, waitForE2EHooks } from './support/artifacts';
 import { API_URL, getProject } from './support/projects';
 
 // N2/N3 on the real backend with GPU_WORKER_MODE=fake (playwright.config.ts): import a synthetic splat
-// with a sofa, table and lamp → structure → objects (in-process worker, CPU pipeline, real GLBs) →
+// with a sofa, table and lamp → structure → objects (local worker process, CPU pipeline, real GLBs) →
 // Pascal items with masks → move one → save → reload.
 const BACKEND_DIR = path.join(__dirname, '..', '..', '..', 'backend');
 
