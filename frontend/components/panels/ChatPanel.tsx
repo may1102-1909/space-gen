@@ -10,6 +10,9 @@ import {
   Paperclip,
   AlertTriangle,
   XCircle,
+  Move3d,
+  CheckCheck,
+  Info,
 } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 import { ChatMessage as ChatMessageType } from '@/lib/types';
@@ -17,11 +20,13 @@ import type { AssetRef, EditProposal } from '@/lib/contracts';
 import { uploadProjectAsset, uploadedAssetRef } from '@/lib/projects/api';
 import { bytesFromDataUrl, measureGlb } from '@/lib/ai/glb';
 import { undoSceneAction } from '@/lib/pascal/sceneBridge';
-import { acceptProposal } from '@/lib/pascal/applyProposal';
+import { acceptPreviewedProposals, previewProposals, rejectProposal, useProposalPreviews, withoutProposalGhosts } from '@/lib/pascal/proposalPreview';
 import { getTrustedInterpretation } from '@/lib/pascal/interpretationReview';
+import { useSpaceGenStore } from '@/lib/store';
 import { ChatAttachmentBar } from './ChatAttachmentBar';
 import { useViewer } from '@pascal-app/viewer';
 import { useScene, AnyNodeId } from '@pascal-app/core';
+import type { Violation } from '@/lib/contracts';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const PROPOSAL_NODE_TYPES = new Set(['item', 'wall', 'door', 'window', 'slab', 'level', 'zone']);
@@ -30,9 +35,17 @@ interface ChatPanelProps {
   /** Project that stores attached GLBs; GLB attachments are disabled without one. */
   projectId?: string;
   onAssetUploaded?: (asset: AssetRef) => void;
+  /** Opens scan Review mode (offered when unreviewed walls leave the planner without walls). */
+  onOpenReview?: () => void;
 }
 
-export function ChatPanel({ projectId, onAssetUploaded }: ChatPanelProps = {}) {
+/** The scan has walls but none is reviewed, so the solver gets no walls to place against. */
+function needsWallReview(): boolean {
+  const trusted = getTrustedInterpretation();
+  return !!trusted.interpretation && trusted.interpretation.walls.length === 0 && trusted.untrusted.some((item) => item.ref.kind === 'wall');
+}
+
+export function ChatPanel({ projectId, onAssetUploaded, onOpenReview }: ChatPanelProps = {}) {
   const { chatMessages, addChatMessage, isLoading, setIsLoading } = useAppStore();
   const [input, setInput] = useState('');
   const [attachedFile, setAttachedFile] = useState<{
@@ -98,9 +111,11 @@ export function ChatPanel({ projectId, onAssetUploaded }: ChatPanelProps = {}) {
   ) => {
     setIsLoading(true);
     try {
+      // Pending ghosts are previews, not scene content.
       const sceneNodes = Object.fromEntries(
-        Object.entries(useScene.getState().nodes).filter(([, n]) => n && PROPOSAL_NODE_TYPES.has(n.type)),
+        Object.entries(withoutProposalGhosts(useScene.getState().nodes)).filter(([, n]) => n && PROPOSAL_NODE_TYPES.has(n.type)),
       );
+      const reviewHint = needsWallReview();
       const res = await fetch('/api/ai/spatial', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -111,7 +126,7 @@ export function ChatPanel({ projectId, onAssetUploaded }: ChatPanelProps = {}) {
           interpretation: getTrustedInterpretation().interpretation ?? undefined,
           selectedIds: selection,
           attachment: attachment
-            ? { type: attachment.type, dataUrl: attachment.dataUrl, name: attachment.name, url: attachment.url }
+            ? { type: attachment.type, dataUrl: attachment.dataUrl, name: attachment.name.replace(/\.gl(b|tf)$/i, ''), url: attachment.url }
             : undefined,
         }),
       });
@@ -123,12 +138,14 @@ export function ChatPanel({ projectId, onAssetUploaded }: ChatPanelProps = {}) {
         notes?: string[];
       } = await res.json();
 
+      previewProposals(data.proposals, data.annotations);
       addChatMessage({
         role: 'assistant',
         content: [data.message, ...(data.notes ?? [])].filter(Boolean).join('\n'),
         timestamp: Date.now(),
         proposals: data.proposals,
         proposalLabels: data.annotations,
+        reviewHint,
       });
     } catch (e) {
       console.error('[ChatPanel] Error handling spatial request:', e);
@@ -255,7 +272,7 @@ export function ChatPanel({ projectId, onAssetUploaded }: ChatPanelProps = {}) {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               transition={{ duration: 0.2 }}
             >
-              <ChatMessage message={msg} />
+              <ChatMessage message={msg} onOpenReview={onOpenReview} />
             </motion.div>
           ))}
         </AnimatePresence>
@@ -298,6 +315,7 @@ export function ChatPanel({ projectId, onAssetUploaded }: ChatPanelProps = {}) {
           ref={fileInputRef}
           type="file"
           accept="image/*,.glb,.gltf"
+          aria-label="Attach photo or GLB"
           className="hidden"
           onChange={handleFileUpload}
         />
@@ -334,7 +352,7 @@ export function ChatPanel({ projectId, onAssetUploaded }: ChatPanelProps = {}) {
   );
 }
 
-function ChatMessage({ message }: { message: ChatMessageType }) {
+function ChatMessage({ message, onOpenReview }: { message: ChatMessageType; onOpenReview?: () => void }) {
   const isUser = message.role === 'user';
   const [undone, setUndone] = useState(false);
 
@@ -376,9 +394,21 @@ function ChatMessage({ message }: { message: ChatMessageType }) {
           </motion.div>
         )}
 
-        {message.proposals && message.proposals.length > 0 && (
-          <ProposalList proposals={message.proposals} labels={message.proposalLabels ?? {}} />
+        {message.reviewHint && (
+          <div role="note" className="w-full max-w-[320px] p-2 rounded-lg border border-amber-500/40 bg-amber-500/10 text-[11px] text-amber-300 flex flex-col gap-1.5">
+            <span className="flex items-start gap-1">
+              <AlertTriangle size={11} className="shrink-0 mt-0.5" />
+              <span>Review the scan so I can place against walls. Unreviewed walls are ignored until you verify them.</span>
+            </span>
+            {onOpenReview && (
+              <button onClick={onOpenReview} className="self-start px-2 py-0.5 rounded-md bg-amber-500 text-black font-medium">
+                Open Review mode
+              </button>
+            )}
+          </div>
         )}
+
+        {message.proposals && message.proposals.length > 0 && <ProposalList proposals={message.proposals} labels={message.proposalLabels ?? {}} />}
 
         {/* Spatial tool execution cards */}
         {message.toolResults && message.toolResults.length > 0 && (
@@ -418,6 +448,12 @@ function ChatMessage({ message }: { message: ChatMessageType }) {
   );
 }
 
+const SEVERITY_STYLE: Record<Violation['severity'], string> = {
+  error: 'text-red-400',
+  warning: 'text-amber-400',
+  info: 'text-sky-400',
+};
+
 function ProposalList({
   proposals,
   labels,
@@ -425,66 +461,88 @@ function ProposalList({
   proposals: EditProposal[];
   labels: Record<string, { label: string; category: string }>;
 }) {
-  const [status, setStatus] = useState<Record<string, EditProposal['status']>>({});
+  const previews = useProposalPreviews((s) => s.previews);
+  const setSelection = useViewer((s) => s.setSelection);
+  const setSelectedObjectId = useSpaceGenStore((s) => s.setSelectedObjectId);
   const [error, setError] = useState<string | null>(null);
 
-  const accept = (p: EditProposal) => {
+  const run = (action: () => void) => {
     try {
-      acceptProposal(p, useScene.getState().nodes as Record<string, unknown>, labels[p.id] ?? { label: 'Item', category: 'item' });
-      setStatus((s) => ({ ...s, [p.id]: 'accepted' }));
+      action();
       setError(null);
     } catch (e) {
       setError((e as Error)?.message ?? 'Could not apply proposal');
     }
   };
+  // Adjust opens the transform gizmo on the ghost; moving it re-runs validation live.
+  const adjust = (ghostId: string) => {
+    setSelection({ selectedIds: [ghostId as AnyNodeId] });
+    setSelectedObjectId(ghostId);
+  };
+  const entries = proposals.map(
+    (p) => previews[p.id] ?? { proposal: p, meta: labels[p.id] ?? { label: p.targetNodeId ?? 'Item', category: 'item' }, ghostId: null, mask: null, status: p.status },
+  );
+  const acceptable = entries.filter((e) => e.status === 'pending' && e.proposal.validation.ok).map((e) => e.proposal.id);
 
   return (
     <div className="flex flex-col gap-1.5 w-full max-w-[320px] mt-1">
-      {proposals.map((p) => {
-        const state = status[p.id] ?? p.status;
-        const flagged = p.validation.violations.filter((v) => v.severity !== 'info');
-        return (
-          <div key={p.id} className="p-2 rounded-lg border border-border bg-surface-elevated/60 text-[11px] flex flex-col gap-1">
-            <div className="flex items-center justify-between gap-2">
-              <span className="font-mono uppercase text-accent">{p.op}</span>
-              <span className="truncate text-text-primary">{labels[p.id]?.label ?? p.targetNodeId ?? 'Item'}</span>
-              {p.validation.ok ? (
-                <CheckCircle2 size={12} className="text-emerald-400 shrink-0" />
-              ) : (
-                <XCircle size={12} className="text-red-400 shrink-0" />
-              )}
-            </div>
-            <p className="text-text-secondary leading-snug">{p.rationale}</p>
-            {flagged.map((v, i) => (
-              <p key={i} className={`flex items-start gap-1 ${v.severity === 'error' ? 'text-red-400' : 'text-amber-400'}`}>
-                <AlertTriangle size={11} className="shrink-0 mt-0.5" />
-                <span>{v.detail}</span>
-              </p>
-            ))}
-            {state === 'pending' ? (
-              <div className="flex gap-1.5 pt-0.5">
-                <button
-                  onClick={() => accept(p)}
-                  disabled={!p.validation.ok}
-                  className="px-2 py-0.5 rounded-md bg-accent text-white disabled:opacity-40"
-                >
-                  Accept
-                </button>
-                <button
-                  onClick={() => setStatus((s) => ({ ...s, [p.id]: 'rejected' }))}
-                  className="px-2 py-0.5 rounded-md border border-border text-text-secondary"
-                >
-                  Reject
-                </button>
-              </div>
+      {entries.map(({ proposal: p, meta, ghostId, status }) => (
+        <div key={p.id} role="group" aria-label={`Proposal: ${p.op} ${meta.label}`} className="p-2 rounded-lg border border-border bg-surface-elevated/60 text-[11px] flex flex-col gap-1">
+          <div className="flex items-center justify-between gap-2">
+            <span className="font-mono uppercase text-accent">{p.op}</span>
+            <span className="truncate text-text-primary">{meta.label}</span>
+            {p.validation.ok ? (
+              <CheckCircle2 size={12} className="text-emerald-400 shrink-0" aria-label="Valid placement" />
             ) : (
-              <span className="text-text-muted font-mono">{state}</span>
+              <XCircle size={12} className="text-red-400 shrink-0" aria-label="Blocking violations" />
             )}
           </div>
-        );
-      })}
+          <p className="text-text-secondary leading-snug">{p.rationale}</p>
+          {p.validation.violations.length > 0 && (
+            <ul aria-label="Violations" className="flex flex-col gap-0.5">
+              {p.validation.violations.map((v, i) => (
+                <li key={`${v.rule}-${i}`} data-severity={v.severity} className={`flex items-start gap-1 ${SEVERITY_STYLE[v.severity]}`}>
+                  {v.severity === 'info' ? <Info size={11} className="shrink-0 mt-0.5" /> : <AlertTriangle size={11} className="shrink-0 mt-0.5" />}
+                  <span>{v.detail}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {status === 'pending' ? (
+            <div className="flex gap-1.5 pt-0.5">
+              <button
+                onClick={() => run(() => acceptPreviewedProposals([p.id]))}
+                disabled={!p.validation.ok}
+                className="px-2 py-0.5 rounded-md bg-accent text-white disabled:opacity-40"
+              >
+                Accept
+              </button>
+              <button onClick={() => run(() => rejectProposal(p.id))} className="px-2 py-0.5 rounded-md border border-border text-text-secondary">
+                Reject
+              </button>
+              {ghostId && (
+                <button onClick={() => adjust(ghostId)} className="px-2 py-0.5 rounded-md border border-border text-text-secondary flex items-center gap-1">
+                  <Move3d size={11} />
+                  Adjust
+                </button>
+              )}
+            </div>
+          ) : (
+            <span className="text-text-muted font-mono">{status}</span>
+          )}
+        </div>
+      ))}
+      {acceptable.length > 1 && (
+        <button
+          onClick={() => run(() => acceptPreviewedProposals(acceptable))}
+          className="self-start flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] bg-accent text-white"
+        >
+          <CheckCheck size={12} />
+          <span>Accept all ({acceptable.length})</span>
+        </button>
+      )}
       {error && <p className="text-red-400 text-[11px]">{error}</p>}
-      {Object.values(status).includes('accepted') && (
+      {entries.some((e) => e.status === 'accepted') && (
         <button
           onClick={() => undoSceneAction()}
           className="self-start flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] bg-surface-elevated border border-border text-text-secondary"

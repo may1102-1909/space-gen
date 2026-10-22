@@ -24,6 +24,7 @@ import type { FurnitureItem } from '@/lib/types';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { createItemNode, normalizeGlbBounds, fetchCatalogItems, type ItemNode } from '@/lib/pascal/itemEditing';
 import { asNode, asNodeId, updateNodeData } from '@/lib/pascal/nodes';
+import { isProposalGhost } from '@/lib/pascal/proposalPreview';
 import { ERROR_TABLE, formatDimensions, scaleSourceOf } from '@/lib/measurement/accuracy';
 import {
   replaceItemWithMask,
@@ -203,7 +204,8 @@ export function ScenePanel({ projectId, onAssetUploaded }: ScenePanelProps = {})
         walls.push(node);
         break;
       case 'item':
-        items.push(node);
+        // Proposal ghosts are previews; the chat card owns them.
+        if (!isProposalGhost(node)) items.push(node);
         break;
       case 'scan':
         scans.push(node);

@@ -60,6 +60,8 @@ export interface ChatMessage {
   /** Pending AI EditProposals; applied only when the user accepts one. */
   proposals?: EditProposal[]
   proposalLabels?: Record<string, { label: string; category: string }>
+  /** Unreviewed scan walls were left out of planning; offer Review mode. */
+  reviewHint?: boolean
 }
 
 export interface ReconstructionJob {

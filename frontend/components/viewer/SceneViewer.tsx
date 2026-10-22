@@ -30,6 +30,8 @@ import { ScanSegmentationOverlay } from './ScanSegmentationOverlay';
 import { ScanToEditableModal } from '../capture/ScanToEditableModal';
 import { AIPlacementPreview } from './AIPlacementPreview';
 import { TransformGizmo } from './TransformGizmo';
+import { ProposalGhosts } from './ProposalGhosts';
+import { pendingPreviewMasks, useProposalPreviews } from '@/lib/pascal/proposalPreview';
 import { InterpretationOverlay } from './InterpretationOverlay';
 import { ArchitecturalTools, useArchitecturalSnap } from './ArchitecturalTools';
 import { installArchitecturalSync } from '@/lib/pascal/architecturalSync';
@@ -244,7 +246,13 @@ export function SceneViewer({ selectedId, onSelectObject, reviewMode = false }: 
   const scanMeta = scanMetadata(scanNode);
   // Stable fallbacks: fresh literals here would re-run the splat alignment/mask effects every render.
   const scanToScene: Matrix4 = scanMeta.scanToScene || IDENTITY_MATRIX;
-  const maskRegions: MaskRegion[] = scanMeta.maskRegions || NO_MASK_REGIONS;
+  const committedMasks: MaskRegion[] = scanMeta.maskRegions || NO_MASK_REGIONS;
+  // Would-be masks of pending replace/remove proposals, shown in ghost mode and never saved.
+  const previews = useProposalPreviews((state) => state.previews);
+  const maskRegions = React.useMemo(() => {
+    const preview = pendingPreviewMasks(previews);
+    return preview.length ? [...committedMasks, ...preview] : committedMasks;
+  }, [committedMasks, previews]);
   const handlePickerReady = useCallback((picker: ScanPicker | null) => {
     pickerRef.current = picker;
   }, []);
@@ -372,6 +380,7 @@ export function SceneViewer({ selectedId, onSelectObject, reviewMode = false }: 
         <OrbitControls makeDefault target={SCAN_FOCUS_TARGET} enableDamping={false} />
         {E2E_HOOKS_ENABLED && <E2ECameraHooks />}
         <TransformGizmo />
+        <ProposalGhosts />
         <ArchitecturalTools />
         {reviewMode && <InterpretationOverlay />}
         <MaskRegionVisualizer

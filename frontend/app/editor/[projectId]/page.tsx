@@ -14,6 +14,8 @@ import type { AssetRef, MaskRegion } from '@/lib/contracts';
 import { loadProject, ProjectConflictError, saveProject, type ProjectDocument } from '@/lib/projects/api';
 import { deriveInterpretationFromScene } from '@/lib/pascal/scanConverter';
 import { nodeViews } from '@/lib/pascal/nodes';
+import { editHistoryHost, readEditHistory } from '@/lib/pascal/sceneBridge';
+import { clearProposalPreviews, withoutProposalGhosts } from '@/lib/pascal/proposalPreview';
 
 const SceneViewer = dynamic(() => import('@/components/viewer/SceneViewer'), { ssr: false });
 
@@ -31,6 +33,8 @@ function findScanNode(): ScanNodeLike | undefined {
 
 /** Replace the Pascal scene with a saved project document. */
 function applyProjectDocument(doc: ProjectDocument) {
+  // Pending previews belong to the document being replaced (and block snapshot loads).
+  clearProposalPreviews();
   if (doc.manifest.sceneSnapshot && Object.keys(doc.manifest.sceneSnapshot).length) {
     applySceneSnapshot(doc.manifest.sceneSnapshot as Parameters<typeof applySceneSnapshot>[0], { origin: 'load' });
   } else {
@@ -40,6 +44,13 @@ function applyProjectDocument(doc: ProjectDocument) {
   if (scanNode && doc.manifest.maskRegions.length > 0 && !scanNode.metadata?.maskRegions?.length) {
     useScene.getState().updateNode(scanNode.id as AnyNodeId, {
       metadata: { ...scanNode.metadata, maskRegions: doc.manifest.maskRegions },
+    } as Partial<AnyNode>);
+  }
+  // Older documents keep EditRecords only in the manifest; mirror them into the scene.
+  const historyHost = editHistoryHost();
+  if (historyHost && doc.manifest.history.length > 0 && !readEditHistory()?.length) {
+    useScene.getState().updateNode(historyHost.id as AnyNodeId, {
+      metadata: { ...(historyHost.metadata as Record<string, unknown> | undefined), editHistory: doc.manifest.history },
     } as Partial<AnyNode>);
   }
   // The loaded state is the undo baseline; the mask patch above must not be an undoable step.
@@ -99,7 +110,7 @@ export default function ProjectEditorPage() {
           const savedGeneration = generation.current;
           setStatus('saving'); setError('');
           try {
-            const nodes = useScene.getState().nodes;
+            const nodes = withoutProposalGhosts(useScene.getState().nodes);
             const maskRegions = findScanNode()?.metadata?.maskRegions || base.manifest.maskRegions || [];
             const interpretation = deriveInterpretationFromScene(nodeViews(nodes), base.manifest.interpretation) || base.manifest.interpretation;
             const next = await saveProject({
@@ -108,6 +119,7 @@ export default function ProjectEditorPage() {
                 ...base.manifest,
                 maskRegions,
                 interpretation,
+                history: readEditHistory(nodes) ?? base.manifest.history,
                 sceneSnapshot: getSceneDocument() as unknown as Record<string, unknown>,
               },
             });
@@ -193,6 +205,6 @@ export default function ProjectEditorPage() {
     )}
     <div className="w-[280px] border-r border-border bg-surface flex flex-col shrink-0 h-full overflow-hidden"><ScenePanel projectId={params.projectId} onAssetUploaded={handleAssetUploaded} /></div>
     <div className="flex-1 bg-background relative overflow-hidden h-full"><SceneViewer selectedId={selectedObjectId} onSelectObject={setSelectedObjectId} reviewMode={reviewMode} /></div>
-    <div className="w-[380px] border-l border-border bg-surface flex flex-col shrink-0 h-full overflow-hidden">{reviewMode ? <InterpretationReviewPanel interpretation={document.manifest.interpretation} scan={document.manifest.scan} maskRegions={document.manifest.maskRegions} /> : <ChatPanel projectId={params.projectId} onAssetUploaded={handleAssetUploaded} />}</div>
+    <div className="w-[380px] border-l border-border bg-surface flex flex-col shrink-0 h-full overflow-hidden">{reviewMode ? <InterpretationReviewPanel interpretation={document.manifest.interpretation} scan={document.manifest.scan} maskRegions={document.manifest.maskRegions} /> : <ChatPanel projectId={params.projectId} onAssetUploaded={handleAssetUploaded} onOpenReview={() => setReviewMode(true)} />}</div>
   </EditorLayout>;
 }
