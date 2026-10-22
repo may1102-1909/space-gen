@@ -21,3 +21,7 @@ export declare const useEditor: {
 export declare const Grid: FC;
 /** Mounts the active registry build tool (wall / slab / door / window / …). */
 export declare const ToolManager: FC;
+/** The node a placement tool (door / window / ...) is previewing, null when none. */
+export declare const usePlacementPreview: {
+  getState: () => { node: { type: string; parentId?: string | null } | null };
+};

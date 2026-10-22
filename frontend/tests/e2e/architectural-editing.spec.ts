@@ -66,9 +66,16 @@ test('draw a wall snapped to a corner, add a door, measure, undo/redo, save, rel
   await expect(snap).toHaveAttribute('data-snap-kind', 'floor');
   await clickAt(page, [3, 0, 3]);
 
-  // 2. Door on the new wall (hover the wall body at mid height).
+  // 2. Door on the new wall (hover the wall body at mid height). Pascal reveals a tool some time
+  // after its first arming, and the door tool only takes a click once a hover has snapped its
+  // preview onto a wall. Like a user, keep hovering until the preview sits on the wall.
   await tool('Door').click();
-  await hover(page, [1.4, 1.0, 1.4]);
+  await expect
+    .poll(async () => {
+      await hover(page, [1.4, 1.0, 1.4]);
+      return page.evaluate(() => window.__spacegenE2E!.placementPreview());
+    })
+    .toEqual({ type: 'door', host: 'wall' });
   await clickAt(page, [1.5, 1.0, 1.5]);
 
   // 3. Measure the east wall corner to corner; shown as an estimate.
