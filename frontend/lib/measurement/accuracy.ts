@@ -33,6 +33,13 @@ export function formatMeasurement(meters: number, scaleSource: ScaleSource, tabl
   return `≈ ${value(meters, err)} m (±${err} cm est.)`;
 }
 
+/** "≈ 48.0 m² (±2.2 m² est.)": a length error of p% is roughly a 2p% area error. */
+export function formatArea(squareMeters: number, scaleSource: ScaleSource, table: ErrorTable = ERROR_TABLE): string {
+  const pct = table.scaleSources[scaleSource]?.relativePct ?? FALLBACK_RELATIVE_PCT;
+  const err = Math.max(0.1, Math.ceil(Math.abs(squareMeters) * 2 * pct * 0.1) / 10);
+  return `≈ ${squareMeters.toFixed(1)} m² (±${err.toFixed(1)} m² est.)`;
+}
+
 /** "≈ 1.20 × 0.80 × 0.45 m (±3 cm est.)", the bound taken from the largest dimension. */
 export function formatDimensions(dims: readonly number[], scaleSource: ScaleSource, table: ErrorTable = ERROR_TABLE): string {
   const err = errorCm(Math.max(...dims.map(Math.abs)), scaleSource, table);
