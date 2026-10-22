@@ -3,8 +3,11 @@
 import React, { useEffect } from 'react';
 import { useViewer, type WallMode } from '@pascal-app/viewer';
 import { useScene } from '@pascal-app/core';
+import { useStore } from 'zustand';
 import { useSpaceGenStore } from '@/lib/store';
 import { undoSceneAction, redoSceneAction } from '@/lib/pascal/sceneBridge';
+import { useEditor } from '@/lib/pascal/pascalEditor';
+import { armArchitecturalTool, type ArchitecturalTool } from '@/components/viewer/ArchitecturalTools';
 import {
   MousePointer,
   Square,
@@ -21,7 +24,18 @@ import {
   Redo2,
   Sparkles,
   Crosshair,
+  DoorOpen,
+  AppWindow,
+  Ruler,
 } from 'lucide-react';
+
+const PASCAL_TOOLS: Array<{ tool: ArchitecturalTool; label: string; title: string; Icon: typeof Square }> = [
+  { tool: 'wall', label: 'Wall', title: 'Draw a wall, snapped to scan corners and wall faces', Icon: Square },
+  { tool: 'slab', label: 'Slab', title: 'Draw a floor slab', Icon: Grid3X3 },
+  { tool: 'door', label: 'Door', title: 'Place a door on a wall', Icon: DoorOpen },
+  { tool: 'window', label: 'Window', title: 'Place a window on a wall', Icon: AppWindow },
+  { tool: 'measurement', label: 'Measure', title: 'Measure a distance (scan estimate)', Icon: Ruler },
+];
 
 export type ActiveTool =
   | 'select'
@@ -48,8 +62,16 @@ export function EditorToolbar({ activeTool, onSelectTool, onOpenConvertModal, is
   const showScans = useViewer((state) => state.showScans);
   const setShowScans = useViewer((state) => state.setShowScans);
 
-  const canUndo = (useScene as any).temporal?.getState?.()?.pastStates?.length > 0;
-  const canRedo = (useScene as any).temporal?.getState?.()?.futureStates?.length > 0;
+  const pascalMode = useEditor((state) => state.mode);
+  const pascalTool = useEditor((state) => state.tool);
+  const activePascalTool = pascalMode === 'build' ? pascalTool : null;
+  const selectTool = (tool: ActiveTool) => {
+    armArchitecturalTool(null);
+    onSelectTool(tool);
+  };
+
+  const canUndo = useStore(useScene.temporal, (state) => state.pastStates.length > 0);
+  const canRedo = useStore(useScene.temporal, (state) => state.futureStates.length > 0);
 
   useEffect(() => {
     const handleHistoryShortcut = (event: KeyboardEvent) => {
@@ -81,14 +103,14 @@ export function EditorToolbar({ activeTool, onSelectTool, onOpenConvertModal, is
   };
 
   return (
-    <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 p-1.5 rounded-2xl bg-surface/90 border border-border backdrop-blur-xl shadow-2xl text-text-primary">
+    <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 flex flex-wrap justify-center w-max max-w-[calc(100%-1rem)] items-center gap-1.5 p-1.5 rounded-2xl bg-surface/90 border border-border backdrop-blur-xl shadow-2xl text-text-primary">
       {/* 1. Architectural CAD Tools */}
       <div className="flex items-center gap-1 bg-surface-elevated/40 p-1 rounded-xl border border-border/50">
         <button
           title="Select & Transform Tool (V)"
-          onClick={() => onSelectTool('select')}
+          onClick={() => selectTool('select')}
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-            activeTool === 'select'
+            activeTool === 'select' && !activePascalTool
               ? 'bg-accent text-white shadow-md shadow-accent/25'
               : 'hover:bg-surface-elevated text-text-secondary hover:text-text-primary'
           }`}
@@ -97,35 +119,26 @@ export function EditorToolbar({ activeTool, onSelectTool, onOpenConvertModal, is
           <span>Select</span>
         </button>
 
-        <button
-          title="Wall Drawing & Reshape Tool (W)"
-          onClick={() => onSelectTool('wall')}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-            activeTool === 'wall'
-              ? 'bg-accent text-white shadow-md shadow-accent/25'
-              : 'hover:bg-surface-elevated text-text-secondary hover:text-text-primary'
-          }`}
-        >
-          <Square size={14} />
-          <span>Wall</span>
-        </button>
-
-        <button
-          title="Slab Floor Tool (S)"
-          onClick={() => onSelectTool('slab')}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-            activeTool === 'slab'
-              ? 'bg-accent text-white shadow-md shadow-accent/25'
-              : 'hover:bg-surface-elevated text-text-secondary hover:text-text-primary'
-          }`}
-        >
-          <Grid3X3 size={14} />
-          <span>Slab</span>
-        </button>
+        {PASCAL_TOOLS.map(({ tool, label, title, Icon }) => (
+          <button
+            key={tool}
+            title={title}
+            aria-label={label}
+            aria-pressed={activePascalTool === tool}
+            onClick={() => armArchitecturalTool(activePascalTool === tool ? null : tool)}
+            className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs font-medium transition-all ${
+              activePascalTool === tool
+                ? 'bg-accent text-white shadow-md shadow-accent/25'
+                : 'hover:bg-surface-elevated text-text-secondary hover:text-text-primary'
+            }`}
+          >
+            <Icon size={14} />
+          </button>
+        ))}
 
         <button
           title="Zone Definition Tool (Z)"
-          onClick={() => onSelectTool('zone')}
+          onClick={() => selectTool('zone')}
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
             activeTool === 'zone'
               ? 'bg-accent text-white shadow-md shadow-accent/25'
@@ -138,7 +151,7 @@ export function EditorToolbar({ activeTool, onSelectTool, onOpenConvertModal, is
 
         <button
           title="Furniture & Door/Window Placement (I)"
-          onClick={() => onSelectTool('item')}
+          onClick={() => selectTool('item')}
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
             activeTool === 'item'
               ? 'bg-accent text-white shadow-md shadow-accent/25'
@@ -156,7 +169,7 @@ export function EditorToolbar({ activeTool, onSelectTool, onOpenConvertModal, is
       <div className="flex items-center gap-1 bg-surface-elevated/40 p-1 rounded-xl border border-border/50">
         <button
           title="Splat Bounding-Box Erasure Crop Tool (SuperSplat)"
-          onClick={() => onSelectTool('splat-crop')}
+          onClick={() => selectTool('splat-crop')}
           className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
             activeTool === 'splat-crop'
               ? 'bg-amber-600 text-white shadow-md shadow-amber-600/25'
@@ -169,7 +182,7 @@ export function EditorToolbar({ activeTool, onSelectTool, onOpenConvertModal, is
 
         <button
           title="Splat Eraser Brush (SuperSplat)"
-          onClick={() => onSelectTool('splat-eraser')}
+          onClick={() => selectTool('splat-eraser')}
           className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
             activeTool === 'splat-eraser'
               ? 'bg-amber-600 text-white shadow-md shadow-amber-600/25'

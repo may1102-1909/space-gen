@@ -1,236 +1,252 @@
-"""2D open-vocabulary detectors behind a single interface.
+"""2D object detectors behind one interface.
 
-* ``GeminiDetector``  - Gemini bounding boxes (needs GEMINI_API_KEY; no extra dependencies).
-* ``Owlv2Detector``   - OWLv2 via transformers/torch, imported lazily (see requirements-gpu.txt).
-* ``FixtureDetector`` - deterministic boxes keyed by image name, for tests and evaluation.
+Adapters:
+- GroundedSamDetector: open-vocabulary boxes (OWLv2 / Grounding DINO via transformers), refined to
+  masks by SAM 2 when the `sam2` package is installed. Heavy deps are imported lazily.
+- GeminiDetector: Gemini bounding boxes, used when an API key is configured.
+- FakeDetector: projects known 3D boxes into each view with seeded noise (tests / evaluation).
 """
 
 from __future__ import annotations
 
-import io
+import importlib.util
 import json
+import os
 import re
-from abc import ABC, abstractmethod
+import zlib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import List, Optional, Protocol, Sequence
 
-from config import settings
+import numpy as np
 
-DEFAULT_LABELS: tuple[str, ...] = (
-    "sofa",
-    "chair",
-    "armchair",
-    "table",
-    "coffee table",
-    "dining table",
-    "desk",
-    "bed",
-    "nightstand",
-    "bookshelf",
-    "cabinet",
-    "dresser",
-    "tv",
-    "tv stand",
-    "lamp",
-    "plant",
-    "rug",
-    "stool",
-)
-
-# Gemini returns no calibrated score; this prior is used when the model omits one.
-GEMINI_DEFAULT_SCORE = 0.6
+from services.object_detection.geometry import CameraView, obb_corners
 
 
-class DetectorUnavailable(RuntimeError):
-    """The requested detector cannot run in this environment."""
-
-
-@dataclass(frozen=True)
-class Frame:
-    name: str
-    path: Path | None
-    width: int
-    height: int
-
-
-@dataclass(frozen=True)
+@dataclass
 class Detection2D:
     label: str
     score: float
-    box: tuple[float, float, float, float]  # (x0, y0, x1, y1), normalized to [0, 1]
+    box: tuple  # (x0, y0, x1, y1) in pixels
+    mask: Optional[np.ndarray] = None  # (H, W) bool, optional
 
 
-class Detector2D(ABC):
-    name: str = "detector"
+@dataclass
+class Keyframe:
+    name: str
+    camera: CameraView
+    image_path: Optional[Path] = None
 
-    @abstractmethod
-    def detect(self, frame: Frame, labels: Sequence[str]) -> list[Detection2D]: ...
+    def load_image(self):
+        from PIL import Image
 
-
-class FixtureDetector(Detector2D):
-    name = "fixture"
-
-    def __init__(self, boxes: Mapping[str, Sequence[Detection2D]]):
-        self._boxes = {k: list(v) for k, v in boxes.items()}
-
-    @classmethod
-    def from_json(cls, source: str | Path | Mapping[str, Any]) -> "FixtureDetector":
-        """Build from a JSON file path or dict: ``{image_name: [{"label", "score", "box": [x0, y0, x1, y1]}]}``."""
-        data = source if isinstance(source, Mapping) else json.loads(Path(source).read_text(encoding="utf-8"))
-        boxes: dict[str, list[Detection2D]] = {}
-        for name, items in data.items():
-            for item in items:
-                box = _clamp_box(*(float(v) for v in item["box"]))
-                if box:
-                    boxes.setdefault(name, []).append(
-                        Detection2D(str(item["label"]), float(item.get("score", 1.0)), box)
-                    )
-        return cls(boxes)
-
-    def detect(self, frame: Frame, labels: Sequence[str]) -> list[Detection2D]:
-        wanted = {label.lower() for label in labels}
-        return [d for d in self._boxes.get(frame.name, []) if d.label.lower() in wanted]
+        if self.image_path is None:
+            raise FileNotFoundError(f"No image file for keyframe {self.name}")
+        return Image.open(self.image_path).convert("RGB")
 
 
-def _clamp_box(x0: float, y0: float, x1: float, y1: float) -> tuple[float, float, float, float] | None:
-    x0, x1 = sorted((min(max(x0, 0.0), 1.0), min(max(x1, 0.0), 1.0)))
-    y0, y1 = sorted((min(max(y0, 0.0), 1.0), min(max(y1, 0.0), 1.0)))
-    if x1 - x0 < 1e-3 or y1 - y0 < 1e-3:
-        return None
-    return x0, y0, x1, y1
+class Detector2D(Protocol):
+    name: str
+
+    def detect(self, frame: Keyframe, labels: Sequence[str]) -> List[Detection2D]: ...
 
 
-def _load_rgb(frame: Frame):
-    from PIL import Image
-
-    if frame.path is None or not frame.path.exists():
-        raise FileNotFoundError(f"Keyframe image not found for {frame.name}")
-    return Image.open(frame.path).convert("RGB")
+# ---------------------------------------------------------------------------
+# Fake detector
+# ---------------------------------------------------------------------------
 
 
-class GeminiDetector(Detector2D):
-    name = "gemini"
-    _PROMPT = (
-        "Detect every instance of these object categories in the room photo: {labels}. "
-        "Return ONLY a JSON array. Each item: "
-        '{{"label": <one of the categories>, "box_2d": [ymin, xmin, ymax, xmax] with values 0-1000, '
-        '"confidence": <0-1>}}. Do not invent objects that are not visible. Return [] if none.'
-    )
+@dataclass
+class FakeObject:
+    label: str
+    center: tuple
+    size: tuple
+    yaw: float
 
-    def __init__(self, api_key: str | None = None, model: str | None = None, client: Any = None):
-        self.model = model or settings.gemini_fast_model
-        if client is not None:
-            self._client = client
-            return
-        key = api_key if api_key is not None else settings.gemini_api_key
-        if not self.is_configured(key):
-            raise DetectorUnavailable("Gemini detector needs GEMINI_API_KEY to be set")
-        from google import genai
 
-        self._client = genai.Client(api_key=key)
+class FakeDetector:
+    """Projects ground-truth OBBs and perturbs the boxes deterministically per keyframe name."""
 
-    @staticmethod
-    def is_configured(api_key: str | None = None) -> bool:
-        key = settings.gemini_api_key if api_key is None else api_key
-        return bool(key) and key not in ("your_key_here", "None")
+    name = "fake"
 
-    def detect(self, frame: Frame, labels: Sequence[str]) -> list[Detection2D]:
-        from google.genai import types
+    def __init__(
+        self,
+        objects: Sequence[FakeObject],
+        box_noise: float = 0.0,
+        miss_rate: float = 0.0,
+        false_positive_rate: float = 0.0,
+        min_visible_fraction: float = 0.5,
+        seed: int = 0,
+    ):
+        self.objects = list(objects)
+        self.box_noise = box_noise
+        self.miss_rate = miss_rate
+        self.false_positive_rate = false_positive_rate
+        self.min_visible_fraction = min_visible_fraction
+        self.seed = seed
 
-        image = _load_rgb(frame)
-        image.thumbnail((1024, 1024))
-        buf = io.BytesIO()
-        image.save(buf, format="JPEG", quality=88)
-        response = self._client.models.generate_content(
-            model=self.model,
-            contents=[
-                self._PROMPT.format(labels=", ".join(labels)),
-                types.Part.from_bytes(data=buf.getvalue(), mime_type="image/jpeg"),
-            ],
-            config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.0),
-        )
-        return self.parse_response(response.text or "[]", labels)
-
-    @staticmethod
-    def parse_response(text: str, labels: Sequence[str]) -> list[Detection2D]:
-        text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip())
-        try:
-            items = json.loads(text)
-        except json.JSONDecodeError:
-            return []
-        if isinstance(items, dict):
-            items = items.get("detections") or items.get("objects") or []
-        wanted = {label.lower(): label for label in labels}
-        out: list[Detection2D] = []
-        for item in items if isinstance(items, list) else []:
-            try:
-                label = wanted.get(str(item["label"]).lower())
-                ymin, xmin, ymax, xmax = (float(v) / 1000.0 for v in item["box_2d"])
-                score = float(item.get("confidence", item.get("score", GEMINI_DEFAULT_SCORE)))
-            except (KeyError, TypeError, ValueError):
+    def detect(self, frame: Keyframe, labels: Sequence[str]) -> List[Detection2D]:
+        cam = frame.camera
+        rng = np.random.default_rng(self.seed + zlib.crc32(frame.name.encode()))
+        out: List[Detection2D] = []
+        for obj in self.objects:
+            if obj.label not in labels:
                 continue
-            box = _clamp_box(xmin, ymin, xmax, ymax)
-            if label and box:
-                out.append(Detection2D(label, min(max(score, 0.0), 1.0), box))
+            uv, depth = cam.project(obb_corners(obj.center, obj.size, obj.yaw))
+            if np.any(depth <= 0.05):
+                continue
+            x0, y0 = uv.min(axis=0)
+            x1, y1 = uv.max(axis=0)
+            area = (x1 - x0) * (y1 - y0)
+            cx0, cy0, cx1, cy1 = max(x0, 0), max(y0, 0), min(x1, cam.width), min(y1, cam.height)
+            if area <= 0 or cx1 <= cx0 or cy1 <= cy0 or (cx1 - cx0) * (cy1 - cy0) / area < self.min_visible_fraction:
+                continue
+            if rng.random() < self.miss_rate:
+                continue
+            w, h = x1 - x0, y1 - y0
+            jitter = rng.normal(0.0, self.box_noise, 4) * np.array([w, h, w, h])
+            box = (cx0 + jitter[0], cy0 + jitter[1], cx1 + jitter[2], cy1 + jitter[3])
+            out.append(Detection2D(obj.label, float(rng.uniform(0.6, 0.95)), _clip_box(box, cam)))
+        if labels and rng.random() < self.false_positive_rate:
+            w, h = rng.uniform(0.05, 0.3) * cam.width, rng.uniform(0.05, 0.3) * cam.height
+            x0, y0 = rng.uniform(0, cam.width - w), rng.uniform(0, cam.height - h)
+            label = labels[int(rng.integers(len(labels)))]
+            out.append(Detection2D(label, float(rng.uniform(0.3, 0.6)), (x0, y0, x0 + w, y0 + h)))
         return out
 
 
-class Owlv2Detector(Detector2D):
-    """OWLv2 open-vocabulary detector. Runs on CUDA when available, otherwise (slowly) on CPU."""
+def _clip_box(box, cam: CameraView) -> tuple:
+    x0, y0, x1, y1 = box
+    x0, x1 = sorted((float(np.clip(x0, 0, cam.width)), float(np.clip(x1, 0, cam.width))))
+    y0, y1 = sorted((float(np.clip(y0, 0, cam.height)), float(np.clip(y1, 0, cam.height))))
+    return (x0, y0, x1, y1)
 
-    name = "owlv2"
 
-    def __init__(self, model_id: str = "google/owlv2-base-patch16-ensemble", threshold: float = 0.2):
-        try:
-            import torch
-            from transformers import Owlv2ForObjectDetection, Owlv2Processor
-        except ImportError as exc:
-            raise DetectorUnavailable(
-                "OWLv2 needs torch and transformers (pip install -r requirements-gpu.txt)"
-            ) from exc
-        self._torch = torch
+# ---------------------------------------------------------------------------
+# Open-vocabulary detector + SAM 2 (optional heavy deps)
+# ---------------------------------------------------------------------------
+
+
+class GroundedSamDetector:
+    """OWLv2 or Grounding DINO boxes, refined with SAM 2 masks when available. Uses CUDA if present."""
+
+    name = "grounded_sam"
+    DEFAULT_MODEL = "google/owlv2-base-patch16-ensemble"
+
+    def __init__(
+        self, model_id: Optional[str] = None, sam_model_id: str = "facebook/sam2-hiera-small", threshold: float = 0.25
+    ):
+        import torch
+        from transformers import pipeline
+
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.threshold = threshold
-        self._processor = Owlv2Processor.from_pretrained(model_id)
-        self._model = Owlv2ForObjectDetection.from_pretrained(model_id).to(self.device).eval()
+        self.model_id = model_id or os.getenv("DETECTOR_MODEL", self.DEFAULT_MODEL)
+        self._pipe = pipeline("zero-shot-object-detection", model=self.model_id, device=self.device)
+        self._sam = None
+        if importlib.util.find_spec("sam2") is not None:
+            from sam2.sam2_image_predictor import SAM2ImagePredictor
 
-    def detect(self, frame: Frame, labels: Sequence[str]) -> list[Detection2D]:
-        image = _load_rgb(frame)
-        w, h = image.size
-        queries = [f"a photo of a {label}" for label in labels]
-        inputs = self._processor(text=[queries], images=image, return_tensors="pt").to(self.device)
-        with self._torch.no_grad():
-            outputs = self._model(**inputs)
-        # OWLv2 pads the image to a square, so boxes are relative to max(w, h).
-        side = max(w, h)
-        results = self._processor.post_process_object_detection(
-            outputs, threshold=self.threshold, target_sizes=self._torch.tensor([[side, side]], device=self.device)
-        )[0]
-        out: list[Detection2D] = []
-        for score, idx, box in zip(results["scores"], results["labels"], results["boxes"], strict=True):
-            x0, y0, x1, y1 = (float(v) for v in box)
-            clamped = _clamp_box(x0 / w, y0 / h, x1 / w, y1 / h)
-            if clamped:
-                out.append(Detection2D(labels[int(idx)], float(score), clamped))
-        return out
+            self._sam = SAM2ImagePredictor.from_pretrained(sam_model_id, device=self.device)
+
+    @staticmethod
+    def is_available() -> bool:
+        return all(importlib.util.find_spec(m) is not None for m in ("torch", "transformers"))
+
+    def detect(self, frame: Keyframe, labels: Sequence[str]) -> List[Detection2D]:
+        image = frame.load_image()
+        raw = self._pipe(image, candidate_labels=list(labels), threshold=self.threshold)
+        dets = [
+            Detection2D(
+                r["label"], float(r["score"]), (r["box"]["xmin"], r["box"]["ymin"], r["box"]["xmax"], r["box"]["ymax"])
+            )
+            for r in raw
+        ]
+        if self._sam is not None and dets:
+            self._sam.set_image(np.asarray(image))
+            for d in dets:
+                masks, _, _ = self._sam.predict(box=np.array(d.box), multimask_output=False)
+                d.mask = masks[0].astype(bool)
+        return dets
+
+
+# ---------------------------------------------------------------------------
+# Gemini bounding boxes (fallback)
+# ---------------------------------------------------------------------------
+
+GEMINI_PROMPT = (
+    "Detect every instance of these objects: {labels}. Return a JSON array; each item has "
+    '"label" (one of the given names), "box_2d" as [ymin, xmin, ymax, xmax] normalized to 0-1000, '
+    'and "score" between 0 and 1. Return [] if none are visible.'
+)
+
+
+def gemini_api_key() -> str:
+    from config import settings
+
+    for key in (settings.gemini_api_key, os.getenv("GEMINI_API_KEY", ""), os.getenv("GOOGLE_API_KEY", "")):
+        if key and key not in ("your_key_here", "None"):
+            return key
+    return ""
+
+
+def parse_gemini_boxes(text: str, width: int, height: int, labels: Sequence[str]) -> List[Detection2D]:
+    """Parse Gemini's box_2d JSON (optionally fenced in ```json) into pixel-space detections."""
+    match = re.search(r"\[.*\]", text, re.S)
+    if not match:
+        return []
+    try:
+        items = json.loads(match.group(0))
+    except json.JSONDecodeError:
+        return []
+    allowed = {label.lower(): label for label in labels}
+    out: List[Detection2D] = []
+    for item in items:
+        if not isinstance(item, dict) or "box_2d" not in item:
+            continue
+        label = allowed.get(str(item.get("label", "")).strip().lower())
+        try:
+            ymin, xmin, ymax, xmax = (float(v) for v in item["box_2d"])
+            score = float(item.get("score", 0.6))
+        except (TypeError, ValueError):
+            continue
+        if label is None or xmax <= xmin or ymax <= ymin:
+            continue
+        box = (xmin / 1000 * width, ymin / 1000 * height, xmax / 1000 * width, ymax / 1000 * height)
+        out.append(Detection2D(label, float(np.clip(score, 0.0, 1.0)), box))
+    return out
+
+
+class GeminiDetector:
+    name = "gemini"
+
+    def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None):
+        from google import genai
+
+        from config import settings
+
+        self.client = genai.Client(api_key=api_key or gemini_api_key())
+        self.model = model or settings.gemini_fast_model
+
+    def detect(self, frame: Keyframe, labels: Sequence[str]) -> List[Detection2D]:
+        from google.genai import types
+
+        image = frame.load_image()
+        response = self.client.models.generate_content(
+            model=self.model,
+            contents=[image, GEMINI_PROMPT.format(labels=", ".join(labels))],
+            config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.0),
+        )
+        return parse_gemini_boxes(response.text or "", image.width, image.height, labels)
 
 
 def get_detector(name: str = "auto") -> Detector2D:
-    """Build a detector by name. ``auto`` prefers OWLv2 when torch+transformers exist, else Gemini."""
-    name = (name or "auto").lower()
-    if name == "owlv2":
-        return Owlv2Detector()
-    if name == "gemini":
+    """Resolve a detector by name; 'auto' prefers the local open-vocab model, then Gemini."""
+    if name in ("auto", "grounded_sam") and GroundedSamDetector.is_available():
+        return GroundedSamDetector()
+    if name in ("auto", "gemini") and gemini_api_key():
         return GeminiDetector()
-    if name != "auto":
-        raise DetectorUnavailable(f"Unknown detector '{name}' (use auto, gemini or owlv2)")
-    try:
-        return Owlv2Detector()
-    except DetectorUnavailable:
-        pass
-    if GeminiDetector.is_configured():
-        return GeminiDetector()
-    raise DetectorUnavailable(
-        "No object detector available: set GEMINI_API_KEY or install requirements-gpu.txt (torch + transformers)"
+    raise RuntimeError(
+        f"Detector '{name}' unavailable: install torch + transformers (and optionally sam2), "
+        "or set GEMINI_API_KEY / GOOGLE_API_KEY."
     )

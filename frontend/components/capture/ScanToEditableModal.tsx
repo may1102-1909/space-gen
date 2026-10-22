@@ -21,7 +21,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 interface ScanToEditableModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onConverted?: (result: any) => void;
+  onConverted?: (result: unknown) => void;
 }
 
 export function ScanToEditableModal({
@@ -48,7 +48,7 @@ export function ScanToEditableModal({
 
         setIsProcessing(false);
         setSuccessInfo(
-          `Extracted ${result.wallCount} walls, 1 floor slab, and ${result.itemCount} editable 3D furniture meshes with ${result.exclusionBoxCount} splat erasure masks!`
+          `Extracted ${result.wallCount} walls, 1 floor slab, and ${result.itemCount} detections to review with ${result.exclusionBoxCount} splat masks.`
         );
 
         if (onConverted) onConverted(result);
@@ -56,7 +56,7 @@ export function ScanToEditableModal({
         setTimeout(() => {
           onClose();
         }, 1400);
-      } catch (err: any) {
+      } catch (err) {
         setIsProcessing(false);
         console.error('Scan conversion failed:', err);
       }

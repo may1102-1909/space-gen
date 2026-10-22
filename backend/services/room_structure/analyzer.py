@@ -74,7 +74,10 @@ def prepare_points(
     pts = np.asarray(positions, dtype=np.float64).reshape(-1, 3)
     keep = np.isfinite(pts).all(axis=1)
     if opacity is not None:
-        keep &= np.asarray(opacity, dtype=np.float64) >= opts.min_opacity
+        alpha = np.asarray(opacity, dtype=np.float64)
+        if alpha.size and (alpha.min() < 0.0 or alpha.max() > 1.0):  # raw 3DGS logits
+            alpha = 1.0 / (1.0 + np.exp(-np.clip(alpha, -30.0, 30.0)))
+        keep &= alpha >= opts.min_opacity
     pts = pts[keep]
     if colmap_points is not None and len(colmap_points):
         extra = np.asarray(colmap_points, dtype=np.float64).reshape(-1, 3)
@@ -482,7 +485,14 @@ def analyze_room(
     if not results:
         raise error or RoomStructureError("Could not interpret the room.")
     best = max(results, key=lambda item: item[0])[1]
-    if len(candidates) > 1:
+    if len(results) == 2 and results[0][0][0] == results[1][0][0]:
+        masses = [key[1] for key, _ in results]
+        if abs(masses[0] - masses[1]) <= 0.02 * max(masses):
+            # Floor and ceiling look alike and no opening decides: fall back to the scan's +Y as up,
+            # the usual convention of capture apps and splat exporters.
+            best = max(results, key=lambda item: item[1].diagnostics["gravity"]["upScan"][1])[1]
+            best.diagnostics["notes"].append("up axis sign ambiguous; assumed the scan's +Y is up")
+    if len(candidates) > 1 and not best.diagnostics["notes"]:
         best.diagnostics["notes"].append("up axis sign resolved from openings and floor mass (no furniture evidence)")
     report("done", 1.0)
     return best
@@ -579,10 +589,13 @@ def _solve(
             if fits[i].observed:
                 openings.extend(detect_openings(q_c, wall, i, verts_c.mean(axis=0)))
 
+    floor_cov = float(raw_mask[mask > 0].mean()) if mask.any() else 0.0
+    floor_conf = float(confs["floor"] * min(1.0, 0.5 + floor_cov))
     interpretation = RoomInterpretation(
         provenance="auto",
-        floor=FloorPlane(normal=(0.0, 1.0, 0.0), constant=0.0, provenance="auto"),
+        floor=FloorPlane(normal=(0.0, 1.0, 0.0), constant=0.0, provenance="auto", confidence=floor_conf),
         ceilingHeight=float(height),
+        ceilingConfidence=float(confs["ceiling"]),
         outline=[(float(p[0]), float(p[1])) for p in verts_c],
         walls=walls,
         openings=openings,
@@ -598,13 +611,12 @@ def _solve(
     total_len = sum(np.linalg.norm(np.subtract(w.end, w.start)) for w in walls)
     outline_conf = float(sum(w.confidence * np.linalg.norm(np.subtract(w.end, w.start)) for w in walls) / total_len)
 
-    floor_cov = float(raw_mask[mask > 0].mean()) if mask.any() else 0.0
     diagnostics: dict[str, Any] = {
         "pointsInput": int(n_input),
         "pointsUsed": int(len(pts)),
         "gravity": {"upScan": [float(v) for v in up], "confidence": float(gravity_conf)},
         "floor": {
-            "confidence": float(confs["floor"] * min(1.0, 0.5 + floor_cov)),
+            "confidence": floor_conf,
             "mass": int(np.count_nonzero(np.abs(pts @ up - floor_h) < 0.05)),
         },
         "ceiling": {"height": float(height), "confidence": float(confs["ceiling"])},

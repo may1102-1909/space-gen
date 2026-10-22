@@ -34,6 +34,14 @@ def _classify(sill: float, height: float, width: float, wall_height: float) -> s
     return "opening"
 
 
+def _refine_edge(values: np.ndarray, edge: float, solid_below: bool) -> float:
+    """Sub-cell edge from the extreme solid-side points next to a cell-quantised edge."""
+    near = values[np.abs(values - edge) < 3 * CELL]
+    if len(near) < 5:
+        return edge
+    return float(np.percentile(near, 95 if solid_below else 5))
+
+
 def detect_openings(
     points: np.ndarray, wall: WallInterpretation, wall_index: int, room_centre_xz: np.ndarray
 ) -> list[OpeningInterpretation]:
@@ -87,6 +95,16 @@ def detect_openings(
         if width_m > 0.9 * length and height_m > 0.9 * height:
             continue  # whole wall missing: unobserved, not an opening
         s0, sill = x * CELL, row * CELL
+        # Refine the 5 cm cell edges from the wall points bordering the gap (rows/columns inside it).
+        plane_s, plane_y = along[on_plane], y[on_plane]
+        rows = (plane_y > sill + CELL) & (plane_y < sill + height_m - CELL)
+        cols = (plane_s > s0 + CELL) & (plane_s < s0 + width_m - CELL)
+        left = _refine_edge(plane_s[rows], s0, solid_below=True)
+        right = _refine_edge(plane_s[rows], s0 + width_m, solid_below=False)
+        bottom = _refine_edge(plane_y[cols], sill, solid_below=True) if sill >= 0.1 else 0.0
+        top = _refine_edge(plane_y[cols], sill + height_m, solid_below=False)
+        if right - left >= MIN_OPENING and top - bottom >= MIN_OPENING:
+            s0, sill, width_m, height_m = left, bottom, right - left, top - bottom
 
         ring = filled[max(row - 1, 0) : row + h + 1, max(x - 1, 0) : x + w + 1].astype(float)
         inner = filled[row : row + h, x : x + w].astype(float)
@@ -104,7 +122,7 @@ def detect_openings(
                 id=f"opening_{wall_index}_{len(found)}",
                 wallId=wall.id,
                 kind=_classify(sill, height_m, width_m, height),
-                offset=float(s0),
+                offset=float(s0 + width_m / 2),  # contract: wall.start -> opening centre
                 width=float(width_m),
                 height=float(height_m),
                 sill=float(sill),
@@ -126,8 +144,7 @@ def merge_external_openings(
                 i
                 for i, o in enumerate(merged)
                 if o.wallId == ext.wallId
-                and min(o.offset + o.width, ext.offset + ext.width) - max(o.offset, ext.offset)
-                > 0.3 * min(o.width, ext.width)
+                and (o.width + ext.width) / 2 - abs(o.offset - ext.offset) > 0.3 * min(o.width, ext.width)
             ),
             None,
         )

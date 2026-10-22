@@ -1,19 +1,13 @@
 'use client';
 
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
-import {
-  SparkRenderer,
-  SplatMesh,
-  SplatEdit,
-  SplatEditSdf,
-  SplatEditSdfType,
-} from '@sparkjsdev/spark';
+import { SparkRenderer, SplatEdit, SplatMesh } from '@sparkjsdev/spark';
 import type { MaskRegion } from '@/lib/contracts';
+import { applyMaskEdits } from '@/lib/splat/maskEdits';
 
 type SparkRendererType = InstanceType<typeof SparkRenderer>;
 type SplatMeshType = InstanceType<typeof SplatMesh>;
-type SplatEditType = InstanceType<typeof SplatEdit>;
 
 export interface SplatCameraState {
   position: [number, number, number];
@@ -42,8 +36,12 @@ export interface SplatBackgroundCanvasProps {
     format: string;
     isLoaded: boolean;
   }) => void;
-  renderMode?: 'synced' | 'unsupported_webgpu' | 'forced_webgl_fail';
 }
+
+// Stable defaults so the mask effect does not rebuild Spark edits on every render.
+const DEFAULT_MASK_POSITION: [number, number, number] = [0, 0, 0];
+const DEFAULT_MASK_SIZE: [number, number, number] = [1.5, 1.5, 1.5];
+const NO_MASK_REGIONS: MaskRegion[] = [];
 
 export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
   cameraState,
@@ -53,11 +51,10 @@ export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
   visible = true,
   onPickerReady,
   enableMasking = false,
-  maskPosition = [0, 0, 0],
-  maskSize = [1.5, 1.5, 1.5],
-  maskRegions = [],
+  maskPosition = DEFAULT_MASK_POSITION,
+  maskSize = DEFAULT_MASK_SIZE,
+  maskRegions = NO_MASK_REGIONS,
   onMetricsUpdate,
-  renderMode = 'synced',
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -65,24 +62,29 @@ export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const sparkRef = useRef<SparkRendererType | null>(null);
   const splatMeshRef = useRef<SplatMeshType | null>(null);
-  const activeEditsRef = useRef<SplatEditType[]>([]);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const raycasterRef = useRef(new THREE.Raycaster());
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  // Bumped whenever a SplatMesh is (re)created so alignment and masks are re-applied to it.
-  const [meshVersion, setMeshVersion] = useState(0);
   const loadedCountRef = useRef(0);
+  const loadedFormatRef = useRef('');
+  // Latest props for the long-lived render loop, refreshed after every render.
   const pickerCallbackRef = useRef(onPickerReady);
-  pickerCallbackRef.current = onPickerReady;
   const legacyCameraStateRef = useRef(cameraState);
-  legacyCameraStateRef.current = cameraState;
+  const cameraStatePropRef = useRef(cameraStateRef);
+  const metricsCallbackRef = useRef(onMetricsUpdate);
+  useEffect(() => {
+    pickerCallbackRef.current = onPickerReady;
+    legacyCameraStateRef.current = cameraState;
+    cameraStatePropRef.current = cameraStateRef;
+    metricsCallbackRef.current = onMetricsUpdate;
+  });
 
-  // FPS calculation refs
+  // FPS calculation refs (lastFpsTime is seeded on the first animation frame)
   const frameCountRef = useRef(0);
-  const lastFpsTimeRef = useRef(performance.now());
-  const currentFpsRef = useRef(60);
+  const lastFpsTimeRef = useRef<number | null>(null);
+  const currentFpsRef = useRef(0);
   // Render on demand: a full splat redraw is expensive (seconds per frame under software GL),
   // so frames are drawn only when the camera, size, mesh or edits change, or Spark reports
   // an async sort/update finished via onDirty.
@@ -115,8 +117,9 @@ export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
       renderer.setSize(width, height);
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
       rendererRef.current = renderer;
-    } catch (err: any) {
-      setErrorMsg(`Failed to initialize WebGL2 context: ${err.message}`);
+    } catch (err) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- surfacing a WebGL context failure from the external renderer is the intent
+      setErrorMsg(`Failed to initialize WebGL2 context: ${(err as Error).message}`);
       return;
     }
 
@@ -135,7 +138,7 @@ export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
       sparkRef.current = spark;
       // SparkRenderer is a THREE.Mesh whose render hooks run only while it is in the scene graph.
       scene.add(spark);
-    } catch (err: any) {
+    } catch (err) {
       console.warn('[SplatCanvas] SparkRenderer init warning:', err);
       return;
     }
@@ -146,7 +149,7 @@ export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
       animId = requestAnimationFrame(renderLoop);
 
       if (rendererRef.current && sceneRef.current && cameraRef.current && sparkRef.current) {
-        const state = cameraStateRef?.current || legacyCameraStateRef.current;
+        const state = cameraStatePropRef.current?.current || legacyCameraStateRef.current;
         if (state) {
           const key = `${state.position}|${state.quaternion}|${state.fov}|${state.aspect}|${state.near}|${state.far}`;
           if (key !== lastCameraKeyRef.current) {
@@ -171,6 +174,7 @@ export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
       }
 
       // FPS tracking (rendered frames only; idle periods keep the last measured value)
+      if (lastFpsTimeRef.current === null) lastFpsTimeRef.current = time;
       if (time - lastFpsTimeRef.current >= 500) {
         if (frameCountRef.current === 0) {
           lastFpsTimeRef.current = time;
@@ -182,11 +186,11 @@ export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
         frameCountRef.current = 0;
         lastFpsTimeRef.current = time;
 
-        if (onMetricsUpdate && loadedCountRef.current > 0) {
-          onMetricsUpdate({
+        if (metricsCallbackRef.current && loadedCountRef.current > 0) {
+          metricsCallbackRef.current({
             fps: currentFpsRef.current,
             splatCount: loadedCountRef.current,
-            format: 'pcsogszip (.sog)',
+            format: loadedFormatRef.current,
             isLoaded: true,
           });
         }
@@ -214,21 +218,6 @@ export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
       renderer.dispose();
     };
   }, []);
-
-  // Update diagnostic simulation message when renderMode changes
-  useEffect(() => {
-    if (renderMode === 'unsupported_webgpu') {
-      setErrorMsg(
-        'SIMULATION ERROR (Option A): WebGPURenderer is incompatible with @sparkjsdev/spark. Spark called `renderer.getContext()`, which returned undefined (WebGPU uses GPUCanvasContext). Spark crashed with: TypeError: renderer.properties is undefined.'
-      );
-    } else if (renderMode === 'forced_webgl_fail') {
-      setErrorMsg(
-        'SIMULATION ERROR (Option B): Three.js WebGPURenderer({ forceWebGL: true }) uses WebGLBackend with TSL NodeMaterial pipelines. Spark RawShaderMaterial GLSL compilation failed: Backend requires NodeMaterials.'
-      );
-    } else {
-      setErrorMsg(null);
-    }
-  }, [renderMode]);
 
   // 2. Load the active Pascal ScanNode's source unchanged into Spark.
   useEffect(() => {
@@ -258,7 +247,7 @@ export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
           onMetricsUpdate?.({
             fps: currentFpsRef.current,
             splatCount: loadedCountRef.current,
-            format: scanUrl.split(/[?#]/)[0].split('.').pop()?.toUpperCase() || 'SCAN',
+            format: (loadedFormatRef.current = scanUrl.split(/[?#]/)[0].split('.').pop()?.toUpperCase() || 'SCAN'),
             isLoaded: true,
           });
           const picker = (clientX: number, clientY: number) => {
@@ -283,9 +272,9 @@ export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
       splatMeshRef.current = splatMesh;
       scene.add(splatMesh);
       needsRenderRef.current = true;
-      setMeshVersion((v) => v + 1);
-    } catch (err: any) {
-      setErrorMsg(`Could not load scan: ${err.message}`);
+    } catch (err) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- Spark throws synchronously for unsupported scan URLs; show it
+      setErrorMsg(`Could not load scan: ${(err as Error).message}`);
     }
     return () => {
       cancelled = true;
@@ -312,121 +301,77 @@ export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
     mesh.matrixAutoUpdate = false;
     mesh.matrix.copy(matrix);
     mesh.matrixWorldNeedsUpdate = true;
-  }, [scanToScene, scanUrl, visible, meshVersion]);
+  }, [scanToScene, scanUrl, visible]);
 
-  // 3. Dynamic Per-Region OBB Masking (SplatEdit SDF Box) with feathered opacity falloff & ghost mode
+  // 4. Per-region OBB masking. Re-runs whenever the SplatMesh is recreated (scanUrl change), so a
+  // newly loaded scan never renders without its persisted masks.
   useEffect(() => {
     const splatMesh = splatMeshRef.current;
-    const scene = sceneRef.current;
-    if (!splatMesh || !scene) return;
-
-    // Edits are assigned only via splatMesh.edits. Spark also applies any SplatEdit found
-    // in the scene graph as a global edit, so adding them to the scene would apply each
-    // mask twice (ghost 25% would render at ~6%).
-    activeEditsRef.current = [];
-
-    const nextEdits: SplatEditType[] = [];
-
-    if (maskRegions && maskRegions.length > 0) {
-      for (const mask of maskRegions) {
-        if (mask.enabled === false) continue;
-
-        const targetOpacity = mask.ghost ? (mask.opacity ?? 0.25) : 0.0;
-        const boxSdf = new SplatEditSdf({
-          type: SplatEditSdfType.BOX,
-          opacity: targetOpacity,
-        });
-
-        boxSdf.position.set(mask.obb.center[0], mask.obb.center[1], mask.obb.center[2]);
-        boxSdf.rotation.set(0, mask.obb.yaw || 0, 0);
-        // Half-extents for Spark box SDF:
-        boxSdf.scale.set(
-          Math.max(0.01, mask.obb.size[0] / 2),
-          Math.max(0.01, mask.obb.size[1] / 2),
-          Math.max(0.01, mask.obb.size[2] / 2)
-        );
-
-        const edit = new SplatEdit({
-          sdfs: [boxSdf],
-          softEdge: mask.feather ?? 0.05,
-          sdfSmooth: 0.02,
-        });
-
-        nextEdits.push(edit);
-      }
-    } else if (enableMasking) {
-      const boxSdf = new SplatEditSdf({
-        type: SplatEditSdfType.BOX,
-        opacity: 0.0,
-      });
-      boxSdf.position.set(...maskPosition);
-      boxSdf.scale.set(
-        Math.max(0.01, maskSize[0] / 2),
-        Math.max(0.01, maskSize[1] / 2),
-        Math.max(0.01, maskSize[2] / 2)
-      );
-
-      const edit = new SplatEdit({
-        sdfs: [boxSdf],
-        softEdge: 0.05,
-        sdfSmooth: 0.02,
-      });
-
-      nextEdits.push(edit);
-    }
-
-    splatMesh.edits = nextEdits.length > 0 ? nextEdits : null;
-    activeEditsRef.current = nextEdits;
+    if (!splatMesh) return;
+    const regions: MaskRegion[] = maskRegions.length > 0
+      ? maskRegions
+      : enableMasking
+        ? [{ id: 'prototype-mask', obb: { center: maskPosition, size: maskSize, yaw: 0 }, feather: 0.05, enabled: true }]
+        : [];
+    applyMaskEdits(splatMesh, regions);
     needsRenderRef.current = true;
-
     return () => {
-      activeEditsRef.current = [];
+      splatMesh.edits = null;
       needsRenderRef.current = true;
-      if (splatMeshRef.current === splatMesh) {
-        splatMesh.edits = null;
-      }
     };
-  }, [enableMasking, maskPosition, maskSize, maskRegions, meshVersion]);
+  }, [scanUrl, enableMasking, maskPosition, maskSize, maskRegions]);
 
-  // Read-only diagnostics for E2E tests: reports the edits Spark actually receives.
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const w = window as unknown as { __spaceGenSplat?: () => unknown };
-    w.__spaceGenSplat = () => {
+    if (process.env.NEXT_PUBLIC_E2E !== '1') return;
+    const sceneCenters = (visit: (p: THREE.Vector3) => void) => {
       const mesh = splatMeshRef.current;
-      let globalEdits = 0;
-      sceneRef.current?.traverse((node) => {
-        if (node instanceof SplatEdit) globalEdits += 1;
-      });
-      return {
-        hasMesh: !!mesh,
-        loadedSplats: loadedCountRef.current,
-        globalEdits,
-        edits: (mesh?.edits ?? []).map((edit: SplatEditType) => ({
-          softEdge: edit.softEdge,
-          sdfs: (edit.sdfs ?? []).map((sdf: InstanceType<typeof SplatEditSdf>) => ({
-            type: sdf.type,
-            opacity: sdf.opacity,
-            center: sdf.position.toArray(),
-            halfExtents: sdf.scale.toArray(),
-            yaw: sdf.rotation.y,
-          })),
-        })),
-      };
+      if (!mesh?.isInitialized) return;
+      mesh.updateMatrixWorld();
+      const world = mesh.matrixWorld;
+      mesh.forEachSplat((_i: number, center: THREE.Vector3) => visit(center.clone().applyMatrix4(world)));
+    };
+    window.__spacegenSplat = {
+      numSplats: () => splatMeshRef.current?.numSplats ?? 0,
+      editCount: () => splatMeshRef.current?.edits?.length ?? 0,
+      globalEditCount() {
+        let count = 0;
+        sceneRef.current?.traverse((node) => {
+          if (node instanceof SplatEdit) count += 1;
+        });
+        return count;
+      },
+      edits: () =>
+        (splatMeshRef.current?.edits ?? []).flatMap((edit) =>
+          (edit.sdfs ?? []).map((sdf) => ({ opacity: sdf.opacity, halfExtents: sdf.scale.toArray() })),
+        ),
+      bounds() {
+        const box = new THREE.Box3();
+        sceneCenters((p) => box.expandByPoint(p));
+        return box.isEmpty() ? null : { min: box.min.toArray(), max: box.max.toArray() };
+      },
+      countInside(obb) {
+        const toLocal = new THREE.Matrix4().makeRotationY(obb.yaw).setPosition(...obb.center).invert();
+        let count = 0;
+        sceneCenters((p) => {
+          p.applyMatrix4(toLocal);
+          if (Math.abs(p.x) <= obb.size[0] / 2 && Math.abs(p.y) <= obb.size[1] / 2 && Math.abs(p.z) <= obb.size[2] / 2) count += 1;
+        });
+        return count;
+      },
     };
     return () => {
-      delete w.__spaceGenSplat;
+      delete window.__spacegenSplat;
     };
   }, []);
 
   return (
     <div ref={containerRef} className="absolute inset-0 w-full h-full pointer-events-none">
-      <canvas ref={canvasRef} className="w-full h-full block" />
+      <canvas ref={canvasRef} data-testid="splat-canvas" className="w-full h-full block" />
       {errorMsg && (
         <div className="absolute inset-0 z-10 flex items-center justify-center bg-red-950/60 p-6 text-red-200 pointer-events-none">
           <div className="max-w-lg bg-black/90 p-5 border border-red-500 rounded-xl shadow-2xl font-mono text-xs pointer-events-auto">
             <h4 className="text-sm font-bold text-red-400 mb-2 flex items-center gap-2">
-              <span>⚠</span> Evaluation Diagnostic Failure
+              <span>⚠</span> Scan load failed
             </h4>
             <p className="leading-relaxed text-red-200/90">{errorMsg}</p>
             <div className="mt-4 pt-3 border-t border-red-900/60 flex justify-end">

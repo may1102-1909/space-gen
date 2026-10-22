@@ -16,9 +16,11 @@ import {
   LevelSystem,
   useViewer,
 } from '@pascal-app/viewer';
+import { OrbitControls } from '@react-three/drei';
 import { ensurePascalInitialized } from '@/lib/pascal/initPascal';
-import { seedScannedRoom } from '@/lib/pascal/seedScannedRoom';
 import { useScene } from '@pascal-app/core';
+import { E2ECameraHooks } from './E2ECameraHooks';
+import { findScanNode, scanMetadata } from '@/lib/pascal/nodes';
 import { SplatBackgroundCanvas, type SplatCameraState } from '@/components/splat-prototype/SplatBackgroundCanvas';
 import { ScanAlignmentTool } from './ScanAlignmentTool';
 import type { Matrix4, Vector3 } from '@/lib/contracts/primitives';
@@ -28,10 +30,20 @@ import { ScanSegmentationOverlay } from './ScanSegmentationOverlay';
 import { ScanToEditableModal } from '../capture/ScanToEditableModal';
 import { AIPlacementPreview } from './AIPlacementPreview';
 import { TransformGizmo } from './TransformGizmo';
+import { InterpretationOverlay } from './InterpretationOverlay';
+import { ArchitecturalTools, useArchitecturalSnap } from './ArchitecturalTools';
+import { installArchitecturalSync } from '@/lib/pascal/architecturalSync';
+import { planFeaturePoints } from '@/lib/pascal/scanSnapping';
 import { useSpaceGenStore } from '@/lib/store';
 import { Loader2 } from 'lucide-react';
 
 type ScanPicker = (clientX: number, clientY: number) => Vector3 | null;
+type OrbitControlsImpl = React.ComponentRef<typeof OrbitControls>;
+
+const NO_MASK_REGIONS: MaskRegion[] = [];
+const SCAN_FOCUS_POSITION: [number, number, number] = [0, 1.6, 5];
+const SCAN_FOCUS_TARGET: [number, number, number] = [0, 1, 0];
+const E2E_HOOKS_ENABLED = process.env.NEXT_PUBLIC_E2E === '1';
 
 function ScanCameraBridge({
   cameraStateRef,
@@ -47,36 +59,19 @@ function ScanCameraBridge({
   scanId: string | null;
 }) {
   const { camera, size, gl } = useThree();
+  const controls = useThree((state) => state.controls) as unknown as OrbitControlsImpl | null;
   const focusedScanRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!scanId || focusedScanRef.current === scanId) return;
     focusedScanRef.current = scanId;
     const perspective = camera as THREE.PerspectiveCamera;
-    perspective.position.set(0, 1.6, 5);
-    perspective.lookAt(0, 1, 0);
+    perspective.position.set(...SCAN_FOCUS_POSITION);
+    perspective.lookAt(...SCAN_FOCUS_TARGET);
     perspective.updateProjectionMatrix();
-  }, [camera, scanId]);
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      (window as any).__setEditorCamera = (
-        position: [number, number, number],
-        target: [number, number, number] = [2.0, 0.45, -0.75]
-      ) => {
-        const perspective = camera as THREE.PerspectiveCamera;
-        perspective.position.set(...position);
-        perspective.lookAt(...target);
-        perspective.updateProjectionMatrix();
-        perspective.updateMatrixWorld();
-      };
-    }
-    return () => {
-      if (typeof window !== 'undefined') {
-        delete (window as any).__setEditorCamera;
-      }
-    };
-  }, [camera]);
+    controls?.target.set(...SCAN_FOCUS_TARGET);
+    controls?.update();
+  }, [camera, controls, scanId]);
 
   useFrame(() => {
     if ((camera as THREE.PerspectiveCamera).isPerspectiveCamera) {
@@ -144,6 +139,31 @@ function ScanDepthMesh({
     groupRef.current.matrixWorldNeedsUpdate = true;
   }, [scanToScene]);
 
+  // Precompute the proxy's plan feature points once per mesh/alignment for tool snapping.
+  const setScanPoints = useArchitecturalSnap((s) => s.setScanPoints);
+  useEffect(() => {
+    if (!scanToScene || scanToScene.length !== 16) return;
+    const toScene = new THREE.Matrix4().set(...scanToScene as [
+      number, number, number, number, number, number, number, number,
+      number, number, number, number, number, number, number, number,
+    ]);
+    const positions: number[] = [];
+    const v = new THREE.Vector3();
+    const m = new THREE.Matrix4();
+    proxyScene.updateWorldMatrix(true, true);
+    proxyScene.traverse((child) => {
+      const attr = (child as THREE.Mesh).isMesh ? (child as THREE.Mesh).geometry.getAttribute('position') : null;
+      if (!attr) return;
+      m.multiplyMatrices(toScene, child.matrixWorld);
+      for (let i = 0; i < attr.count; i++) {
+        v.fromBufferAttribute(attr, i).applyMatrix4(m);
+        positions.push(v.x, v.y, v.z);
+      }
+    });
+    setScanPoints(planFeaturePoints(positions));
+    return () => setScanPoints([]);
+  }, [proxyScene, scanToScene, setScanPoints]);
+
   return <primitive ref={groupRef} object={proxyScene} />;
 }
 
@@ -201,15 +221,15 @@ function MaskRegionVisualizer({
 }
 
 interface SceneViewerProps {
-  objects?: any[];
   selectedId?: string | null;
   onSelectObject?: (id: string | null) => void;
+  /** Shows confidence-coloured scan interpretation overlays. */
+  reviewMode?: boolean;
 }
 
 const IDENTITY_MATRIX: Matrix4 = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
-const NO_MASK_REGIONS: MaskRegion[] = [];
 
-export function SceneViewer({ selectedId, onSelectObject }: SceneViewerProps) {
+export function SceneViewer({ selectedId, onSelectObject, reviewMode = false }: SceneViewerProps) {
   const [isReady, setIsReady] = useState(false);
   const [initError, setInitError] = useState<string | null>(null);
   const [activeTool, setActiveTool] = useState<ActiveTool>('select');
@@ -220,10 +240,11 @@ export function SceneViewer({ selectedId, onSelectObject }: SceneViewerProps) {
   const cameraStateRef = useRef<SplatCameraState | null>(null);
   const pickerRef = useRef<ScanPicker | null>(null);
   const pointHandlerRef = useRef<((point: Vector3) => void) | null>(null);
-  const scanNode = useScene((state) => Object.values(state.nodes).find((node: any) => node?.type === 'scan') as any);
+  const scanNode = useScene((state) => findScanNode(state.nodes));
+  const scanMeta = scanMetadata(scanNode);
   // Stable fallbacks: fresh literals here would re-run the splat alignment/mask effects every render.
-  const scanToScene: Matrix4 = scanNode?.metadata?.scanToScene || IDENTITY_MATRIX;
-  const maskRegions: MaskRegion[] = scanNode?.metadata?.maskRegions || NO_MASK_REGIONS;
+  const scanToScene: Matrix4 = scanMeta.scanToScene || IDENTITY_MATRIX;
+  const maskRegions: MaskRegion[] = scanMeta.maskRegions || NO_MASK_REGIONS;
   const handlePickerReady = useCallback((picker: ScanPicker | null) => {
     pickerRef.current = picker;
   }, []);
@@ -245,16 +266,11 @@ export function SceneViewer({ selectedId, onSelectObject }: SceneViewerProps) {
     async function init() {
       try {
         await ensurePascalInitialized();
-        if (mounted) {
-          setIsReady(true);
-          if (typeof window !== 'undefined') {
-            (window as any).__seedScannedRoom = (options?: { forceReset?: boolean }) => seedScannedRoom(options);
-          }
-        }
-      } catch (err: any) {
+        if (mounted) setIsReady(true);
+      } catch (err) {
         console.error('[SceneViewer] Failed to initialize Pascal workspace:', err);
         if (mounted) {
-          setInitError(err?.message || 'Failed to initialize 3D editor');
+          setInitError((err as Error)?.message || 'Failed to initialize 3D editor');
         }
       }
     }
@@ -265,6 +281,9 @@ export function SceneViewer({ selectedId, onSelectObject }: SceneViewerProps) {
       mounted = false;
     };
   }, []);
+
+  // Pascal tool edits join the RoomInterpretation (provenance=user) inside their own undo step.
+  useEffect(() => installArchitecturalSync(), []);
 
   // 2. Synchronize Pascal selection with SpaceGen store
   useEffect(() => {
@@ -343,14 +362,18 @@ export function SceneViewer({ selectedId, onSelectObject }: SceneViewerProps) {
       {/* Pascal Full 3D Viewport with Boolean CSG & Scan Overlays */}
       <SplatBackgroundCanvas
         cameraStateRef={cameraStateRef}
-        scanUrl={scanNode?.url || null}
+        scanUrl={(scanNode as { url?: string } | undefined)?.url || null}
         scanToScene={scanToScene}
         maskRegions={maskRegions}
         visible={showScans && scanNode?.visible !== false}
         onPickerReady={handlePickerReady}
       />
       <Viewer perf={false} useBvh={true} transparent>
+        <OrbitControls makeDefault target={SCAN_FOCUS_TARGET} enableDamping={false} />
+        {E2E_HOOKS_ENABLED && <E2ECameraHooks />}
         <TransformGizmo />
+        <ArchitecturalTools />
+        {reviewMode && <InterpretationOverlay />}
         <MaskRegionVisualizer
           maskRegions={maskRegions}
           selectedId={selectedId || selectedIds[0] || null}
@@ -363,7 +386,7 @@ export function SceneViewer({ selectedId, onSelectObject }: SceneViewerProps) {
           scanId={scanNode?.id || null}
         />
         <ScanDepthOcclusionProxy
-          meshUrl={scanNode?.metadata?.meshUrl || scanNode?.metadata?.proxyMeshUrl}
+          meshUrl={scanMeta.meshUrl || scanMeta.proxyMeshUrl}
           scanToScene={scanToScene}
           enabled={showScans && scanNode?.visible !== false}
         />

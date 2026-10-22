@@ -1,3 +1,5 @@
+import type { EditProposal } from './contracts'
+
 export interface Material {
   type: string
   color: string
@@ -38,7 +40,7 @@ export interface SceneGraph {
   room_type: string
   style: string
   dimensions?: Dimensions
-  lighting?: Record<string, any>
+  lighting?: Record<string, unknown>
   objects: SceneObject[]
   relationships: Array<{ subject: string; relation: string; object: string }>
 }
@@ -55,6 +57,9 @@ export interface ChatMessage {
     modifiedNodeIds: string[]
   }>
   canUndo?: boolean
+  /** Pending AI EditProposals; applied only when the user accepts one. */
+  proposals?: EditProposal[]
+  proposalLabels?: Record<string, { label: string; category: string }>
 }
 
 export interface ReconstructionJob {

@@ -8,29 +8,38 @@ import {
   Undo2,
   CheckCircle2,
   Paperclip,
-  ArrowRightLeft,
-  Box,
-  Layers,
-  Palette,
+  AlertTriangle,
+  XCircle,
 } from 'lucide-react';
-import { useAppStore, useSpaceGenStore } from '@/lib/store';
+import { useAppStore } from '@/lib/store';
 import { ChatMessage as ChatMessageType } from '@/lib/types';
-import { getEditableSceneSummary, undoSceneAction } from '@/lib/pascal/sceneBridge';
-import { executeSpatialToolCalls, ExecutionResult } from '@/lib/ai/executor';
-import { replaceItemWithPhotoReference, ReplacementResult } from '@/lib/ai/photoTo3DMatcher';
-import { solveSmartPlacements } from '@/lib/ai/spatialLayoutSolver';
+import type { AssetRef, EditProposal } from '@/lib/contracts';
+import { uploadProjectAsset, uploadedAssetRef } from '@/lib/projects/api';
+import { bytesFromDataUrl, measureGlb } from '@/lib/ai/glb';
+import { undoSceneAction } from '@/lib/pascal/sceneBridge';
+import { acceptProposal } from '@/lib/pascal/applyProposal';
+import { getTrustedInterpretation } from '@/lib/pascal/interpretationReview';
 import { ChatAttachmentBar } from './ChatAttachmentBar';
 import { useViewer } from '@pascal-app/viewer';
 import { useScene, AnyNodeId } from '@pascal-app/core';
 import { motion, AnimatePresence } from 'framer-motion';
 
-export function ChatPanel() {
+const PROPOSAL_NODE_TYPES = new Set(['item', 'wall', 'door', 'window', 'slab', 'level', 'zone']);
+
+interface ChatPanelProps {
+  /** Project that stores attached GLBs; GLB attachments are disabled without one. */
+  projectId?: string;
+  onAssetUploaded?: (asset: AssetRef) => void;
+}
+
+export function ChatPanel({ projectId, onAssetUploaded }: ChatPanelProps = {}) {
   const { chatMessages, addChatMessage, isLoading, setIsLoading } = useAppStore();
   const [input, setInput] = useState('');
   const [attachedFile, setAttachedFile] = useState<{
     type: 'image' | 'glb';
     dataUrl: string;
     name: string;
+    url?: string;
   } | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -56,12 +65,22 @@ export function ChatPanel() {
     const type = isGlb ? 'glb' : 'image';
 
     const reader = new FileReader();
-    reader.onload = (event) => {
-      setAttachedFile({
-        type,
-        dataUrl: event.target?.result as string,
-        name: file.name,
-      });
+    reader.onload = async (event) => {
+      const dataUrl = event.target?.result as string;
+      let url: string | undefined;
+      if (isGlb) {
+        // Proposals reference the GLB in the project asset store; a blob: URL would not survive a reload.
+        try {
+          if (!projectId) throw new Error('open a saved project to attach GLB models');
+          const uploaded = await uploadProjectAsset(projectId, file, file.name);
+          onAssetUploaded?.(uploadedAssetRef(uploaded, file.name.replace(/\.gl(b|tf)$/i, ''), measureGlb(bytesFromDataUrl(dataUrl))));
+          url = uploaded.url;
+        } catch (err) {
+          addChatMessage({ role: 'assistant', content: `Could not attach ${file.name}: ${(err as Error).message}`, timestamp: Date.now() });
+          return;
+        }
+      }
+      setAttachedFile({ type, dataUrl, name: file.name, url });
     };
     reader.readAsDataURL(file);
   };
@@ -71,63 +90,72 @@ export function ChatPanel() {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  // 1-Click "Swap In" photo replacement action
-  const handleQuickReplace = async (targetId: string) => {
-    if (!attachedFile || attachedFile.type !== 'image' || isLoading) return;
-
-    const targetNode = nodes[targetId as AnyNodeId];
-    const photoDataUrl = attachedFile.dataUrl;
-    const photoName = attachedFile.name;
-
-    clearAttachment();
-
-    addChatMessage({
-      role: 'user',
-      content: `Replace "${targetNode?.name || targetId}" with this reference photo (${photoName})`,
-      image: photoDataUrl,
-      timestamp: Date.now(),
-    });
-
+  /** Asks the agent for EditProposals; nothing changes until the user accepts one. */
+  const requestProposals = async (
+    prompt: string,
+    attachment: typeof attachedFile,
+    selection: string[],
+  ) => {
     setIsLoading(true);
-
     try {
-      const result = await replaceItemWithPhotoReference(targetId, photoDataUrl, input);
+      const sceneNodes = Object.fromEntries(
+        Object.entries(useScene.getState().nodes).filter(([, n]) => n && PROPOSAL_NODE_TYPES.has(n.type)),
+      );
+      const res = await fetch('/api/ai/spatial', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt,
+          nodes: sceneNodes,
+          // Scan rooms: the solver sees only verified or corrected elements.
+          interpretation: getTrustedInterpretation().interpretation ?? undefined,
+          selectedIds: selection,
+          attachment: attachment
+            ? { type: attachment.type, dataUrl: attachment.dataUrl, name: attachment.name, url: attachment.url }
+            : undefined,
+        }),
+      });
+      if (!res.ok) throw new Error(`Spatial API error (${res.status})`);
+      const data: {
+        message: string;
+        proposals: EditProposal[];
+        annotations: Record<string, { label: string; category: string }>;
+        notes?: string[];
+      } = await res.json();
 
-      if (result.success) {
-        addChatMessage({
-          role: 'assistant',
-          content: `Successfully matched and swapped 3D furniture asset! The underlying Gaussian splat region has been masked out to prevent double-rendering.`,
-          timestamp: Date.now(),
-          toolResults: [
-            {
-              toolName: 'replace_item_asset',
-              message: `Swapped "${result.previousName}" → "${result.replacementName}"`,
-              modifiedNodeIds: [result.nodeId],
-            },
-            {
-              toolName: 'splat_exclusion_mask',
-              message: `SuperSplat OBB exclusion volume registered (${result.exclusionBoxId || 'active'})`,
-              modifiedNodeIds: [],
-            },
-          ],
-          canUndo: true,
-        });
-      } else {
-        addChatMessage({
-          role: 'assistant',
-          content: `Unable to replace item: ${result.message}`,
-          timestamp: Date.now(),
-        });
-      }
-    } catch (err: any) {
       addChatMessage({
         role: 'assistant',
-        content: `Error during 3D asset replacement: ${err?.message || 'Unknown error'}`,
+        content: [data.message, ...(data.notes ?? [])].filter(Boolean).join('\n'),
+        timestamp: Date.now(),
+        proposals: data.proposals,
+        proposalLabels: data.annotations,
+      });
+    } catch (e) {
+      console.error('[ChatPanel] Error handling spatial request:', e);
+      addChatMessage({
+        role: 'assistant',
+        content: 'I could not reach the spatial planner. Please try again.',
         timestamp: Date.now(),
       });
     } finally {
       setIsLoading(false);
     }
+  };
+
+  // "Swap In" on the attachment bar: ask for a replacement proposal for that item.
+  const handleQuickReplace = async (targetId: string) => {
+    if (!attachedFile || isLoading) return;
+    const targetNode = nodes[targetId as AnyNodeId];
+    const attachment = attachedFile;
+    clearAttachment();
+    const prompt = `Replace the selected ${targetNode?.name || 'item'} with this ${attachment.type === 'glb' ? 'model' : 'photo'}`;
+    addChatMessage({
+      role: 'user',
+      content: prompt,
+      image: attachment.type === 'image' ? attachment.dataUrl : undefined,
+      timestamp: Date.now(),
+    });
+    await requestProposals(prompt, attachment, [targetId]);
   };
 
   const handleSend = async () => {
@@ -139,184 +167,25 @@ export function ChatPanel() {
     setInput('');
     clearAttachment();
 
-    // If an image is attached and user asks to replace (or an item is selected)
-    const isReplaceIntent =
-      /\b(replace|swap|change to this|use this)\b/i.test(userMsg) &&
-      currentAttachment?.type === 'image' &&
-      selectedIds[0];
-
-    if (isReplaceIntent) {
-      addChatMessage({
-        role: 'user',
-        content: userMsg || `Replace selected object with attached photo`,
-        image: currentAttachment?.dataUrl,
-        timestamp: Date.now(),
-      });
-
-      setIsLoading(true);
-      try {
-        const result = await replaceItemWithPhotoReference(
-          selectedIds[0],
-          currentAttachment.dataUrl,
-          userMsg
-        );
-
-        if (result.success) {
-          addChatMessage({
-            role: 'assistant',
-            content: `Replaced "${result.previousName}" with "${result.replacementName}". The original Gaussian splat region has been masked with a SuperSplat exclusion box.`,
-            timestamp: Date.now(),
-            toolResults: [
-              {
-                toolName: 'replace_item_asset',
-                message: `Matched 3D asset: "${result.replacementName}"`,
-                modifiedNodeIds: [result.nodeId],
-              },
-            ],
-            canUndo: true,
-          });
-        } else {
-          addChatMessage({
-            role: 'assistant',
-            content: result.message,
-            timestamp: Date.now(),
-          });
-        }
-      } catch (err: any) {
-        addChatMessage({
-          role: 'assistant',
-          content: `Failed to replace asset: ${err?.message}`,
-          timestamp: Date.now(),
-        });
-      } finally {
-        setIsLoading(false);
-      }
-      return;
-    }
-
-    // Smart Creative Placement Intent
-    const isSmartPlacementIntent =
-      /\b(place|put|arrange|spawn)\b/i.test(userMsg) &&
-      /\b(chair|table|sofa|furniture|these|around)\b/i.test(userMsg);
-
-    if (isSmartPlacementIntent) {
-      addChatMessage({
-        role: 'user',
-        content: userMsg || 'Place furniture smartly around the room',
-        image: currentAttachment?.dataUrl,
-        timestamp: Date.now(),
-      });
-
-      setIsLoading(true);
-      try {
-        const sceneSummary = getEditableSceneSummary();
-        const modelUrl = currentAttachment?.dataUrl || '/samples/models/chair.glb';
-        const modelName = currentAttachment?.name?.replace(/\.glb$/i, '') || 'Dining Chair';
-        const candidates = solveSmartPlacements(
-          modelUrl,
-          modelName,
-          'chair',
-          [0.55, 0.85, 0.55],
-          userMsg,
-          sceneSummary
-        );
-
-        useSpaceGenStore.getState().setCandidatePlacements(candidates);
-
-        addChatMessage({
-          role: 'assistant',
-          content: `I've synthesized ${candidates.length} collision-free smart placement proposals adhering to architectural grouping and circulation rules. Review the HUD preview in the 3D viewport to accept or tweak them.`,
-          timestamp: Date.now(),
-          toolResults: [
-            {
-              toolName: 'spawn_items_smartly',
-              message: `Proposed ${candidates.length} positions: ${candidates.map((c) => c.name).join(', ')}`,
-              modifiedNodeIds: [],
-            },
-          ],
-        });
-      } catch (err: any) {
-        addChatMessage({
-          role: 'assistant',
-          content: `Failed to compute placement proposals: ${err?.message}`,
-          timestamp: Date.now(),
-        });
-      } finally {
-        setIsLoading(false);
-      }
-      return;
-    }
-
-    // Standard Spatial Co-Pilot Flow
     addChatMessage({
       role: 'user',
       content: userMsg || (currentAttachment ? `Attached: ${currentAttachment.name}` : ''),
-      image: currentAttachment?.dataUrl,
+      image: currentAttachment?.type === 'image' ? currentAttachment.dataUrl : undefined,
       timestamp: Date.now(),
     });
 
-    setIsLoading(true);
-
-    try {
-      const sceneSummary = getEditableSceneSummary();
-
-      const res = await fetch('/api/ai/spatial', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt: userMsg || 'Analyze this reference attachment and apply changes.',
-          sceneSummary,
-          selectedIds,
-          attachment: currentAttachment
-            ? {
-                type: currentAttachment.type,
-                dataUrl: currentAttachment.dataUrl,
-                name: currentAttachment.name,
-              }
-            : undefined,
-        }),
-      });
-
-      if (!res.ok) {
-        throw new Error(`Spatial API error (${res.status})`);
-      }
-
-      const data = await res.json();
-      let executionResults: ExecutionResult[] = [];
-
-      if (data.toolCalls && Array.isArray(data.toolCalls) && data.toolCalls.length > 0) {
-        executionResults = executeSpatialToolCalls(data.toolCalls);
-      }
-
-      addChatMessage({
-        role: 'assistant',
-        content: data.text,
-        timestamp: Date.now(),
-        toolResults: executionResults.map((r) => ({
-          toolName: r.toolName,
-          message: r.message,
-          modifiedNodeIds: r.modifiedNodeIds,
-        })),
-        canUndo: executionResults.some((r) => r.success && r.modifiedNodeIds.length > 0),
-      });
-    } catch (e: any) {
-      console.error('[ChatPanel] Error handling spatial request:', e);
-      addChatMessage({
-        role: 'assistant',
-        content:
-          'I encountered a communication issue while coordinating with the spatial engine. Please try again.',
-        timestamp: Date.now(),
-      });
-    } finally {
-      setIsLoading(false);
-    }
+    await requestProposals(
+      userMsg || 'Suggest where this attachment fits in the room.',
+      currentAttachment,
+      selectedIds as string[],
+    );
   };
 
   const quickActions = [
     'Move the sofa 0.5m closer to the coffee table',
-    'Paint the north wall warm sage',
-    'Replace this chair with Scandinavian style',
-    'Place dining chairs around the table',
+    'Move the sofa against the long wall',
+    'Replace the selected chair with a Scandinavian one',
+    'Add 4 dining chairs around the dining table',
   ];
 
   return (
@@ -356,7 +225,7 @@ export function ChatPanel() {
               <span className="font-semibold text-accent-light block mb-1">
                 Spatial Co-Pilot Active
               </span>
-              Ask me to move, rearrange, or replace furniture, edit architectural walls, or upload reference photos to swap 3D assets in place.
+              Ask me to add, move, replace or remove furniture, or attach a reference photo or .glb model. I propose edits; nothing changes until you accept.
             </div>
 
             <p className="text-[11px] text-text-muted text-center font-medium">Quick spatial actions</p>
@@ -406,7 +275,7 @@ export function ChatPanel() {
               <div className="glass-elevated px-4 py-2.5 rounded-2xl rounded-tl-sm border border-border/80 flex items-center gap-2">
                 <Loader2 size={13} className="animate-spin text-accent" />
                 <span className="text-xs text-text-secondary font-mono">
-                  Synthesizing spatial scene actions...
+                  Planning edit proposals...
                 </span>
               </div>
             </motion.div>
@@ -507,6 +376,10 @@ function ChatMessage({ message }: { message: ChatMessageType }) {
           </motion.div>
         )}
 
+        {message.proposals && message.proposals.length > 0 && (
+          <ProposalList proposals={message.proposals} labels={message.proposalLabels ?? {}} />
+        )}
+
         {/* Spatial tool execution cards */}
         {message.toolResults && message.toolResults.length > 0 && (
           <div className="flex flex-col gap-1 w-full max-w-[320px] mt-1">
@@ -541,6 +414,85 @@ function ChatMessage({ message }: { message: ChatMessageType }) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function ProposalList({
+  proposals,
+  labels,
+}: {
+  proposals: EditProposal[];
+  labels: Record<string, { label: string; category: string }>;
+}) {
+  const [status, setStatus] = useState<Record<string, EditProposal['status']>>({});
+  const [error, setError] = useState<string | null>(null);
+
+  const accept = (p: EditProposal) => {
+    try {
+      acceptProposal(p, useScene.getState().nodes as Record<string, unknown>, labels[p.id] ?? { label: 'Item', category: 'item' });
+      setStatus((s) => ({ ...s, [p.id]: 'accepted' }));
+      setError(null);
+    } catch (e) {
+      setError((e as Error)?.message ?? 'Could not apply proposal');
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-1.5 w-full max-w-[320px] mt-1">
+      {proposals.map((p) => {
+        const state = status[p.id] ?? p.status;
+        const flagged = p.validation.violations.filter((v) => v.severity !== 'info');
+        return (
+          <div key={p.id} className="p-2 rounded-lg border border-border bg-surface-elevated/60 text-[11px] flex flex-col gap-1">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-mono uppercase text-accent">{p.op}</span>
+              <span className="truncate text-text-primary">{labels[p.id]?.label ?? p.targetNodeId ?? 'Item'}</span>
+              {p.validation.ok ? (
+                <CheckCircle2 size={12} className="text-emerald-400 shrink-0" />
+              ) : (
+                <XCircle size={12} className="text-red-400 shrink-0" />
+              )}
+            </div>
+            <p className="text-text-secondary leading-snug">{p.rationale}</p>
+            {flagged.map((v, i) => (
+              <p key={i} className={`flex items-start gap-1 ${v.severity === 'error' ? 'text-red-400' : 'text-amber-400'}`}>
+                <AlertTriangle size={11} className="shrink-0 mt-0.5" />
+                <span>{v.detail}</span>
+              </p>
+            ))}
+            {state === 'pending' ? (
+              <div className="flex gap-1.5 pt-0.5">
+                <button
+                  onClick={() => accept(p)}
+                  disabled={!p.validation.ok}
+                  className="px-2 py-0.5 rounded-md bg-accent text-white disabled:opacity-40"
+                >
+                  Accept
+                </button>
+                <button
+                  onClick={() => setStatus((s) => ({ ...s, [p.id]: 'rejected' }))}
+                  className="px-2 py-0.5 rounded-md border border-border text-text-secondary"
+                >
+                  Reject
+                </button>
+              </div>
+            ) : (
+              <span className="text-text-muted font-mono">{state}</span>
+            )}
+          </div>
+        );
+      })}
+      {error && <p className="text-red-400 text-[11px]">{error}</p>}
+      {Object.values(status).includes('accepted') && (
+        <button
+          onClick={() => undoSceneAction()}
+          className="self-start flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] bg-surface-elevated border border-border text-text-secondary"
+        >
+          <Undo2 size={12} />
+          <span>Undo last accepted edit</span>
+        </button>
+      )}
     </div>
   );
 }

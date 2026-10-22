@@ -22,7 +22,7 @@ export const api = {
         throw new ApiError(`Failed to fetch scene (${res.status}): ${await res.text()}`, res.status)
       }
       return await res.json()
-    } catch (err: any) {
+    } catch (err) {
       console.warn('[API] getScene error, using fallback scene:', err)
       return {
         scene_id: sceneId,
@@ -204,7 +204,7 @@ export const api = {
   /**
    * Convert Gaussian Splat to editable solid polygon mesh (.glb)
    */
-  async convertToMesh(jobId: string): Promise<any> {
+  async convertToMesh(jobId: string): Promise<Record<string, unknown>> {
     const res = await fetch(`${API_BASE}/api/reconstruction/jobs/${encodeURIComponent(jobId)}/convert-to-mesh`, {
       method: 'POST',
     })
@@ -265,8 +265,8 @@ export const api = {
             const data = JSON.parse(xhr.responseText)
             onProgress?.('Watertight solid mesh ready!', 100)
             resolve(data)
-          } catch (e: any) {
-            reject(new ApiError(`Invalid server response: ${e.message}`, xhr.status))
+          } catch (e) {
+            reject(new ApiError(`Invalid server response: ${(e as Error).message}`, xhr.status))
           }
         } else {
           let errMsg = `Mesh conversion failed (${xhr.status})`
@@ -310,16 +310,17 @@ export const api = {
     }
     const data = await res.json()
     const items = Array.isArray(data) ? data : (data.items || [])
-    return items.map((item: any) => ({
+    // Frontend-hosted models (/samples, /catalog) must not be rewritten to the backend origin.
+    return items.map((item: FurnitureItem) => ({
       ...item,
-      url: `${API_BASE}${item.url}`,
+      url: api.normalizeModelUrl(item.url) ?? item.url,
     }))
   },
 
   /**
    * Export modified scene as consolidated .glb
    */
-  async exportModifiedScene(jobId: string, transforms: any, replacements: any): Promise<{ url: string; filename: string }> {
+  async exportModifiedScene(jobId: string, transforms: unknown, replacements: unknown): Promise<{ url: string; filename: string }> {
     const res = await fetch(`${API_BASE}/api/reconstruction/jobs/${encodeURIComponent(jobId)}/export-modified-scene`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -341,7 +342,7 @@ export const api = {
   async chat(
     message: string, 
     sceneId: string, 
-    history: any[] = [], 
+    history: Array<{ role: string; content: string }> = [], 
     referenceImage?: string
   ): Promise<{ response: string; updated_objects?: SceneObject[] }> {
     try {
@@ -363,7 +364,7 @@ export const api = {
         response: data.message || data.response || 'I analyzed the space and prepared recommendations.',
         updated_objects: data.updated_objects,
       }
-    } catch (e: any) {
+    } catch (e) {
       console.warn('[API] Chat request fallback:', e)
       return {
         response: "I've analyzed your space. Tell me what style or specific furniture modifications you'd like to explore.",
@@ -400,7 +401,7 @@ export const api = {
         return { image_url: img }
       }
       return { image_url: `data:image/jpeg;base64,${img}` }
-    } catch (e: any) {
+    } catch (e) {
       console.warn('[API] Image generation fallback:', e)
       return { 
         image_url: 'https://images.unsplash.com/photo-1618221195710-dd6b41faaea6?q=80&w=1200' 
@@ -411,7 +412,7 @@ export const api = {
   /**
    * Analyze reference furniture image using Gemini Vision
    */
-  async analyzeReference(file: File): Promise<Record<string, any>> {
+  async analyzeReference(file: File): Promise<Record<string, unknown>> {
     try {
       const formData = new FormData()
       formData.append('file', file)
@@ -423,7 +424,7 @@ export const api = {
         throw new ApiError(`Reference analysis failed (${res.status})`, res.status)
       }
       return await res.json()
-    } catch (e: any) {
+    } catch (e) {
       console.warn('[API] Reference analyzer fallback:', e)
       return { 
         category: 'Sofa', 
@@ -454,14 +455,14 @@ export const api = {
       }
       const data = await res.json()
       const list = data.variants || data
-      return list.map((v: any) => ({
+      return list.map((v: { style: string; image?: string; description?: string }) => ({
         style: v.style,
         image: (v.image?.startsWith('data:') || v.image?.startsWith('http')) 
           ? v.image 
           : `data:image/jpeg;base64,${v.image}`,
         description: v.description || `${v.style} concept`,
       }))
-    } catch (e: any) {
+    } catch (e) {
       console.warn('[API] Variant generator fallback:', e)
       return [
         { 

@@ -1,81 +1,80 @@
-"""COLMAP sparse-model readers (text and binary) for camera intrinsics and poses."""
+"""COLMAP sparse-model camera parsing (cameras/images in .txt or .bin form).
+
+COLMAP stores world-to-camera poses: X_cam = R(q) @ X_world + t, camera looks down +Z,
+image x right, y down. Lens distortion parameters are kept but not applied: keyframes
+from ns-process-data are undistorted, and box-level lifting tolerates small distortion.
+"""
 
 from __future__ import annotations
 
 import struct
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Dict, List
 
 import numpy as np
 
-# model name -> (number of params, True when the model has one shared focal length)
-_MODELS: dict[str, tuple[int, bool]] = {
-    "SIMPLE_PINHOLE": (3, True),
-    "PINHOLE": (4, False),
-    "SIMPLE_RADIAL": (4, True),
-    "RADIAL": (5, True),
-    "OPENCV": (8, False),
-    "OPENCV_FISHEYE": (8, False),
-    "FULL_OPENCV": (12, False),
-    "FOV": (5, False),
-    "SIMPLE_RADIAL_FISHEYE": (4, True),
-    "RADIAL_FISHEYE": (5, True),
-    "THIN_PRISM_FISHEYE": (12, False),
+# model_id -> (name, number of params)
+CAMERA_MODELS = {
+    0: ("SIMPLE_PINHOLE", 3),
+    1: ("PINHOLE", 4),
+    2: ("SIMPLE_RADIAL", 4),
+    3: ("RADIAL", 5),
+    4: ("OPENCV", 8),
+    5: ("OPENCV_FISHEYE", 8),
+    6: ("FULL_OPENCV", 12),
+    7: ("FOV", 5),
+    8: ("SIMPLE_RADIAL_FISHEYE", 4),
+    9: ("RADIAL_FISHEYE", 5),
+    10: ("THIN_PRISM_FISHEYE", 12),
 }
-_BINARY_MODEL_IDS = {
-    0: "SIMPLE_PINHOLE",
-    1: "PINHOLE",
-    2: "SIMPLE_RADIAL",
-    3: "RADIAL",
-    4: "OPENCV",
-    5: "OPENCV_FISHEYE",
-    6: "FULL_OPENCV",
-    7: "FOV",
-    8: "SIMPLE_RADIAL_FISHEYE",
-    9: "RADIAL_FISHEYE",
-    10: "THIN_PRISM_FISHEYE",
-}
+_SINGLE_FOCAL = {"SIMPLE_PINHOLE", "SIMPLE_RADIAL", "RADIAL", "FOV", "SIMPLE_RADIAL_FISHEYE", "RADIAL_FISHEYE"}
 
 
-@dataclass(frozen=True)
-class Camera:
+@dataclass
+class ColmapCamera:
     camera_id: int
     model: str
     width: int
     height: int
-    fx: float
-    fy: float
-    cx: float
-    cy: float
+    params: List[float]
+
+    @property
+    def K(self) -> np.ndarray:
+        p = self.params
+        if self.model in _SINGLE_FOCAL:
+            fx = fy = p[0]
+            cx, cy = p[1], p[2]
+        else:
+            fx, fy, cx, cy = p[0], p[1], p[2], p[3]
+        return np.array([[fx, 0.0, cx], [0.0, fy, cy], [0.0, 0.0, 1.0]])
 
 
-@dataclass(frozen=True)
+@dataclass
 class ColmapImage:
-    """World-to-camera pose (COLMAP convention: x right, y down, z forward)."""
-
     image_id: int
+    qvec: np.ndarray  # (w, x, y, z)
+    tvec: np.ndarray
     camera_id: int
     name: str
-    R_cw: np.ndarray  # (3, 3)
-    t_cw: np.ndarray  # (3,)
+
+    @property
+    def R(self) -> np.ndarray:
+        return qvec_to_rotmat(self.qvec)
 
     @property
     def center(self) -> np.ndarray:
-        return -self.R_cw.T @ self.t_cw
+        return -self.R.T @ self.tvec
 
 
-@dataclass(frozen=True)
+@dataclass
 class ColmapModel:
-    cameras: dict[int, Camera]
-    images: list[ColmapImage]
+    cameras: Dict[int, ColmapCamera] = field(default_factory=dict)
+    images: Dict[int, ColmapImage] = field(default_factory=dict)
 
 
-def quat_to_rotation(qw: float, qx: float, qy: float, qz: float) -> np.ndarray:
-    q = np.array([qw, qx, qy, qz], dtype=np.float64)
-    n = np.linalg.norm(q)
-    if n == 0:
-        raise ValueError("Zero-length quaternion in COLMAP image pose")
-    w, x, y, z = q / n
+def qvec_to_rotmat(q: np.ndarray) -> np.ndarray:
+    w, x, y, z = np.asarray(q, dtype=float) / np.linalg.norm(q)
     return np.array(
         [
             [1 - 2 * (y * y + z * z), 2 * (x * y - w * z), 2 * (x * z + w * y)],
@@ -85,76 +84,133 @@ def quat_to_rotation(qw: float, qx: float, qy: float, qz: float) -> np.ndarray:
     )
 
 
-def _camera(camera_id: int, model: str, width: int, height: int, params: list[float]) -> Camera:
-    if model not in _MODELS:
-        raise ValueError(f"Unsupported COLMAP camera model: {model}")
-    _, single_focal = _MODELS[model]
-    if single_focal:
-        fx = fy = params[0]
-        cx, cy = params[1], params[2]
+def rotmat_to_qvec(R: np.ndarray) -> np.ndarray:
+    """Inverse of qvec_to_rotmat (used to write synthetic COLMAP files)."""
+    tr = np.trace(R)
+    if tr > 0:
+        s = 2.0 * np.sqrt(tr + 1.0)
+        q = [0.25 * s, (R[2, 1] - R[1, 2]) / s, (R[0, 2] - R[2, 0]) / s, (R[1, 0] - R[0, 1]) / s]
+    elif R[0, 0] > R[1, 1] and R[0, 0] > R[2, 2]:
+        s = 2.0 * np.sqrt(1.0 + R[0, 0] - R[1, 1] - R[2, 2])
+        q = [(R[2, 1] - R[1, 2]) / s, 0.25 * s, (R[0, 1] + R[1, 0]) / s, (R[0, 2] + R[2, 0]) / s]
+    elif R[1, 1] > R[2, 2]:
+        s = 2.0 * np.sqrt(1.0 + R[1, 1] - R[0, 0] - R[2, 2])
+        q = [(R[0, 2] - R[2, 0]) / s, (R[0, 1] + R[1, 0]) / s, 0.25 * s, (R[1, 2] + R[2, 1]) / s]
     else:
-        fx, fy, cx, cy = params[0], params[1], params[2], params[3]
-    return Camera(camera_id, model, int(width), int(height), float(fx), float(fy), float(cx), float(cy))
+        s = 2.0 * np.sqrt(1.0 + R[2, 2] - R[0, 0] - R[1, 1])
+        q = [(R[1, 0] - R[0, 1]) / s, (R[0, 2] + R[2, 0]) / s, (R[1, 2] + R[2, 1]) / s, 0.25 * s]
+    q = np.array(q)
+    return q if q[0] >= 0 else -q
 
 
-def read_text_model(model_dir: Path) -> ColmapModel:
-    cameras: dict[int, Camera] = {}
-    for line in (model_dir / "cameras.txt").read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
+def _data_lines(path: Path) -> List[str]:
+    return [line.strip() for line in path.read_text(encoding="utf-8").splitlines() if not line.startswith("#")]
+
+
+def read_cameras_text(path: Path) -> Dict[int, ColmapCamera]:
+    cameras: Dict[int, ColmapCamera] = {}
+    for line in _data_lines(path):
+        if not line:
             continue
-        f = line.split()
-        cid = int(f[0])
-        cameras[cid] = _camera(cid, f[1], int(f[2]), int(f[3]), [float(v) for v in f[4:]])
+        tok = line.split()
+        cam = ColmapCamera(int(tok[0]), tok[1], int(tok[2]), int(tok[3]), [float(v) for v in tok[4:]])
+        cameras[cam.camera_id] = cam
+    return cameras
 
-    # images.txt alternates a pose line and a (possibly empty) 2D-points line.
-    lines = [ln for ln in (model_dir / "images.txt").read_text(encoding="utf-8").splitlines() if not ln.startswith("#")]
-    images: list[ColmapImage] = []
-    for i in range(0, len(lines), 2):
-        f = lines[i].split()
-        if len(f) < 10:
+
+def read_images_text(path: Path) -> Dict[int, ColmapImage]:
+    """Each image has a header line plus a POINTS2D line, which may be empty."""
+    images: Dict[int, ColmapImage] = {}
+    lines = _data_lines(path)
+    i = 0
+    while i < len(lines):
+        tok = lines[i].split()
+        if len(tok) < 10:
+            i += 1
             continue
-        qw, qx, qy, qz, tx, ty, tz = (float(v) for v in f[1:8])
-        images.append(ColmapImage(int(f[0]), int(f[8]), f[9], quat_to_rotation(qw, qx, qy, qz), np.array([tx, ty, tz])))
-    return ColmapModel(cameras, images)
+        img = ColmapImage(
+            image_id=int(tok[0]),
+            qvec=np.array([float(v) for v in tok[1:5]]),
+            tvec=np.array([float(v) for v in tok[5:8]]),
+            camera_id=int(tok[8]),
+            name=" ".join(tok[9:]),
+        )
+        images[img.image_id] = img
+        i += 2
+    return images
 
 
-def read_binary_model(model_dir: Path) -> ColmapModel:
-    cameras: dict[int, Camera] = {}
-    with (model_dir / "cameras.bin").open("rb") as fh:
-        (count,) = struct.unpack("<Q", fh.read(8))
+def read_cameras_binary(path: Path) -> Dict[int, ColmapCamera]:
+    cameras: Dict[int, ColmapCamera] = {}
+    with open(path, "rb") as f:
+        (count,) = struct.unpack("<Q", f.read(8))
         for _ in range(count):
-            cid, model_id, width, height = struct.unpack("<iiQQ", fh.read(24))
-            model = _BINARY_MODEL_IDS[model_id]
-            n_params = _MODELS[model][0]
-            params = list(struct.unpack(f"<{n_params}d", fh.read(8 * n_params)))
-            cameras[cid] = _camera(cid, model, width, height, params)
+            camera_id, model_id, width, height = struct.unpack("<iiQQ", f.read(24))
+            name, n_params = CAMERA_MODELS[model_id]
+            params = list(struct.unpack(f"<{n_params}d", f.read(8 * n_params)))
+            cameras[camera_id] = ColmapCamera(camera_id, name, int(width), int(height), params)
+    return cameras
 
-    images: list[ColmapImage] = []
-    with (model_dir / "images.bin").open("rb") as fh:
-        (count,) = struct.unpack("<Q", fh.read(8))
+
+def read_images_binary(path: Path) -> Dict[int, ColmapImage]:
+    images: Dict[int, ColmapImage] = {}
+    with open(path, "rb") as f:
+        (count,) = struct.unpack("<Q", f.read(8))
         for _ in range(count):
-            image_id, qw, qx, qy, qz, tx, ty, tz, camera_id = struct.unpack("<i7di", fh.read(64))
+            vals = struct.unpack("<i7di", f.read(64))
             name_bytes = bytearray()
-            while (ch := fh.read(1)) not in (b"\x00", b""):
+            while (ch := f.read(1)) not in (b"\x00", b""):
                 name_bytes += ch
-            (n_points,) = struct.unpack("<Q", fh.read(8))
-            fh.seek(24 * n_points, 1)
-            images.append(
-                ColmapImage(
-                    image_id,
-                    camera_id,
-                    name_bytes.decode("utf-8"),
-                    quat_to_rotation(qw, qx, qy, qz),
-                    np.array([tx, ty, tz]),
-                )
+            (n_points,) = struct.unpack("<Q", f.read(8))
+            f.seek(24 * n_points, 1)
+            images[vals[0]] = ColmapImage(
+                image_id=vals[0],
+                qvec=np.array(vals[1:5]),
+                tvec=np.array(vals[5:8]),
+                camera_id=vals[8],
+                name=name_bytes.decode("utf-8"),
             )
-    return ColmapModel(cameras, images)
+    return images
 
 
 def read_model(model_dir: Path) -> ColmapModel:
+    """Read a COLMAP sparse model directory, preferring text files over binary ones."""
+    model_dir = Path(model_dir)
     if (model_dir / "cameras.txt").exists() and (model_dir / "images.txt").exists():
-        return read_text_model(model_dir)
+        return ColmapModel(read_cameras_text(model_dir / "cameras.txt"), read_images_text(model_dir / "images.txt"))
     if (model_dir / "cameras.bin").exists() and (model_dir / "images.bin").exists():
-        return read_binary_model(model_dir)
-    raise FileNotFoundError(f"No COLMAP cameras/images (.txt or .bin) found in {model_dir}")
+        return ColmapModel(read_cameras_binary(model_dir / "cameras.bin"), read_images_binary(model_dir / "images.bin"))
+    raise FileNotFoundError(f"No COLMAP cameras/images files in {model_dir}")
+
+
+def find_model_dir(root: Path) -> Path | None:
+    """Locate the first directory under root holding a COLMAP sparse model."""
+    for pattern in ("cameras.txt", "cameras.bin"):
+        for cam_file in sorted(Path(root).rglob(pattern)):
+            if (cam_file.parent / cam_file.name.replace("cameras", "images")).exists():
+                return cam_file.parent
+    return None
+
+
+def write_model_text(model: ColmapModel, model_dir: Path) -> None:
+    model_dir = Path(model_dir)
+    model_dir.mkdir(parents=True, exist_ok=True)
+    cam_lines = ["# Camera list with one line of data per camera:"]
+    for c in model.cameras.values():
+        cam_lines.append(" ".join([str(c.camera_id), c.model, str(c.width), str(c.height), *map(repr, c.params)]))
+    img_lines = ["# Image list with two lines of data per image:"]
+    for im in model.images.values():
+        img_lines.append(
+            " ".join(
+                [
+                    str(im.image_id),
+                    *map(repr, im.qvec.tolist()),
+                    *map(repr, im.tvec.tolist()),
+                    str(im.camera_id),
+                    im.name,
+                ]
+            )
+        )
+        img_lines.append("")
+    (model_dir / "cameras.txt").write_text("\n".join(cam_lines) + "\n", encoding="utf-8")
+    (model_dir / "images.txt").write_text("\n".join(img_lines) + "\n", encoding="utf-8")

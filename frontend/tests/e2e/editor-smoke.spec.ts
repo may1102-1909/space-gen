@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import fs from 'fs';
-import path from 'path';
+import { screenshotPath } from './support/artifacts';
 
 test.describe('SpaceGen 3D Editor Smoke Test', () => {
   test('editor page loads, 3D canvas renders, and no console errors occur', async ({ page }) => {
@@ -42,12 +42,8 @@ test.describe('SpaceGen 3D Editor Smoke Test', () => {
     expect(consoleErrors, `Console errors detected during smoke test: ${consoleErrors.join('\n')}`).toEqual([]);
 
     // 6. Capture screenshot for PR visual proof
-    const screenshotDir = path.join(__dirname, 'screenshots');
-    if (!fs.existsSync(screenshotDir)) {
-      fs.mkdirSync(screenshotDir, { recursive: true });
-    }
-    const screenshotPath = path.join(screenshotDir, 'editor-smoke.png');
-    await page.screenshot({ path: screenshotPath, fullPage: true });
-    expect(fs.existsSync(screenshotPath)).toBe(true);
+    const file = screenshotPath('editor-smoke.png');
+    await page.screenshot({ path: file, fullPage: true });
+    expect(fs.existsSync(file)).toBe(true);
   });
 });

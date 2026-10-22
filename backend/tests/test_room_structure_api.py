@@ -64,7 +64,7 @@ def _wait(client, job_id: str, timeout: float = 90.0) -> dict:
 
 @pytest.fixture(scope="module")
 def scan_ply() -> bytes:
-    scene = make_room(polygon=RECTANGLE, openings=[Opening(0, 1.2, 0.9, 0.0, 2.0)], seed=11, density=900.0)
+    scene = make_room(polygon=RECTANGLE, openings=[Opening(0, 1.65, 0.9, 0.0, 2.0)], seed=11, density=900.0)
     return _ply_bytes(scene.positions, scene.opacity)
 
 

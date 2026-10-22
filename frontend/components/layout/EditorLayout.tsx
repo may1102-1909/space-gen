@@ -7,14 +7,14 @@ import { useState, useEffect } from 'react'
 import { VideoCaptureModal } from '@/components/capture/VideoCaptureModal'
 import { motion } from 'framer-motion'
 import { useScene } from '@pascal-app/core'
+import { useStore } from 'zustand'
 import { undoSceneAction, redoSceneAction } from '@/lib/pascal/sceneBridge'
 
 export function EditorLayout({ children }: { children: React.ReactNode }) {
   const { scene } = useAppStore()
-  useScene((state) => state.nodes);
-  const temporal = (useScene as any).temporal?.getState?.();
-  const canUndo = (temporal?.pastStates?.length || 0) > 0;
-  const canRedo = (temporal?.futureStates?.length || 0) > 0;
+  // Subscribe to the zundo temporal store itself so the buttons track history, not node changes.
+  const canUndo = useStore(useScene.temporal, (state) => state.pastStates.length > 0);
+  const canRedo = useStore(useScene.temporal, (state) => state.futureStates.length > 0);
   const [captureOpen, setCaptureOpen] = useState(false)
 
   // Global keyboard shortcuts for Undo (Ctrl+Z) and Redo (Ctrl+Y / Ctrl+Shift+Z)

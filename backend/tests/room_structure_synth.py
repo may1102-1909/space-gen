@@ -19,7 +19,7 @@ SLANTED = [(-2.5, -2.0), (2.5, -2.0), (3.5, 0.5), (0.0, 2.5), (-2.5, 1.5)]  # no
 @dataclass
 class Opening:
     wall: int
-    offset: float
+    offset: float  # wall start -> opening centre (contract convention)
     width: float
     sill: float
     height: float
@@ -103,7 +103,7 @@ def make_room(
         keep = np.ones(n, dtype=bool)
         for op in openings:
             if op.wall == i:
-                keep &= ~((s > op.offset) & (s < op.offset + op.width) & (y > op.sill) & (y < op.sill + op.height))
+                keep &= ~((np.abs(s - op.offset) < op.width / 2) & (y > op.sill) & (y < op.sill + op.height))
         s, y = s[keep], y[keep]
         xz = a + np.outer(s / length, b - a)
         chunks.append(np.column_stack([xz[:, 0], y, xz[:, 1]]))

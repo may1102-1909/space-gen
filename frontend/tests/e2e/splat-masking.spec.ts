@@ -1,159 +1,167 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import { screenshotPath, waitForE2EHooks } from './support/artifacts';
+import { captureSplatRegion, diffPngs, screenshotSplatOnly } from './support/pixels';
+
+// The chair is moved to (0.5, 0, -4.5): dense splats in the unaligned sample scan with unoccluded lines of sight
+// (the scene origin is empty space in that scan), with the fixture's 0.55 x 0.85 x 0.55 m footprint.
+const CHAIR_OBB = { center: [0.5, 0.425, -4.5] as [number, number, number], size: [0.55, 0.85, 0.55] as [number, number, number], yaw: 0 };
+const TARGET: [number, number, number] = [0.5, 0.425, -4.5];
+const CLOSE_VIEW: [[number, number, number], [number, number, number]] = [[0.5, 1.4, -2.9], TARGET];
+
+// Mask must visibly remove splats; undo must restore the pre-replace frame within render noise.
+const MASK_MIN_CHANGED = 0.05;
+const RESTORE_MAX_CHANGED = 0.01;
+
+async function setCamera(page: Page, [position, target]: [[number, number, number], [number, number, number]]) {
+  await page.evaluate(([p, t]) => window.__spacegenE2E!.setCamera(p, t), [position, target] as const);
+}
+
+async function maskRegionRect(page: Page) {
+  const rect = await page.evaluate((obb) => window.__spacegenE2E!.projectObb(obb), CHAIR_OBB);
+  const viewport = page.viewportSize()!;
+  expect(rect.width, 'mask box must project to a usable on-screen area').toBeGreaterThan(40);
+  expect(rect.x).toBeGreaterThanOrEqual(0);
+  expect(rect.y).toBeGreaterThanOrEqual(0);
+  expect(rect.x + rect.width).toBeLessThanOrEqual(viewport.width);
+  expect(rect.y + rect.height).toBeLessThanOrEqual(viewport.height);
+  return rect;
+}
 
 test.describe('T08: Splat Masking & Replacement Verification', () => {
-  test('replacing a chair creates mask, toggles ghost mode, resizes, and supports undo/redo', async ({
-    page,
-  }) => {
-    test.setTimeout(300000);
+  test('replacing a chair masks the splat inside its OBB; undo restores it; redo re-applies; ghost and resize work', async ({ page }) => {
+    test.slow();
 
-    // 1. Mock furniture catalog endpoint for reliable E2E assets
     await page.route('**/api/reconstruction/furniture-catalog', (route) =>
       route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify([
-          {
-            id: 'chair-original-e2e',
-            name: 'Original Scanned Chair',
-            category: 'chair',
-            style: 'Classic',
-            dimensions: { width_m: 0.55, depth_m: 0.55, height_m: 0.85 },
-            color_preview: '#888888',
-            description: 'Original Chair Fixture',
-            filename: 'chair.glb',
-            url: '/samples/models/chair.glb',
-          },
-          {
-            id: 'chair-replacement-e2e',
-            name: 'Modern Replacement Chair',
-            category: 'chair',
-            style: 'Contemporary',
-            dimensions: { width_m: 0.6, depth_m: 0.6, height_m: 0.9 },
-            color_preview: '#e07a5f',
-            description: 'Replacement Chair Fixture',
-            filename: 'chair.glb',
-            url: '/samples/models/chair.glb',
-          },
+          { id: 'chair-original-e2e', name: 'Original Scanned Chair', category: 'chair', style: 'Classic', dimensions: { width_m: 0.55, depth_m: 0.55, height_m: 0.85 }, color_preview: '#888888', description: 'Original Chair Fixture', filename: 'chair.glb', url: '/samples/models/chair.glb' },
+          { id: 'chair-replacement-e2e', name: 'Modern Replacement Chair', category: 'chair', style: 'Contemporary', dimensions: { width_m: 0.6, depth_m: 0.6, height_m: 0.9 }, color_preview: '#e07a5f', description: 'Replacement Chair Fixture', filename: 'chair.glb', url: '/samples/models/chair.glb' },
         ]),
       })
     );
 
-    // 2. Navigate to editor
     await page.goto('/', { waitUntil: 'domcontentloaded' });
-    await expect(page.getByRole('button', { name: 'Add Catalog Item' })).toBeVisible({ timeout: 20000 });
+    await waitForE2EHooks(page);
 
-    // Masks only exist over a scan, so load the verified sample scan first.
+    // 1. Load the sample room scan so there is a splat to mask.
     await page.getByRole('button', { name: 'Import / Scenes' }).click({ force: true });
     await page.getByRole('button', { name: /import 3d model/i }).click({ force: true });
     await page.getByRole('button', { name: 'Load verified sample room scan' }).click({ force: true });
-    await expect(page.getByText('Room scan')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText('Room scan')).toBeVisible();
 
-    // 3. Add original chair into the scene
+    // 2. Place the original chair (selected after placement).
     await page.getByRole('button', { name: 'Add Catalog Item' }).click();
     await page.getByRole('button', { name: /Original Scanned Chair/i }).click();
-    const originalChair = page.getByRole('button', { name: /Original Scanned Chair/i }).first();
-    await expect(originalChair).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('button', { name: /Replace \/ Add Catalog Item/i })).toBeVisible();
+    for (const [axis, value] of [['X', '0.5'], ['Z', '-4.5']] as const) {
+      const input = page.getByRole('spinbutton', { name: `Pos ${axis} (m)` });
+      await input.fill(value);
+      await input.blur();
+      await expect(input).toHaveValue(value);
+    }
 
-    // 5. Replace original chair with Modern Replacement Chair
-    const replaceButton = page.getByRole('button', { name: /Replace \/ Add Catalog Item/i });
-    await expect(replaceButton).toBeVisible();
-    await replaceButton.click();
+    await page.waitForFunction(() => (window.__spacegenSplat?.numSplats() ?? 0) > 0, undefined, { timeout: 60000 });
+    const splatsInBox = await page.evaluate((obb) => window.__spacegenSplat!.countInside(obb), CHAIR_OBB);
+    expect(splatsInBox, 'precondition: the chair OBB must contain scanned splats').toBeGreaterThan(1000);
+    expect(await page.evaluate(() => window.__spacegenSplat!.editCount())).toBe(0);
 
-    const replacementOption = page.getByRole('button', { name: /Modern Replacement Chair/i });
-    await expect(replacementOption).toBeVisible({ timeout: 10000 });
-    await replacementOption.click();
+    await setCamera(page, CLOSE_VIEW);
+    await page.waitForTimeout(2000); // first sort for the new viewpoint
+    const rect = await maskRegionRect(page);
+    const before = await captureSplatRegion(page, rect);
+    await screenshotSplatOnly(page, 'chair-mask-splat-only-before.png');
 
-    // 6. Verify replaced item in hierarchy
+    // 3. Replace → mask applied in the same undo step.
+    await page.getByRole('button', { name: /Replace \/ Add Catalog Item/i }).click();
+    await page.getByRole('button', { name: /Modern Replacement Chair/i }).click();
     await expect(page.getByRole('button', { name: /Modern Replacement Chair/i }).first()).toBeVisible();
-
-    // Verify Splat Mask controls appear automatically for the replaced item
-    await expect(page.getByText('Splat Mask')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText('Splat Mask')).toBeVisible();
     await expect(page.getByText('Masked (0%)')).toBeVisible();
+    expect(await page.evaluate(() => window.__spacegenSplat!.editCount())).toBe(1);
+    // Edits are scoped to the mesh only; a scene-graph copy would apply the mask twice.
+    expect(await page.evaluate(() => window.__spacegenSplat!.globalEditCount())).toBe(0);
+    const [edit] = await page.evaluate(() => window.__spacegenSplat!.edits());
+    expect(edit.opacity).toBe(0);
+    expect(edit.halfExtents[0], 'original chair is 0.55 m wide').toBeCloseTo(0.275, 3);
 
-    const ghostToggleButton = page.getByRole('button', { name: 'Toggle Ghost Mode' });
-    await expect(ghostToggleButton).toBeVisible();
-    await expect(ghostToggleButton).toContainText('Show Original (Ghost Mode)');
+    const masked = await captureSplatRegion(page, rect);
+    await screenshotSplatOnly(page, 'chair-mask-splat-only-after.png');
+    const maskedDiff = await diffPngs(page, before, masked);
+    console.log('replace vs before', maskedDiff);
+    expect(maskedDiff.changedFraction, 'mask must remove splat pixels inside the OBB').toBeGreaterThan(MASK_MIN_CHANGED);
 
-    // 7. Test Undo of Replacement: Restores original chair and removes mask
-    const undoButton = page.getByRole('banner').getByTitle('Undo (Ctrl+Z)');
-    await expect(undoButton).toBeEnabled();
-    await undoButton.click();
-
-    // Original chair restored in outliner
-    await expect(page.getByRole('button', { name: /Original Scanned Chair/i })).toBeVisible({ timeout: 5000 });
-    // Mask controls should no longer be present on the unmasked original chair
+    // 4. Undo restores the original chair and the unmasked splat.
+    const undo = page.getByRole('banner').getByTitle('Undo (Ctrl+Z)');
+    const redo = page.getByRole('banner').getByTitle('Redo (Ctrl+Y)');
+    await expect(undo).toBeEnabled();
+    await undo.click();
+    await expect(page.getByRole('button', { name: /Original Scanned Chair/i }).first()).toBeVisible();
     await expect(page.getByText('Masked (0%)')).toHaveCount(0);
+    expect(await page.evaluate(() => window.__spacegenSplat!.editCount())).toBe(0);
+    const undone = await captureSplatRegion(page, rect);
+    const undoDiff = await diffPngs(page, before, undone);
+    console.log('undo vs before', undoDiff);
+    expect(undoDiff.changedFraction, 'undo must restore the unmasked splat').toBeLessThan(RESTORE_MAX_CHANGED);
 
-    // Test Redo: Re-applies replacement and restores mask
-    const redoButton = page.getByRole('banner').getByTitle('Redo (Ctrl+Y)');
-    await expect(redoButton).toBeEnabled();
-    await redoButton.click();
-
-    // Replaced chair restored
-    await expect(page.getByRole('button', { name: /Modern Replacement Chair/i }).first()).toBeVisible({ timeout: 5000 });
+    // 5. Redo re-applies replacement and mask.
+    await expect(redo).toBeEnabled();
+    await redo.click();
+    await expect(page.getByRole('button', { name: /Modern Replacement Chair/i }).first()).toBeVisible();
     await expect(page.getByText('Masked (0%)')).toBeVisible();
+    const redone = await captureSplatRegion(page, rect);
+    const redoDiff = await diffPngs(page, before, redone);
+    console.log('redo vs before', redoDiff);
+    expect(redoDiff.changedFraction).toBeGreaterThan(MASK_MIN_CHANGED);
+    expect((await diffPngs(page, masked, redone)).changedFraction, 'redo matches the first masked frame').toBeLessThan(RESTORE_MAX_CHANGED);
 
-    // 8. Assert the masks Spark actually receives (not just the panel text).
-    type SplatDebug = {
-      hasMesh: boolean;
-      globalEdits: number;
-      edits: { softEdge: number; sdfs: { type: string; opacity: number; halfExtents: number[] }[] }[];
-    };
-    const readSplat = () =>
-      page.evaluate(() => (window as unknown as { __spaceGenSplat?: () => unknown }).__spaceGenSplat?.() ?? null) as Promise<SplatDebug | null>;
+    // 6. Four distinct camera angles of the masked chair (full composited frame).
+    const angles: Array<[string, [[number, number, number], [number, number, number]]]> = [
+      ['chair-mask-angle-1-front.png', CLOSE_VIEW],
+      ['chair-mask-angle-2-perspective.png', [[1.63, 1.4, -3.37], TARGET]],
+      ['chair-mask-angle-3-side.png', [[2.1, 1.4, -4.5], TARGET]],
+      ['chair-mask-angle-4-back-left.png', [[-0.63, 1.4, -3.37], TARGET]],
+    ];
+    const hashes = new Set<string>();
+    for (const [name, view] of angles) {
+      await setCamera(page, view);
+      await page.waitForTimeout(800);
+      const file = screenshotPath(name);
+      await page.screenshot({ path: file });
+      hashes.add(crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex'));
+    }
+    expect(hashes.size, 'each angle screenshot must differ').toBe(angles.length);
 
-    await expect.poll(async () => (await readSplat())?.edits.length ?? -1, { timeout: 10000 }).toBe(1);
-    let splat = (await readSplat())!;
-    expect(splat.hasMesh).toBe(true);
-    // Edits must be scoped to the mesh only; a scene-graph copy would apply the mask twice.
-    expect(splat.globalEdits).toBe(0);
-    expect(splat.edits[0].sdfs).toHaveLength(1);
-    expect(splat.edits[0].sdfs[0].type).toBe('box');
-    expect(splat.edits[0].sdfs[0].opacity).toBe(0);
-    // Original chair is 0.55 m wide -> 0.275 m half-extent.
-    expect(splat.edits[0].sdfs[0].halfExtents[0]).toBeCloseTo(0.275, 3);
-
-    // Undo removes the splat edit, redo restores it.
-    await undoButton.click();
-    await expect.poll(async () => (await readSplat())?.edits.length ?? -1).toBe(0);
-    await redoButton.click();
-    await expect.poll(async () => (await readSplat())?.edits.length ?? -1).toBe(1);
-
-    // Evidence frame for the report. Headless CI uses software GL, where Spark draws no splats,
-    // so visual masking from multiple angles must be checked in a GPU browser; the assertions
-    // above verify the edits Spark actually receives.
-    const capture = async (name: string) => {
-      await page.screenshot({ path: test.info().outputPath(name) });
-      await test.info().attach(name, { path: test.info().outputPath(name), contentType: 'image/png' });
-    };
-    await capture('chair-mask-masked.png');
-
-    // 9. Ghost mode: one edit at 25% opacity (not 0.25^2 from a duplicated edit).
-    await ghostToggleButton.click();
+    // 7. Ghost mode shows the original at 25%: a partial change between unmasked and fully masked.
+    await setCamera(page, CLOSE_VIEW);
+    const ghostToggle = page.getByRole('button', { name: 'Toggle Ghost Mode' });
+    await ghostToggle.click();
     await expect(page.getByText('Ghost (25%)')).toBeVisible();
-    await expect(ghostToggleButton).toContainText('Show Original: On (Ghost Mode)');
-    await expect.poll(async () => (await readSplat())?.edits[0]?.sdfs[0]?.opacity).toBeCloseTo(0.25, 3);
-    splat = (await readSplat())!;
-    expect(splat.edits).toHaveLength(1);
-    expect(splat.globalEdits).toBe(0);
-    await capture('chair-mask-ghost-mode.png');
-
-    // Toggle back to Masked (0%)
-    await ghostToggleButton.click();
+    // One edit at 25% opacity (not 0.25^2 from a duplicated edit).
+    await expect.poll(() => page.evaluate(() => window.__spacegenSplat!.edits().map((e) => e.opacity))).toEqual([0.25]);
+    expect(await page.evaluate(() => window.__spacegenSplat!.globalEditCount())).toBe(0);
+    const ghost =await captureSplatRegion(page, rect);
+    await page.screenshot({ path: screenshotPath('chair-mask-ghost-mode.png') });
+    const ghostDiff = await diffPngs(page, before, ghost);
+    console.log('ghost vs before', ghostDiff);
+    expect(ghostDiff.meanAbsDiff).toBeGreaterThan(0);
+    expect(ghostDiff.meanAbsDiff, 'ghost keeps more of the original than a full mask').toBeLessThan(maskedDiff.meanAbsDiff);
+    await ghostToggle.click();
     await expect(page.getByText('Masked (0%)')).toBeVisible();
-    await expect.poll(async () => (await readSplat())?.edits[0]?.sdfs[0]?.opacity).toBe(0);
 
-    // 10. Test Mask Resizing Controls & Undo
+    // 8. Mask resize is undoable.
     const widthInput = page.getByRole('spinbutton', { name: 'Mask Width (m)' });
-    await expect(widthInput).toBeVisible();
+    await expect(widthInput).toHaveValue('0.55');
     await widthInput.fill('0.85');
     await widthInput.blur();
     await expect(widthInput).toHaveValue('0.85');
-    await expect.poll(async () => (await readSplat())?.edits[0]?.sdfs[0]?.halfExtents[0]).toBeCloseTo(0.425, 3);
-
-    // Undo the resize back to 0.55
-    await undoButton.click();
+    const halfWidth = () => page.evaluate(() => window.__spacegenSplat!.edits()[0]?.halfExtents[0]);
+    await expect.poll(halfWidth).toBeCloseTo(0.425, 3);
+    await undo.click();
     await expect(widthInput).toHaveValue('0.55');
-    await expect.poll(async () => (await readSplat())?.edits[0]?.sdfs[0]?.halfExtents[0]).toBeCloseTo(0.275, 3);
+    await expect.poll(halfWidth).toBeCloseTo(0.275, 3);
   });
 });

@@ -1,7 +1,10 @@
 'use client';
 
 import React from 'react';
+import { useScene } from '@pascal-app/core';
 import { useSpaceGenStore } from '@/lib/store';
+import { getTrustedInterpretation } from '@/lib/pascal/interpretationReview';
+import { nodeViews } from '@/lib/pascal/nodes';
 import {
   Sparkles,
   Check,
@@ -22,6 +25,8 @@ export function AIPlacementPreview() {
     (state) => state.acceptAllCandidatePlacements
   );
   const clearCandidatePlacements = useSpaceGenStore((state) => state.clearCandidatePlacements);
+  const nodes = useScene((state) => state.nodes);
+  const trustWarning = React.useMemo(() => getTrustedInterpretation(nodeViews(nodes)).warning, [nodes]);
 
   if (candidatePlacements.length === 0) return null;
 
@@ -66,6 +71,12 @@ export function AIPlacementPreview() {
             </button>
           </div>
         </div>
+
+        {trustWarning && (
+          <p role="alert" className="rounded-lg bg-amber-500/15 px-2 py-1 text-[10px] text-amber-400">
+            {trustWarning} Review the scan before relying on these placements.
+          </p>
+        )}
 
         {/* Candidate List Cards */}
         <div className="flex flex-col gap-1.5 max-h-[320px] overflow-y-auto pr-1">

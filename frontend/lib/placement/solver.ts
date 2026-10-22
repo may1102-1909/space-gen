@@ -1,418 +1,415 @@
-import type { RoomInterpretation } from '@/lib/contracts';
-import { makeObb2, polygonBounds, pointInPolygon, yawFacing, type Vec2 } from './geometry';
-import {
-  type Obstacle,
-  type PlacementContext,
-  type SceneInput,
-  type Subject,
-  buildContext,
-  normalizeCategory,
-} from './context';
-import type { PlacementOptions, PlacementViolation } from './types';
-import { clearFrontDepth, validateSubject } from './validate';
+/**
+ * Placement solver for "place N of asset X": generates candidate layouts (around an anchor,
+ * along walls, facing a focal point), validates every slot with the placement rules, scores
+ * the layouts and returns the top-k with human-readable reasons. It never edits the scene;
+ * callers turn a layout into EditProposals with `toEditProposals`.
+ */
+import type { EditProposal, RoomInterpretation, Violation } from '@/lib/contracts';
+import { add, dot, frontOf, len, normalize, polygonDistance, scale, sub, yawFacing } from './geometry';
+import { buildRoom, categoryIs, lookupByCategory, resolveConfig } from './room';
+import { areCompanions, itemFootprint, type RuleContext } from './rules';
+import type {
+  CandidatePlacement,
+  PlacementAssetSpec,
+  PlacementConfig,
+  PlacementItem,
+  PlacementScene,
+  RoomGeometry,
+  Vec2,
+  WallGeometry,
+} from './types';
+import { toProposalValidation, validateItem } from './validate';
 
-export interface PlacementAsset {
-  url: string;
-  name: string;
-  category: string;
-  /** Unscaled [width, height, depth] in meters. */
-  dimensions: [number, number, number];
-}
+export type PlacementStrategy = 'around-anchor' | 'along-wall' | 'facing-focal';
 
 export interface PlacementRequest {
-  asset: PlacementAsset;
-  /** Number of instances to place. */
+  asset: PlacementAssetSpec;
   count: number;
-  /** Categories (or name fragments) of anchor objects; defaults derive from the asset category. */
-  anchorCategories?: string[];
-  /** Explicit focal points (x, z) items should face when not anchored. */
-  focalPoints?: Vec2[];
-  /** Number of alternative layouts to return (default 3). */
+  /** Item to group around; defaults to the best match from `config.anchorAffinity`. */
+  anchorId?: string;
+  /** Point the placements should face; defaults to the first item in `config.focalCategories`. */
+  focal?: { position: Vec2; name?: string };
+  /** Number of layouts to return (default 3). */
   topK?: number;
-  /** Preferred anchor-to-item gap override (m). */
-  anchorGap?: number;
+  config?: Partial<PlacementConfig>;
 }
 
-export type PlacementStrategy = 'anchor' | 'wall' | 'focal';
-
-export interface ScoredPlacement {
+export interface PlacementSlot {
+  /** Base center (bottom of the item), scene frame. */
   position: [number, number, number];
   rotationY: number;
-  strategy: PlacementStrategy;
-  anchorId?: string;
-  /** Compass side of the anchor (north = -z) for anchored placements. */
-  side?: 'north' | 'south' | 'east' | 'west';
   score: number;
-  breakdown: Record<'validity' | 'clearance' | 'anchor' | 'alignment' | 'symmetry', number>;
   reasons: string[];
-  /** Non-blocking (warning/info) violations that remain. */
-  violations: PlacementViolation[];
+  violations: Violation[];
 }
 
 export interface PlacementLayout {
-  placements: ScoredPlacement[];
+  id: string;
+  strategy: PlacementStrategy;
+  anchorId?: string;
+  requested: number;
+  placements: PlacementSlot[];
   score: number;
+  symmetry: number;
   reasons: string[];
 }
 
-interface Pose {
-  x: number;
-  z: number;
+interface Candidate {
+  center: Vec2;
   yaw: number;
+  label: string;
+  relation: number;
+}
+
+interface LayoutPlan {
+  id: string;
   strategy: PlacementStrategy;
-  anchor?: Obstacle;
-  side?: ScoredPlacement['side'];
-  /** Signed lateral offset along the anchor side / wall, and the half-length available. */
-  lateral?: number;
-  halfSpan?: number;
-  /** Score multiplier for less natural anchor sides (e.g. a table's short ends for seating). */
-  sidePref?: number;
+  anchorId?: string;
+  /** Candidate list per slot; the first valid entry of each list is used. */
+  slots: Candidate[][];
+  /** Mirror axes used for the symmetry score. */
+  axis: { origin: Vec2; dir: Vec2 }[];
+  summary: string;
 }
 
-const MAX_WALL_POSES = 60;
-const MAX_GRID_POSES = 70;
-const MAX_GREEDY_EVALS = 30;
-const WEIGHTS = { validity: 0.25, clearance: 0.2, anchor: 0.25, alignment: 0.1, symmetry: 0.2 };
-const WALL_LOVERS = new Set(['sofa', 'couch', 'bed', 'wardrobe', 'bookcase', 'shelf', 'cabinet', 'storage', 'desk', 'tv_stand', 'dresser']);
+const fmt = (n: number): string => n.toFixed(2);
+const rotate = (v: Vec2, a: number): Vec2 => [v[0] * Math.cos(a) - v[1] * Math.sin(a), v[0] * Math.sin(a) + v[1] * Math.cos(a)];
 
-const DEFAULT_ANCHORS: Record<string, string[]> = {
-  chair: ['dining_table', 'table', 'desk', 'coffee_table', 'sofa'],
-  stool: ['table', 'desk'],
-  armchair: ['coffee_table', 'sofa'],
-  lamp: ['sofa', 'bed', 'desk'],
-  side_table: ['sofa', 'bed'],
-  coffee_table: ['sofa'],
-  ottoman: ['sofa', 'armchair'],
-};
-
-const COMPASS: Array<[ScoredPlacement['side'], Vec2]> = [
-  ['north', [0, -1]],
-  ['south', [0, 1]],
-  ['east', [1, 0]],
-  ['west', [-1, 0]],
-];
-
-const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
-const round = (n: number) => Math.round(n * 1e6) / 1e6;
-
-function anchorMatches(o: Obstacle, cats: string[]): number {
-  const name = normalizeCategory(o.name);
-  for (let i = 0; i < cats.length; i++) if (o.category === cats[i] || name.includes(cats[i])) return i;
-  return -1;
-}
-
-function compass(n: Vec2): ScoredPlacement['side'] {
-  // Anchor's local side normal mapped to the nearest compass direction in world space.
-  let best = COMPASS[0];
-  let bestDot = -Infinity;
-  for (const c of COMPASS) {
-    const d = c[1][0] * n[0] + c[1][1] * n[1];
-    if (d > bestDot) {
-      bestDot = d;
-      best = c;
-    }
-  }
-  return best[0];
-}
-
-function generatePoses(req: PlacementRequest, ctx: PlacementContext): { poses: Pose[]; anchors: Obstacle[] } {
-  const { room } = ctx;
-  const [w, , d] = req.asset.dimensions;
-  const hw = w / 2;
-  const hd = d / 2;
-  const cat = normalizeCategory(req.asset.category);
-  const poses: Pose[] = [];
-
-  const anchorCats = (req.anchorCategories ?? DEFAULT_ANCHORS[cat] ?? []).map(normalizeCategory);
-  const anchors = ctx.obstacles
-    .map((o) => ({ o, rank: anchorMatches(o, anchorCats) }))
-    .filter((a) => a.rank >= 0)
-    .sort((a, b) => a.rank - b.rank)
-    .map((a) => a.o)
-    .slice(0, 3);
-
-  // Anchor sides: slots along each side, facing the anchor.
-  for (const a of anchors) {
-    const seatLike = cat === 'chair' || cat === 'stool' || cat === 'armchair';
-    const gaps = req.anchorGap !== undefined ? [req.anchorGap] : seatLike ? (a.category.includes('table') && !a.category.includes('coffee') ? [0.12, 0.3] : [0.4, 0.7]) : [0.05, 0.3];
-    const sides: Array<{ n: Vec2; half: number; along: Vec2; span: number }> = [
-      { n: [-a.obb.az[0], -a.obb.az[1]], half: a.obb.hz, along: a.obb.ax, span: a.obb.hx },
-      { n: a.obb.az, half: a.obb.hz, along: a.obb.ax, span: a.obb.hx },
-      { n: [-a.obb.ax[0], -a.obb.ax[1]], half: a.obb.hx, along: a.obb.az, span: a.obb.hz },
-      { n: a.obb.ax, half: a.obb.hx, along: a.obb.az, span: a.obb.hz },
-    ];
-    for (const s of sides) {
-      const side = compass(s.n);
-      const yaw = yawFacing(-s.n[0], -s.n[1]);
-      const pitch = w + 0.1;
-      const slots = Math.max(1, Math.floor((2 * s.span) / pitch));
-      // Seating prefers the anchor's long sides; short ends are a fallback.
-      const longest = Math.max(a.obb.hx, a.obb.hz);
-      const elongated = longest - Math.min(a.obb.hx, a.obb.hz) > 0.05;
-      const sidePref = seatLike && elongated && s.span < longest - 1e-6 ? 0.85 : 1;
-      const offsets: number[] = [];
-      for (let i = 0; i < slots; i++) offsets.push((i - (slots - 1) / 2) * pitch);
-      if (slots % 2 === 0) offsets.push(0);
-      for (const gap of gaps) {
-        const dist = s.half + gap + hd;
-        for (const t of offsets) {
-          poses.push({
-            x: a.obb.cx + s.n[0] * dist + s.along[0] * t,
-            z: a.obb.cz + s.n[1] * dist + s.along[1] * t,
-            yaw,
-            strategy: 'anchor',
-            anchor: a,
-            side,
-            lateral: t,
-            halfSpan: s.span,
-          });
-        }
-      }
-    }
-  }
-
-  // Sampling density is capped so large rooms stay within the interactive time budget.
-  const totalWall = room.walls.reduce((sum, x) => sum + x.length, 0);
-  const wallStep = Math.max(0.3, totalWall / MAX_WALL_POSES);
-
-  // Wall strip: flush against inner wall faces, front pointing into the room.
-  for (const wall of room.walls) {
-    const margin = hw + 0.05;
-    if (wall.length < 2 * margin) continue;
-    const yaw = yawFacing(wall.normal[0], wall.normal[1]);
-    const off = wall.thickness / 2 + hd + 0.005;
-    for (let t = margin; t <= wall.length - margin + 1e-9; t += wallStep) {
-      poses.push({
-        x: wall.start[0] + wall.dir[0] * t + wall.normal[0] * off,
-        z: wall.start[1] + wall.dir[1] * t + wall.normal[1] * off,
-        yaw,
-        strategy: 'wall',
-        lateral: t - wall.length / 2,
-        halfSpan: wall.length / 2,
-      });
-    }
-  }
-
-  // Free floor grid facing the nearest focal point (default: room centroid).
-  const focal: Vec2[] = req.focalPoints?.length ? req.focalPoints : [room.centroid];
-  const bounds = room.outline
-    ? polygonBounds(room.outline)
-    : (() => {
-        const b = polygonBounds(room.walls.flatMap((x) => [x.start, x.end]));
-        return { minX: b.minX - 2, maxX: b.maxX + 2, minZ: b.minZ - 2, maxZ: b.maxZ + 2 };
-      })();
-  const gridStep = Math.max(0.5, Math.sqrt(((bounds.maxX - bounds.minX) * (bounds.maxZ - bounds.minZ)) / MAX_GRID_POSES));
-  for (let x = bounds.minX + gridStep; x < bounds.maxX; x += gridStep) {
-    for (let z = bounds.minZ + gridStep; z < bounds.maxZ; z += gridStep) {
-      if (room.outline && !pointInPolygon([x, z], room.outline)) continue;
-      let f = focal[0];
-      let best = Infinity;
-      for (const p of focal) {
-        const dd = Math.hypot(p[0] - x, p[1] - z);
-        if (dd < best) {
-          best = dd;
-          f = p;
-        }
-      }
-      if (best < 0.3) continue;
-      poses.push({ x, z, yaw: yawFacing(f[0] - x, f[1] - z), strategy: 'focal' });
-    }
-  }
-  return { poses, anchors };
-}
-
-function subjectFor(req: PlacementRequest, pose: Pose, idx: number): Subject {
+function makeItem(c: Candidate, asset: PlacementAssetSpec, id: string, groupId: string, floorY: number): PlacementItem {
+  const { width, height, depth } = asset.dimensions;
   return {
-    id: `candidate_${idx}`,
-    category: normalizeCategory(req.asset.category),
-    x: pose.x,
-    y: 0,
-    z: pose.z,
-    yaw: pose.yaw,
-    dims: req.asset.dimensions,
+    id,
+    name: asset.name ?? asset.category,
+    category: asset.category.toLowerCase(),
+    obb: { center: [c.center[0], floorY + height / 2, c.center[1]], size: [width, height, depth], yaw: c.yaw },
+    attachTo: 'floor',
+    groupId,
   };
 }
 
-function wallAlignment(yaw: number, ctx: PlacementContext): number {
-  const wall = ctx.room.walls[0];
-  if (!wall) return 0.5;
-  const base = Math.atan2(wall.normal[0], wall.normal[1]);
-  const q = Math.PI / 2;
-  const rem = Math.abs(((yaw - base) % q + q) % q);
-  return clamp01(1 - Math.min(rem, q - rem) / (q / 4));
+/** Smallest gap to anything the item is not meant to sit against (capped at walkwayMin). */
+function clearanceOf(item: PlacementItem, ctx: RuleContext, config: PlacementConfig): number {
+  const fp = itemFootprint(item);
+  let best = config.walkwayMin;
+  for (const o of ctx.obstacles) {
+    if (o.obb.size[1] <= config.lowProfileHeight || areCompanions(item, o, config)) continue;
+    best = Math.min(best, polygonDistance(fp, itemFootprint(o)));
+  }
+  for (const w of ctx.room.walls) {
+    const gap = polygonDistance(fp, w.footprint);
+    if (gap > config.abutMax) best = Math.min(best, gap);
+  }
+  return best;
 }
 
-function staticScore(
-  req: PlacementRequest,
-  pose: Pose,
-  warnings: PlacementViolation[],
-  ctx: PlacementContext,
-  anchors: Obstacle[],
-  idx: number
-): { total: number; breakdown: ScoredPlacement['breakdown']; reasons: string[] } {
-  const cat = normalizeCategory(req.asset.category);
-  const reasons: string[] = [];
-  const validity = clamp01(1 - 0.25 * warnings.length);
-  const front = clearFrontDepth(subjectFor(req, pose, idx), ctx, 1.5);
-  const clearance = clamp01(front / 1.5);
-
-  let anchor: number;
-  if (pose.strategy === 'anchor' && pose.anchor) {
-    const gap = Math.hypot(pose.x - pose.anchor.obb.cx, pose.z - pose.anchor.obb.cz);
-    anchor = clamp01(1 - (gap - (pose.anchor.obb.hz + req.asset.dimensions[2] / 2)) / 3);
-    anchor = 0.8 + 0.2 * anchor;
-    reasons.push(`faces ${pose.anchor.name} on its ${pose.side} side`);
-  } else if (anchors.length > 0) {
-    anchor = 0.2;
-  } else if (pose.strategy === 'wall') {
-    anchor = WALL_LOVERS.has(cat) ? 1 : 0.5;
-    if (WALL_LOVERS.has(cat)) reasons.push('against a wall as is typical for this category');
-  } else if (pose.strategy === 'focal' && req.focalPoints?.length && !WALL_LOVERS.has(cat)) {
-    anchor = 0.95;
-    reasons.push('free-standing, facing the requested focal point');
-  } else {
-    anchor = WALL_LOVERS.has(cat) ? 0.2 : 0.6;
-    if (!WALL_LOVERS.has(cat)) reasons.push('free-standing, facing the room focus');
-  }
-
-  const facesFocus = pose.strategy === 'focal' && !!req.focalPoints?.length;
-  const alignment = (pose.strategy === 'anchor' && pose.anchor) || facesFocus ? 1 : wallAlignment(pose.yaw, ctx);
-  if (alignment > 0.95) reasons.push('aligned with the room axes');
-
-  let symmetry = 0.5;
-  if (pose.lateral !== undefined && pose.halfSpan) {
-    symmetry = clamp01(1 - Math.abs(pose.lateral) / pose.halfSpan);
-    if (symmetry > 0.9) reasons.push('centred on the anchor/wall axis');
-  }
-
-  if (front >= 1.2) reasons.push(`${front.toFixed(1)} m clear in front`);
-  if (warnings.length === 0) reasons.push('no rule violations');
-  for (const w of warnings) reasons.push(`warning ${w.code}: ${w.message}`);
-
-  const breakdown = { validity, clearance, anchor, alignment, symmetry };
-  const sidePref = pose.sidePref ?? 1;
-  if (sidePref < 1) reasons.push('short end of the anchor (less preferred for seating)');
-  const total = sidePref * Object.entries(WEIGHTS).reduce((s, [k, wt]) => s + wt * breakdown[k as keyof typeof breakdown], 0);
-  return { total, breakdown, reasons };
-}
-
-/** Rotational/mirror symmetry bonus relative to already chosen placements about the group's anchor/centroid. */
-function symmetryWithChosen(pose: Pose, chosen: ScoredPlacement[], centre: Vec2): number {
-  if (chosen.length === 0) return -1;
+/** Mean closeness of each point's mirror image (about the best axis) to the layout's points; 1 = perfectly symmetric. */
+export function symmetryScore(points: Vec2[], axes: { origin: Vec2; dir: Vec2 }[], tolerance = 0.25): number {
+  if (points.length <= 1 || !axes.length) return 1;
   let best = 0;
-  for (const c of chosen) {
-    const px = 2 * centre[0] - c.position[0];
-    const pz = 2 * centre[1] - c.position[2];
-    const point = Math.hypot(pose.x - px, pose.z - pz);
-    const mirrorX = Math.hypot(pose.x - (2 * centre[0] - c.position[0]), pose.z - c.position[2]);
-    const mirrorZ = Math.hypot(pose.x - c.position[0], pose.z - (2 * centre[1] - c.position[2]));
-    best = Math.max(best, 1 - Math.min(point, mirrorX, mirrorZ) / 0.5);
-  }
-  return clamp01(best);
-}
-
-interface Pooled {
-  pose: Pose;
-  idx: number;
-  base: number;
-  breakdown: ScoredPlacement['breakdown'];
-  reasons: string[];
-  warnings: PlacementViolation[];
-}
-
-export function solvePlacements(
-  request: PlacementRequest,
-  scene: SceneInput,
-  interpretation: RoomInterpretation,
-  options: Partial<PlacementOptions> = {}
-): PlacementLayout[] {
-  const ctx = buildContext(scene, interpretation, options);
-  return solveInContext(request, ctx);
-}
-
-export function solveInContext(request: PlacementRequest, ctx: PlacementContext): PlacementLayout[] {
-  const count = Math.max(1, Math.floor(request.count));
-  const topK = Math.max(1, request.topK ?? 3);
-  const { poses, anchors } = generatePoses(request, ctx);
-
-  const pool: Pooled[] = [];
-  poses.forEach((pose, idx) => {
-    const violations = validateSubject(subjectFor(request, pose, idx), ctx);
-    if (violations.some((v) => v.severity === 'error')) return;
-    const warnings = violations;
-    const s = staticScore(request, pose, warnings, ctx, anchors, idx);
-    pool.push({ pose, idx, base: round(s.total), breakdown: s.breakdown, reasons: s.reasons, warnings });
-  });
-  pool.sort((a, b) => b.base - a.base || a.idx - b.idx);
-  if (pool.length === 0) return [];
-
-  const centre: Vec2 = anchors[0] ? [anchors[0].obb.cx, anchors[0].obb.cz] : ctx.room.centroid;
-  const layouts: PlacementLayout[] = [];
-  const firstPicks: Pooled[] = [];
-  for (const p of pool) {
-    if (firstPicks.every((f) => Math.hypot(f.pose.x - p.pose.x, f.pose.z - p.pose.z) > 0.5)) firstPicks.push(p);
-    if (firstPicks.length >= topK) break;
-  }
-
-  for (const first of firstPicks) {
-    const chosen: ScoredPlacement[] = [];
-    const extra: Obstacle[] = [];
-    const take = (p: Pooled, symmetry: number) => {
-      const breakdown = { ...p.breakdown };
-      const reasons = [...p.reasons];
-      let score = p.base;
-      if (symmetry >= 0) {
-        score += WEIGHTS.symmetry * (symmetry - breakdown.symmetry);
-        breakdown.symmetry = symmetry;
-        if (symmetry > 0.9) reasons.push('mirrors an earlier placement across the group centre');
-      }
-      chosen.push({
-        position: [round(p.pose.x), 0, round(p.pose.z)],
-        rotationY: round(p.pose.yaw),
-        strategy: p.pose.strategy,
-        anchorId: p.pose.anchor?.id,
-        side: p.pose.side,
-        score: round(score),
-        breakdown,
-        reasons,
-        violations: p.warnings,
-      });
-      const s = subjectFor(request, p.pose, p.idx);
-      extra.push({
-        id: `placed_${chosen.length}`,
-        name: `${request.asset.name} #${chosen.length}`,
-        category: s.category,
-        y: 0,
-        h: s.dims[1],
-        obb: makeObb2(s.x, s.z, s.dims[0] / 2, s.dims[2] / 2, s.yaw),
-        source: 'extra',
-      });
-    };
-    take(first, -1);
-
-    while (chosen.length < count) {
-      const sub: PlacementContext = { ...ctx, obstacles: ctx.obstacles.concat(extra) };
-      let best: { p: Pooled; total: number; sym: number } | null = null;
-      let evaluated = 0;
-      for (const p of pool) {
-        if (evaluated >= MAX_GREEDY_EVALS) break;
-        if (chosen.some((c) => Math.hypot(c.position[0] - p.pose.x, c.position[2] - p.pose.z) < 0.05)) continue;
-        const violations = validateSubject(subjectFor(request, p.pose, p.idx), sub);
-        if (violations.some((v) => v.severity === 'error')) continue;
-        evaluated++;
-        const sym = symmetryWithChosen(p.pose, chosen, centre);
-        const penalty = 0.25 * Math.max(0, violations.length - p.warnings.length) * WEIGHTS.validity;
-        const total = p.base + WEIGHTS.symmetry * (sym - p.breakdown.symmetry) - penalty;
-        if (!best || total > best.total + 1e-9) best = { p, total, sym };
-      }
-      if (!best) break;
-      take(best.p, best.sym);
+  for (const { origin, dir } of axes) {
+    const u = normalize(dir);
+    let total = 0;
+    for (const p of points) {
+      const rel = sub(p, origin);
+      const mirrored = add(origin, sub(scale(u, 2 * dot(rel, u)), rel));
+      const nearest = Math.min(...points.map((q) => len(sub(q, mirrored))));
+      total += Math.exp(-nearest / tolerance);
     }
+    best = Math.max(best, total / points.length);
+  }
+  return best;
+}
 
-    const score = chosen.reduce((s, c) => s + c.score, 0) / chosen.length;
-    const reasons = [`${chosen.length}/${count} placed`, `strategies: ${[...new Set(chosen.map((c) => c.strategy))].join(', ')}`];
-    layouts.push({ placements: chosen, score: round(score), reasons });
+function anchorPlans(anchor: PlacementItem, rank: number, asset: PlacementAssetSpec, config: PlacementConfig): LayoutPlan[] {
+  const { width: w, depth: d } = asset.dimensions;
+  const yaw = anchor.obb.yaw;
+  const ax: Vec2 = [Math.cos(yaw), -Math.sin(yaw)];
+  const az: Vec2 = [Math.sin(yaw), Math.cos(yaw)];
+  const c: Vec2 = [anchor.obb.center[0], anchor.obb.center[2]];
+  const gap = lookupByCategory(config.anchorGap, anchor.category, 0.1);
+  const relation = Math.max(0.5, 1 - 0.1 * rank);
+  const spacing = 0.05;
+
+  type Side = { normal: Vec2; tangent: Vec2; length: number; half: number; name: string };
+  const sides: Side[] = [
+    { normal: az, tangent: ax, length: anchor.obb.size[0], half: anchor.obb.size[2] / 2, name: 'front' },
+    { normal: scale(az, -1), tangent: ax, length: anchor.obb.size[0], half: anchor.obb.size[2] / 2, name: 'back' },
+    { normal: ax, tangent: az, length: anchor.obb.size[2], half: anchor.obb.size[0] / 2, name: 'right end' },
+    { normal: scale(ax, -1), tangent: az, length: anchor.obb.size[2], half: anchor.obb.size[0] / 2, name: 'left end' },
+  ];
+  const slotsOf = (side: Side): Candidate[] => {
+    const k = side.length >= 0.6 * w ? Math.max(1, Math.floor((side.length + spacing) / (w + spacing))) : 0;
+    const offsets = Array.from({ length: k }, (_, i) => (i - (k - 1) / 2) * (side.length / k)).sort(
+      (a, b) => Math.abs(a) - Math.abs(b) || a - b,
+    );
+    return offsets.map((o, i) => ({
+      center: add(add(c, scale(side.normal, side.half + gap + d / 2)), scale(side.tangent, o)),
+      yaw: yawFacing(scale(side.normal, -1)),
+      label: `${side.name} of "${anchor.name}" (seat ${i + 1} of ${k})`,
+      relation,
+    }));
+  };
+  const interleave = (a: Candidate[], b: Candidate[]): Candidate[] =>
+    Array.from({ length: Math.max(a.length, b.length) }, (_, i) => [a[i], b[i]]).flat().filter((x): x is Candidate => !!x);
+
+  const longFirst = anchor.obb.size[0] >= anchor.obb.size[2];
+  const longPair = longFirst ? interleave(slotsOf(sides[0]), slotsOf(sides[1])) : interleave(slotsOf(sides[2]), slotsOf(sides[3]));
+  const endPair = longFirst ? interleave(slotsOf(sides[2]), slotsOf(sides[3])) : interleave(slotsOf(sides[0]), slotsOf(sides[1]));
+  const axis = [
+    { origin: c, dir: ax },
+    { origin: c, dir: az },
+  ];
+  const base = { strategy: 'around-anchor' as const, anchorId: anchor.id, axis };
+  return [
+    {
+      ...base,
+      id: `around-anchor:${anchor.id}:sides`,
+      slots: [...longPair, ...endPair].map((x) => [x]),
+      summary: `Grouped around "${anchor.name}", long sides first, each seat facing it with a ${fmt(gap)} m gap`,
+    },
+    {
+      ...base,
+      id: `around-anchor:${anchor.id}:ends`,
+      slots: [...endPair, ...longPair].map((x) => [x]),
+      summary: `Grouped around "${anchor.name}", ends first, each seat facing it with a ${fmt(gap)} m gap`,
+    },
+  ];
+}
+
+function wallPlan(wall: WallGeometry, count: number, asset: PlacementAssetSpec, relation: number, config: PlacementConfig): LayoutPlan | null {
+  const { width: w, depth: d } = asset.dimensions;
+  const margin = w / 2 + 0.05;
+  if (wall.length < 2 * margin) return null;
+  const samples: number[] = [];
+  for (let t = margin; t <= wall.length - margin + 1e-9; t += config.wallStep) samples.push(t);
+  const mid = wall.length / 2;
+  const pitch = w + 0.15;
+  const toCandidate = (t: number): Candidate => ({
+    center: add(add(wall.a, scale(wall.dir, t)), scale(wall.inward, wall.thickness / 2 + d / 2 + 0.02)),
+    yaw: yawFacing(wall.inward),
+    label: `backed against wall ${wall.id} at ${fmt(t)} m`,
+    relation,
+  });
+  const slots = Array.from({ length: count }, (_, i) => {
+    const ideal = Math.max(margin, Math.min(wall.length - margin, mid + (i - (count - 1) / 2) * pitch));
+    return [ideal, ...[...samples].sort((a, b) => Math.abs(a - ideal) - Math.abs(b - ideal))].map(toCandidate);
+  });
+  return {
+    id: `along-wall:${wall.id}`,
+    strategy: 'along-wall',
+    slots,
+    axis: [{ origin: add(wall.a, scale(wall.dir, mid)), dir: wall.inward }],
+    summary: `Backed against wall ${wall.id} (${fmt(wall.length)} m), facing into the room, ${fmt(pitch)} m apart`,
+  };
+}
+
+function focalPlans(focal: { position: Vec2; name: string }, count: number, asset: PlacementAssetSpec, room: RoomGeometry, config: PlacementConfig): LayoutPlan[] {
+  const toRoom = sub(room.centroid, focal.position);
+  const dir: Vec2 = len(toRoom) > 1e-6 ? normalize(toRoom) : [0, 1];
+  return config.focalRadii.map((radius) => {
+    const step = 2 * Math.asin(Math.min(1, (asset.dimensions.width + 0.3) / 2 / radius));
+    const angles: number[] = [];
+    if (count % 2 === 1) angles.push(0);
+    for (let i = 0; angles.length < count; i++) {
+      const a = count % 2 === 1 ? (i + 1) * step : (i + 0.5) * step;
+      angles.push(a, -a);
+    }
+    const slots = angles.slice(0, count).map((a) => {
+      const center = add(focal.position, scale(rotate(dir, a), radius));
+      return [
+        {
+          center,
+          yaw: yawFacing(sub(focal.position, center)),
+          label: `${fmt(radius)} m from "${focal.name}" at ${fmt((a * 180) / Math.PI)}°, facing it`,
+          relation: 0.9,
+        },
+      ];
+    });
+    return {
+      id: `facing-focal:${fmt(radius)}`,
+      strategy: 'facing-focal' as const,
+      slots,
+      axis: [{ origin: focal.position, dir }],
+      summary: `Arranged on a ${fmt(radius)} m arc facing "${focal.name}"`,
+    };
+  });
+}
+
+function evaluatePlan(
+  plan: LayoutPlan,
+  request: PlacementRequest,
+  scene: PlacementScene,
+  room: RoomGeometry,
+  config: PlacementConfig,
+): PlacementLayout {
+  const placed: PlacementItem[] = [];
+  const slots: PlacementSlot[] = [];
+  const clearances: number[] = [];
+  const groupId = plan.anchorId ?? plan.id;
+
+  for (const options of plan.slots) {
+    if (slots.length >= request.count) break;
+    for (const cand of options) {
+      const item = makeItem(cand, request.asset, `${plan.id}#${slots.length}`, groupId, room.floorY);
+      const ctx: RuleContext = { room, obstacles: placed.length ? [...scene.items, ...placed] : scene.items };
+      const violations = validateItem(item, ctx, config);
+      if (violations.some((v) => v.severity === 'error')) continue;
+      const clearance = clearanceOf(item, ctx, config);
+      const validity = Math.max(0, 1 - 0.2 * violations.length);
+      const clearanceScore = Math.min(1, clearance / config.walkwayMin);
+      const reasons = [
+        `Placed ${cand.label}`,
+        clearance >= config.walkwayMin
+          ? `At least ${fmt(config.walkwayMin)} m clear of other obstacles`
+          : `${fmt(clearance)} m to the nearest obstacle`,
+        ...violations.map((v) => `Warning: ${v.detail}`),
+      ];
+      placed.push(item);
+      clearances.push(clearance);
+      slots.push({
+        position: [cand.center[0], room.floorY, cand.center[1]],
+        rotationY: cand.yaw,
+        score: 0.5 * validity + 0.25 * clearanceScore + 0.25 * cand.relation,
+        reasons,
+        violations,
+      });
+      break;
+    }
   }
 
-  return layouts.sort((a, b) => b.placements.length - a.placements.length || b.score - a.score);
+  const n = slots.length;
+  const mean = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
+  const symmetry = n ? symmetryScore(slots.map((s) => [s.position[0], s.position[2]] as Vec2), plan.axis) : 0;
+  const completeness = n / request.count;
+  const meanSlot = mean(slots.map((s) => s.score));
+  const score = n ? completeness * (0.8 * meanSlot + 0.2 * symmetry) : 0;
+  const warnings = slots.reduce((k, s) => k + s.violations.length, 0);
+
+  const reasons = [plan.summary];
+  reasons.push(n < request.count ? `Only ${n} of ${request.count} fit without collisions` : `All ${n} placements are collision-free`);
+  if (n > 1) reasons.push(symmetry >= 0.8 ? `Symmetric arrangement (${fmt(symmetry)})` : `Asymmetric arrangement (symmetry ${fmt(symmetry)})`);
+  if (n) {
+    const minClear = Math.min(...clearances);
+    reasons.push(
+      minClear >= config.walkwayMin
+        ? `Keeps ${fmt(config.walkwayMin)} m walkways and door swings clear`
+        : `Tightest clearance ${fmt(minClear)} m`,
+    );
+  }
+  if (warnings) reasons.push(`${warnings} warning${warnings > 1 ? 's' : ''} to review`);
+
+  return {
+    id: plan.id,
+    strategy: plan.strategy,
+    anchorId: plan.anchorId,
+    requested: request.count,
+    placements: slots,
+    score: Number(score.toFixed(4)),
+    symmetry: Number(symmetry.toFixed(4)),
+    reasons,
+  };
+}
+
+function findAnchors(request: PlacementRequest, scene: PlacementScene, room: RoomGeometry, config: PlacementConfig): { item: PlacementItem; rank: number }[] {
+  if (request.anchorId) {
+    const item = scene.items.find((i) => i.id === request.anchorId);
+    return item ? [{ item, rank: 0 }] : [];
+  }
+  const affinity = lookupByCategory(config.anchorAffinity, request.asset.category, [] as string[]);
+  const minHeight = lookupByCategory(config.anchorMinHeight, request.asset.category, 0);
+  const found: { item: PlacementItem; rank: number; dist: number }[] = [];
+  for (const item of scene.items) {
+    if (item.obb.size[1] < minHeight) continue;
+    const rank = affinity.findIndex((k) => categoryIs(item.category, k));
+    if (rank >= 0) found.push({ item, rank, dist: len(sub([item.obb.center[0], item.obb.center[2]], room.centroid)) });
+  }
+  return found.sort((a, b) => a.rank - b.rank || a.dist - b.dist).slice(0, 2);
+}
+
+function findFocal(request: PlacementRequest, scene: PlacementScene, config: PlacementConfig): { position: Vec2; name: string } | null {
+  if (request.focal) return { position: request.focal.position, name: request.focal.name ?? 'focal point' };
+  const item = scene.items.find((i) => config.focalCategories.some((k) => categoryIs(i.category, k)));
+  return item ? { position: [item.obb.center[0], item.obb.center[2]], name: item.name } : null;
+}
+
+/** Returns up to `topK` layouts for placing `count` copies of the asset, best first. */
+export function solvePlacement(
+  request: PlacementRequest,
+  scene: PlacementScene,
+  interpretation: RoomInterpretation,
+): PlacementLayout[] {
+  const config = resolveConfig(request.config);
+  const room = buildRoom(interpretation);
+  const count = Math.max(1, Math.floor(request.count));
+  const req = { ...request, count };
+
+  const anchors = findAnchors(req, scene, room, config);
+  const plans: LayoutPlan[] = anchors.flatMap(({ item, rank }) => anchorPlans(item, rank, req.asset, config));
+  const wallRelation = anchors.length ? 0.5 : 0.8;
+  for (const wall of room.walls) {
+    const plan = wallPlan(wall, count, req.asset, wallRelation, config);
+    if (plan) plans.push(plan);
+  }
+  const focal = findFocal(req, scene, config);
+  if (focal) plans.push(...focalPlans(focal, count, req.asset, room, config));
+
+  const seen = new Set<string>();
+  const layouts: PlacementLayout[] = [];
+  for (const plan of plans) {
+    const layout = evaluatePlan(plan, req, scene, room, config);
+    if (!layout.placements.length) continue;
+    const key = layout.placements
+      .map((p) => `${fmt(p.position[0])},${fmt(p.position[2])}`)
+      .sort()
+      .join('|');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    layouts.push(layout);
+  }
+  return layouts.sort((a, b) => b.score - a.score).slice(0, request.topK ?? 3);
+}
+
+/** Converts a layout into pending EditProposals (op "add"), one per placement. */
+export function toEditProposals(layout: PlacementLayout, asset: PlacementAssetSpec): EditProposal[] {
+  return layout.placements.map((slot, i) => ({
+    id: `proposal_${layout.id.replace(/[^a-z0-9]+/gi, '_')}_${i}`,
+    op: 'add',
+    targetNodeId: null,
+    asset: { source: asset.source ?? 'catalog', url: asset.url, dimensions: { ...asset.dimensions } },
+    transform: { position: slot.position, rotationY: slot.rotationY, scale: [1, 1, 1] },
+    rationale: [...layout.reasons.slice(0, 1), ...slot.reasons].join('. '),
+    validation: toProposalValidation(slot.violations),
+    status: 'pending',
+  }));
+}
+
+/** Converts a layout into the store's CandidatePlacement preview records. */
+export function toCandidatePlacements(layout: PlacementLayout, asset: PlacementAssetSpec): CandidatePlacement[] {
+  const { width, height, depth } = asset.dimensions;
+  const name = asset.name ?? asset.category;
+  return layout.placements.map((slot, i) => ({
+    id: `candidate_${layout.id.replace(/[^a-z0-9]+/gi, '_')}_${i}`,
+    name: `${name} #${i + 1}`,
+    category: asset.category,
+    modelUrl: asset.url,
+    position: slot.position,
+    rotation: [0, slot.rotationY, 0],
+    dimensions: [width, height, depth],
+    confidence: Number(slot.score.toFixed(2)),
+    reasoning: [layout.reasons[0], ...slot.reasons.slice(1)].join('. '),
+    status: 'pending',
+  }));
+}
+
+const NUMBER_WORDS: Record<string, number> = {
+  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12,
+  pair: 2, couple: 2,
+};
+
+/** Reads "place 4 chairs" / "add two stools" style counts; returns `fallback` when none is given. */
+export function parsePlacementCount(prompt: string, fallback = 2): number {
+  const digits = prompt.match(/\b(\d{1,2})\b/);
+  if (digits) return Math.max(1, Math.min(12, parseInt(digits[1], 10)));
+  const word = prompt.toLowerCase().match(/\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|pair|couple)\b/);
+  return word ? NUMBER_WORDS[word[1]] : fallback;
 }

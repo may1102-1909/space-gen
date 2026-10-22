@@ -3,6 +3,7 @@
 import React from 'react';
 import { useScene, AnyNodeId } from '@pascal-app/core';
 import { useViewer } from '@pascal-app/viewer';
+import { formatDimensions, scaleSourceOf } from '@/lib/measurement/accuracy';
 import {
   Armchair,
   Box,
@@ -34,13 +35,17 @@ export function ChatAttachmentBar({
   const nodes = useScene((state) => state.nodes);
 
   const selectedNodeId = selectedIds[0] || null;
-  const selectedNode = selectedNodeId ? (nodes[selectedNodeId as AnyNodeId] as any) : null;
+  const selectedNode = selectedNodeId ? (nodes[selectedNodeId as AnyNodeId] as unknown as { id: string; type: string; name?: string; dimensions?: [number, number, number]; asset?: { dimensions?: [number, number, number] } } | undefined) : null;
   const isItem = selectedNode?.type === 'item';
 
   const dims = selectedNode?.dimensions;
-  const dimsFormatted = dims
-    ? `${dims[0].toFixed(2)}m × ${dims[1].toFixed(2)}m × ${dims[2].toFixed(2)}m`
-    : null;
+  const scanNode = Object.values(nodes).find((n) => n?.type === 'scan');
+  // Asset dimensions are product specs; anything else came from the scan and is an estimate.
+  const dimsFormatted = !dims
+    ? null
+    : selectedNode?.asset?.dimensions
+      ? `${dims[0].toFixed(2)}m × ${dims[1].toFixed(2)}m × ${dims[2].toFixed(2)}m`
+      : formatDimensions(dims, scaleSourceOf(scanNode));
 
   if (!attachedFile && !selectedNode) return null;
 

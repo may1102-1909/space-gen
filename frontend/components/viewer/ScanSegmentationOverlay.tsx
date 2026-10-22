@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { useScene } from '@pascal-app/core';
+import { asNode, scanMetadata, updateNodeData } from '@/lib/pascal/nodes';
 import { useViewer } from '@pascal-app/viewer';
 import { SAMPLE_ROOM_SCAN_MANIFEST, RawScanObject } from '@/lib/pascal/scanConverter';
 import { addExclusionVolumeToScan } from '@/lib/splat/splatCropManager';
@@ -12,6 +13,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 interface ScanSegmentationOverlayProps {
   onReplaceWithAI?: (object: RawScanObject) => void;
 }
+
+const extractedItemId = (category: string) => `item_${category}_extracted_${Date.now()}`;
 
 export function ScanSegmentationOverlay({ onReplaceWithAI }: ScanSegmentationOverlayProps) {
   const showScans = useViewer((state) => state.showScans);
@@ -30,11 +33,11 @@ export function ScanSegmentationOverlay({ onReplaceWithAI }: ScanSegmentationOve
   const handleExtractSingle = (obj: RawScanObject) => {
     const scene = useScene.getState();
     const levelId = Object.values(scene.nodes).find((n) => n?.type === 'level')?.id || 'level_main';
-    const itemId = `item_${obj.category}_extracted_${Date.now()}`;
+    const itemId = extractedItemId(obj.category);
 
     // 1. Create editable Pascal item node
-    (scene.createNode as any)(
-      {
+    scene.createNode(
+      asNode({
         type: 'item',
         id: itemId,
         name: obj.label,
@@ -56,7 +59,7 @@ export function ScanSegmentationOverlay({ onReplaceWithAI }: ScanSegmentationOve
           rotation: [0, 0, 0],
           scale: [1, 1, 1],
         },
-      },
+      }),
       levelId
     );
 
@@ -87,9 +90,9 @@ export function ScanSegmentationOverlay({ onReplaceWithAI }: ScanSegmentationOve
       itemId,
       ghost: false,
     };
-    (scene.updateNode as any)(scanNode.id, {
+    updateNodeData(scanNode.id, {
       metadata: {
-        ...scanNode.metadata,
+        ...scanMetadata(scanNode),
         maskRegions: [...existingMasks.filter((m) => m.id !== maskRegion.id), maskRegion],
       },
     });
@@ -123,9 +126,9 @@ export function ScanSegmentationOverlay({ onReplaceWithAI }: ScanSegmentationOve
       detectionId: obj.id,
       ghost: false,
     };
-    (scene.updateNode as any)(scanNode.id, {
+    updateNodeData(scanNode.id, {
       metadata: {
-        ...scanNode.metadata,
+        ...scanMetadata(scanNode),
         maskRegions: [...existingMasks.filter((m) => m.id !== maskRegion.id), maskRegion],
       },
     });

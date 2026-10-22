@@ -2,26 +2,37 @@
 
 from __future__ import annotations
 
+import struct
+import subprocess
+import sys
 import time
 from collections import Counter
+from pathlib import Path
 
 import numpy as np
 import pytest
 
-from models.contracts import OpeningInterpretation
-from services.room_structure import RoomStructureError, RoomStructureOptions, analyze_room
+from models.contracts import OpeningInterpretation, RoomInterpretation
+from services.room_structure import (
+    RoomStructureError,
+    RoomStructureOptions,
+    analyze_room,
+    load_colmap_points,
+)
+from services.room_structure.openings import merge_external_openings
 
 from .room_structure_metrics import ROW_HEADER, evaluate
 from .room_structure_synth import L_SHAPE, RECTANGLE, SLANTED, Opening, make_room
+from .synthetic_rooms import ROOMS, generate, recovery_errors
 
-DOOR = Opening(wall=0, offset=1.2, width=0.9, sill=0.0, height=2.0)
-WINDOW = Opening(wall=2, offset=1.5, width=1.4, sill=0.9, height=1.2)
+DOOR = Opening(wall=0, offset=1.65, width=0.9, sill=0.0, height=2.0)
+WINDOW = Opening(wall=2, offset=2.2, width=1.4, sill=0.9, height=1.2)
 
 CASES = {
     "rectangle": dict(polygon=RECTANGLE, openings=[DOOR, WINDOW], seed=1),
     "l_shape": dict(
         polygon=L_SHAPE,
-        openings=[Opening(0, 2.0, 0.9, 0.0, 2.0), Opening(4, 0.5, 1.2, 0.9, 1.1)],
+        openings=[Opening(0, 2.45, 0.9, 0.0, 2.0), Opening(4, 1.1, 1.2, 0.9, 1.1)],
         seed=2,
     ),
     "noise_floaters": dict(
@@ -33,8 +44,8 @@ CASES = {
         floaters=1500,
         low_opacity_floaters=3000,
     ),
-    "slanted": dict(polygon=SLANTED, openings=[Opening(0, 1.5, 0.9, 0.0, 2.0)], seed=4),
-    "tilted_scan": dict(polygon=RECTANGLE, openings=[Opening(1, 1.0, 0.9, 0.0, 2.0)], seed=5, max_tilt_deg=30.0),
+    "slanted": dict(polygon=SLANTED, openings=[Opening(0, 1.95, 0.9, 0.0, 2.0)], seed=4),
+    "tilted_scan": dict(polygon=RECTANGLE, openings=[Opening(1, 1.45, 0.9, 0.0, 2.0)], seed=5, max_tilt_deg=30.0),
 }
 
 _results: dict[str, tuple] = {}
@@ -115,7 +126,7 @@ def test_door_and_window_kinds_per_case(name):
 
 def test_upside_down_scan_without_furniture_resolves_floor_from_ceiling():
     for seed in range(6, 10):
-        scene = make_room(polygon=L_SHAPE, openings=[Opening(0, 2.0, 0.9, 0.0, 2.0)], seed=seed)
+        scene = make_room(polygon=L_SHAPE, openings=[Opening(0, 2.45, 0.9, 0.0, 2.0)], seed=seed)
         result = analyze_room(scene.positions, scene.opacity)
         assert [o.kind for o in result.interpretation.openings] == ["door"], seed
         assert result.interpretation.openings[0].sill < 0.1
@@ -180,3 +191,72 @@ def test_report_accuracy_table(capsys):
     rows = [evaluate(_run(n)[0], _run(n)[1]).row(f"{n} ({_run(n)[2]:.1f}s)") for n in CASES]
     with capsys.disabled():
         print("\n" + ROW_HEADER + "\n" + "\n".join(rows))
+
+
+# --- Second synthetic set (also the T18b accuracy fixture): logit opacities, bounded tilt + yaw,
+# sparse view-through points behind windows, kind-checked openings.
+WALL_OFFSET_TOL = 0.05
+WALL_ANGLE_TOL = 2.0
+CORNER_TOL = 0.08
+CEILING_TOL = 0.03
+FLOOR_NORMAL_TOL = 1.0
+OPENING_TOL = 0.08
+
+
+@pytest.mark.parametrize("seed", [0, 1])
+@pytest.mark.parametrize("room", ROOMS, ids=[r.name for r in ROOMS])
+def test_recovers_second_synthetic_set(room, seed):
+    positions, opacity = generate(room, seed=seed)
+    result = analyze_room(positions, opacity)
+    errors = recovery_errors(room, result)
+    assert errors.get("walls_found") == errors.get("walls_expected"), errors
+    assert errors["wall_offset_m"] < WALL_OFFSET_TOL
+    assert errors["wall_angle_deg"] < WALL_ANGLE_TOL
+    assert errors["corner_m"] < CORNER_TOL
+    assert errors["ceiling_m"] < CEILING_TOL
+    assert errors["floor_normal_deg"] < FLOOR_NORMAL_TOL
+    assert errors["openings_matched"] == errors["openings_expected"]
+    assert errors["opening_m"] < OPENING_TOL
+    assert errors["extra_openings"] == 0
+
+    interp = result.interpretation
+    assert result.diagnostics["orientation"]["manhattan"] is (room.name != "non_manhattan")
+    assert interp.floor.confidence is not None and interp.ceilingConfidence is not None
+    assert all(w.start[1] == 0.0 and w.end[1] == 0.0 for w in interp.walls)
+    RoomInterpretation.model_validate(interp.model_dump(mode="json"))
+
+
+def test_low_opacity_logits_are_filtered():
+    room = ROOMS[0]
+    positions, opacity = generate(room)
+    junk = np.random.default_rng(3).uniform(-3, 3, size=(20_000, 3))
+    noisy = analyze_room(np.vstack([positions, junk]), np.concatenate([opacity, np.full(len(junk), -6.0)]))
+    errors = recovery_errors(room, noisy)
+    assert errors["walls_found"] == 4 and errors["wall_offset_m"] < WALL_OFFSET_TOL
+
+
+def test_overlapping_image_opening_relabels_the_geometric_one():
+    interp = _run("rectangle")[1].interpretation
+    window = next(o for o in interp.openings if o.kind == "window")
+    merged = merge_external_openings(
+        interp, [window.model_copy(update={"id": "img_0", "kind": "door", "confidence": 0.9})]
+    )
+    assert len(merged.openings) == len(interp.openings)
+    assert next(o for o in merged.openings if o.id == window.id).kind == "door"
+
+
+def test_colmap_points_loaders(tmp_path):
+    txt = tmp_path / "points3D.txt"
+    txt.write_text("# header\n1 0.5 1.5 2.5 255 0 0 0.1 1 2\n2 -1 0 1 0 0 0 0.2 3 4 5 6\n", encoding="utf-8")
+    assert np.allclose(load_colmap_points(txt), [[0.5, 1.5, 2.5], [-1, 0, 1]])
+
+    data = struct.pack("<Q", 1) + struct.pack("<QdddBBBd", 7, 1.0, 2.0, 3.0, 1, 2, 3, 0.5)
+    data += struct.pack("<Q", 2) + struct.pack("<iiii", 1, 0, 2, 1)
+    binary = tmp_path / "points3D.bin"
+    binary.write_bytes(data)
+    assert np.allclose(load_colmap_points(binary), [[1.0, 2.0, 3.0]])
+
+
+def test_service_does_not_require_open3d():
+    code = "import sys, services.room_structure; assert 'open3d' not in sys.modules"
+    subprocess.run([sys.executable, "-c", code], cwd=Path(__file__).resolve().parents[1], check=True)

@@ -1,188 +1,151 @@
-/**
- * 2D (XZ-plane) geometry helpers for placement validation.
- * Frame: Y-up, meters. Yaw follows three.js: local +X -> (cos, -sin), local +Z -> (sin, cos),
- * so an item's "front" (local +Z) points along (sin yaw, cos yaw) in (x, z).
- */
+import type { OrientedBoundingBox } from '@/lib/contracts';
+import type { Vec2 } from './types';
 
-export type Vec2 = [number, number];
-export type Poly = Vec2[];
+export const sub = (a: Vec2, b: Vec2): Vec2 => [a[0] - b[0], a[1] - b[1]];
+export const add = (a: Vec2, b: Vec2): Vec2 => [a[0] + b[0], a[1] + b[1]];
+export const scale = (a: Vec2, s: number): Vec2 => [a[0] * s, a[1] * s];
+export const dot = (a: Vec2, b: Vec2): number => a[0] * b[0] + a[1] * b[1];
+export const len = (a: Vec2): number => Math.hypot(a[0], a[1]);
+export const normalize = (a: Vec2): Vec2 => {
+  const l = len(a);
+  return l === 0 ? [0, 0] : [a[0] / l, a[1] / l];
+};
 
-export interface Obb2 {
-  cx: number;
-  cz: number;
-  /** Half extents along local X (width) and local Z (depth). */
-  hx: number;
-  hz: number;
-  yaw: number;
-  /** Unit local X axis and local Z axis (front) in world XZ. */
-  ax: Vec2;
-  az: Vec2;
-  corners: Poly;
+/** Plan-space front direction for a yaw (front = local +Z). */
+export const frontOf = (yaw: number): Vec2 => [Math.sin(yaw), Math.cos(yaw)];
+/** Yaw whose front points along `dir`. */
+export const yawFacing = (dir: Vec2): number => Math.atan2(dir[0], dir[1]);
+/** Yaw whose local +X axis points along `dir`. */
+export const yawAlong = (dir: Vec2): number => Math.atan2(-dir[1], dir[0]);
+
+/** Footprint corners of an OBB in plan [x, z], counter-clockwise order not guaranteed but convex and consistent. */
+export function footprint(obb: OrientedBoundingBox): Vec2[] {
+  return rectCorners([obb.center[0], obb.center[2]], obb.size[0], obb.size[2], obb.yaw);
 }
 
-export function makeObb2(cx: number, cz: number, hx: number, hz: number, yaw: number): Obb2 {
-  const s = Math.sin(yaw);
+export function rectCorners(center: Vec2, width: number, depth: number, yaw: number): Vec2[] {
   const c = Math.cos(yaw);
-  const ax: Vec2 = [c, -s];
-  const az: Vec2 = [s, c];
-  const corner = (u: number, v: number): Vec2 => [
-    cx + ax[0] * u * hx + az[0] * v * hz,
-    cz + ax[1] * u * hx + az[1] * v * hz,
+  const s = Math.sin(yaw);
+  const hw = width / 2;
+  const hd = depth / 2;
+  // three.js Ry: local +X -> (cos, -sin), local +Z -> (sin, cos)
+  const ax: Vec2 = [c * hw, -s * hw];
+  const az: Vec2 = [s * hd, c * hd];
+  const [cx, cz] = center;
+  return [
+    [cx - ax[0] - az[0], cz - ax[1] - az[1]],
+    [cx + ax[0] - az[0], cz + ax[1] - az[1]],
+    [cx + ax[0] + az[0], cz + ax[1] + az[1]],
+    [cx - ax[0] + az[0], cz - ax[1] + az[1]],
   ];
-  return { cx, cz, hx, hz, yaw, ax, az, corners: [corner(-1, -1), corner(1, -1), corner(1, 1), corner(-1, 1)] };
 }
 
-export function frontOf(yaw: number): Vec2 {
-  return [Math.sin(yaw), Math.cos(yaw)];
+function project(poly: Vec2[], axis: Vec2): [number, number] {
+  let min = Infinity;
+  let max = -Infinity;
+  for (const p of poly) {
+    const d = p[0] * axis[0] + p[1] * axis[1];
+    if (d < min) min = d;
+    if (d > max) max = d;
+  }
+  return [min, max];
 }
 
-export function yawFacing(dx: number, dz: number): number {
-  let y = Math.atan2(dx, dz);
-  if (y <= -Math.PI + 1e-9) y = Math.PI; // canonical range (-π, π]
-  const r = Math.round(y * 1e9) / 1e9;
-  return r === 0 ? 0 : r;
+/**
+ * Separating-axis test for convex polygons. Returns the minimum penetration depth
+ * across all edge normals; <= 0 means the polygons are separated (or just touching).
+ */
+export function penetration(a: Vec2[], b: Vec2[]): number {
+  let best = Infinity;
+  for (const poly of [a, b]) {
+    for (let i = 0; i < poly.length; i++) {
+      const p = poly[i];
+      const q = poly[(i + 1) % poly.length];
+      const axis = normalize([-(q[1] - p[1]), q[0] - p[0]]);
+      if (axis[0] === 0 && axis[1] === 0) continue;
+      const [amin, amax] = project(a, axis);
+      const [bmin, bmax] = project(b, axis);
+      const overlap = Math.min(amax, bmax) - Math.max(amin, bmin);
+      if (overlap <= 0) return overlap;
+      if (overlap < best) best = overlap;
+    }
+  }
+  return best;
 }
 
-export function pointInPolygon(p: Vec2, poly: Poly): boolean {
+export function pointSegmentDistance(p: Vec2, a: Vec2, b: Vec2): number {
+  const ab = sub(b, a);
+  const l2 = dot(ab, ab);
+  if (l2 === 0) return len(sub(p, a));
+  const t = Math.max(0, Math.min(1, dot(sub(p, a), ab) / l2));
+  return len(sub(p, add(a, scale(ab, t))));
+}
+
+export function pointInPolygon(p: Vec2, poly: Vec2[]): boolean {
   let inside = false;
   for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
     const [xi, zi] = poly[i];
     const [xj, zj] = poly[j];
-    if (zi > p[1] !== zj > p[1] && p[0] < ((xj - xi) * (p[1] - zi)) / (zj - zi) + xi) inside = !inside;
+    if (zi > p[1] !== zj > p[1] && p[0] < ((xj - xi) * (p[1] - zi)) / (zj - zi) + xi) {
+      inside = !inside;
+    }
   }
   return inside;
 }
 
-export function distPointSegment(p: Vec2, a: Vec2, b: Vec2): number {
-  const dx = b[0] - a[0];
-  const dz = b[1] - a[1];
-  const l2 = dx * dx + dz * dz;
-  let t = l2 === 0 ? 0 : ((p[0] - a[0]) * dx + (p[1] - a[1]) * dz) / l2;
-  t = Math.max(0, Math.min(1, t));
-  return Math.hypot(p[0] - (a[0] + t * dx), p[1] - (a[1] + t * dz));
-}
-
-export function distPointPolygonEdge(p: Vec2, poly: Poly): number {
-  let d = Infinity;
-  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) d = Math.min(d, distPointSegment(p, poly[j], poly[i]));
-  return d;
-}
-
-function orient(a: Vec2, b: Vec2, c: Vec2): number {
-  return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
-}
-
-/** True when segments cross at interior points of both (touching/collinear does not count). */
-export function segmentsProperlyCross(a: Vec2, b: Vec2, c: Vec2, d: Vec2, eps = 1e-9): boolean {
-  const o1 = orient(a, b, c);
-  const o2 = orient(a, b, d);
-  const o3 = orient(c, d, a);
-  const o4 = orient(c, d, b);
-  return ((o1 > eps && o2 < -eps) || (o1 < -eps && o2 > eps)) && ((o3 > eps && o4 < -eps) || (o3 < -eps && o4 > eps));
-}
-
-/**
- * Whether `inner` lies within `outer` (outer may be concave). Vertices may sit within `tol`
- * of the boundary; any proper edge crossing means containment fails.
- */
-export function polygonContains(outer: Poly, inner: Poly, tol = 0.01): boolean {
-  for (const p of inner) {
-    if (!pointInPolygon(p, outer) && distPointPolygonEdge(p, outer) > tol) return false;
+export function pointPolygonDistance(p: Vec2, poly: Vec2[]): number {
+  if (pointInPolygon(p, poly)) return 0;
+  let best = Infinity;
+  for (let i = 0; i < poly.length; i++) {
+    best = Math.min(best, pointSegmentDistance(p, poly[i], poly[(i + 1) % poly.length]));
   }
-  for (let i = 0, j = inner.length - 1; i < inner.length; j = i++) {
-    for (let k = 0, l = outer.length - 1; k < outer.length; l = k++) {
-      if (segmentsProperlyCross(inner[j], inner[i], outer[l], outer[k], 1e-6)) return false;
-    }
-  }
-  return true;
+  return best;
 }
 
-function project(poly: Poly, ax: number, az: number): [number, number] {
-  let lo = Infinity;
-  let hi = -Infinity;
-  for (const p of poly) {
-    const d = p[0] * ax + p[1] * az;
-    if (d < lo) lo = d;
-    if (d > hi) hi = d;
-  }
-  return [lo, hi];
-}
-
-export interface SeparationResult {
-  /** > 0: gap along the best separating axis (lower bound of true distance); < 0: penetration depth. */
-  gap: number;
-  axis: Vec2;
-  /** Overlap length of both shapes along the direction perpendicular to `axis`. */
-  lateralOverlap: number;
-}
-
-/** SAT for two convex polygons. */
-export function convexSeparation(p: Poly, q: Poly): SeparationResult {
-  let best = -Infinity;
-  let bestAxis: Vec2 = [1, 0];
-  for (const poly of [p, q]) {
-    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-      let ax = poly[i][1] - poly[j][1];
-      let az = poly[j][0] - poly[i][0];
-      const len = Math.hypot(ax, az);
-      if (len < 1e-12) continue;
-      ax /= len;
-      az /= len;
-      const [pl, ph] = project(p, ax, az);
-      const [ql, qh] = project(q, ax, az);
-      const gap = Math.max(ql - ph, pl - qh);
-      if (gap > best) {
-        best = gap;
-        bestAxis = [ax, az];
+/** Distance between two convex polygons; 0 when they intersect. */
+export function polygonDistance(a: Vec2[], b: Vec2[]): number {
+  if (penetration(a, b) > 0) return 0;
+  let best = Infinity;
+  for (const [from, to] of [
+    [a, b],
+    [b, a],
+  ]) {
+    for (const p of from) {
+      for (let i = 0; i < to.length; i++) {
+        best = Math.min(best, pointSegmentDistance(p, to[i], to[(i + 1) % to.length]));
       }
     }
   }
-  const [pl, ph] = project(p, -bestAxis[1], bestAxis[0]);
-  const [ql, qh] = project(q, -bestAxis[1], bestAxis[0]);
-  return { gap: best, axis: bestAxis, lateralOverlap: Math.min(ph, qh) - Math.max(pl, ql) };
+  return best;
 }
 
-/** Sector (quarter disc) polygon: apex, radius, from direction u sweeping 90° toward n. Convex. */
-export function sectorPolygon(apex: Vec2, u: Vec2, n: Vec2, radius: number, segments = 8): Poly {
-  const pts: Poly = [apex];
-  for (let i = 0; i <= segments; i++) {
-    const t = (i / segments) * (Math.PI / 2);
-    pts.push([apex[0] + radius * (Math.cos(t) * u[0] + Math.sin(t) * n[0]), apex[1] + radius * (Math.cos(t) * u[1] + Math.sin(t) * n[1])]);
+/** Keeps the part of a convex polygon where (q - origin)·normal >= 0. */
+export function clipHalfPlane(poly: Vec2[], origin: Vec2, normal: Vec2): Vec2[] {
+  const out: Vec2[] = [];
+  for (let i = 0; i < poly.length; i++) {
+    const p = poly[i];
+    const q = poly[(i + 1) % poly.length];
+    const dp = dot(sub(p, origin), normal);
+    const dq = dot(sub(q, origin), normal);
+    if (dp >= 0) out.push(p);
+    if (dp >= 0 !== dq >= 0) {
+      const t = dp / (dp - dq);
+      out.push(add(p, scale(sub(q, p), t)));
+    }
   }
-  return pts;
+  return out;
 }
 
-export function polygonCentroid(poly: Poly): Vec2 {
-  let a = 0;
-  let cx = 0;
-  let cz = 0;
-  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-    const f = poly[j][0] * poly[i][1] - poly[i][0] * poly[j][1];
-    a += f;
-    cx += (poly[j][0] + poly[i][0]) * f;
-    cz += (poly[j][1] + poly[i][1]) * f;
+export function polygonCentroid(poly: Vec2[]): Vec2 {
+  let x = 0;
+  let z = 0;
+  for (const p of poly) {
+    x += p[0];
+    z += p[1];
   }
-  if (Math.abs(a) < 1e-12) return poly[0] ?? [0, 0];
-  return [cx / (3 * a), cz / (3 * a)];
+  return poly.length ? [x / poly.length, z / poly.length] : [0, 0];
 }
 
-export function polygonBounds(poly: Poly): { minX: number; maxX: number; minZ: number; maxZ: number } {
-  let minX = Infinity;
-  let maxX = -Infinity;
-  let minZ = Infinity;
-  let maxZ = -Infinity;
-  for (const [x, z] of poly) {
-    if (x < minX) minX = x;
-    if (x > maxX) maxX = x;
-    if (z < minZ) minZ = z;
-    if (z > maxZ) maxZ = z;
-  }
-  return { minX, maxX, minZ, maxZ };
-}
-
-/** Cheap lower bound on the gap between two OBBs (centre distance minus circumradii); may be negative. */
-export function obbBroadGap(a: Obb2, b: Obb2): number {
-  const dx = a.cx - b.cx;
-  const dz = a.cz - b.cz;
-  return Math.sqrt(dx * dx + dz * dz) - Math.sqrt(a.hx * a.hx + a.hz * a.hz) - Math.sqrt(b.hx * b.hx + b.hz * b.hz);
-}
+/** Overlap length of two 1-D intervals (negative when disjoint). */
+export const intervalOverlap = (aMin: number, aMax: number, bMin: number, bMax: number): number =>
+  Math.min(aMax, bMax) - Math.max(aMin, bMin);

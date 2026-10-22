@@ -7,6 +7,7 @@ decoded here; callers must supply a `.ply` or `.splat` (or a COLMAP point cloud)
 
 from __future__ import annotations
 
+import struct
 from pathlib import Path
 
 import numpy as np
@@ -62,7 +63,7 @@ def load_scan_points(path: Path) -> tuple[np.ndarray, np.ndarray]:
 
 
 def load_colmap_points(path: Path) -> np.ndarray:
-    """COLMAP sparse points as a PLY or a `points3D.txt` export; positions only."""
+    """COLMAP sparse points as a PLY, `points3D.txt` or `points3D.bin` export; positions only."""
     if path.suffix.lower() == ".ply":
         return load_ply_points(path)[0]
     if path.suffix.lower() == ".txt":
@@ -72,4 +73,15 @@ def load_colmap_points(path: Path) -> np.ndarray:
                 parts = line.split()
                 rows.append([float(parts[1]), float(parts[2]), float(parts[3])])
         return np.asarray(rows, dtype=np.float64).reshape(-1, 3)
-    raise UnsupportedScanFormatError("COLMAP points must be a .ply or points3D.txt file.")
+    if path.suffix.lower() == ".bin":
+        data = path.read_bytes()
+        (count,) = struct.unpack_from("<Q", data, 0)
+        offset, points = 8, []
+        for _ in range(count):
+            x, y, z = struct.unpack_from("<ddd", data, offset + 8)
+            offset += 8 + 24 + 3 + 8  # point id, xyz, rgb, reprojection error
+            (track_len,) = struct.unpack_from("<Q", data, offset)
+            offset += 8 + track_len * 8
+            points.append((x, y, z))
+        return np.asarray(points, dtype=np.float64).reshape(-1, 3)
+    raise UnsupportedScanFormatError("COLMAP points must be a .ply, points3D.txt or points3D.bin file.")

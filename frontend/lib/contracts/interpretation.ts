@@ -9,8 +9,18 @@ export const FloorPlaneSchema = z.object({
   normal: Vector3Schema,
   constant: z.number(),
   provenance: ProvenanceSchema,
+  confidence: z.number().min(0).max(1).nullable().optional(),
 });
 export type FloorPlane = z.infer<typeof FloorPlaneSchema>;
+
+/** Review state shared by every interpreted element. Absent on walls/openings means 'auto'. */
+export const DetectionStatusSchema = z.enum([
+  'auto',
+  'verified',
+  'corrected',
+  'rejected',
+]);
+export type DetectionStatus = z.infer<typeof DetectionStatusSchema>;
 
 export const WallInterpretationSchema = z.object({
   id: z.string(),
@@ -20,6 +30,7 @@ export const WallInterpretationSchema = z.object({
   thickness: z.number().positive(),
   confidence: z.number().min(0).max(1),
   provenance: ProvenanceSchema,
+  status: DetectionStatusSchema.nullable().optional(),
 });
 export type WallInterpretation = z.infer<typeof WallInterpretationSchema>;
 
@@ -30,22 +41,18 @@ export const OpeningInterpretationSchema = z.object({
   id: z.string(),
   wallId: z.string(),
   kind: OpeningKindSchema,
-  offset: z.number().nonnegative(),
+  offset: z
+    .number()
+    .nonnegative()
+    .describe("Distance along the wall from wall.start to the opening's center, in meters."),
   width: z.number().positive(),
   height: z.number().positive(),
   sill: z.number().nonnegative(),
   confidence: z.number().min(0).max(1),
   provenance: ProvenanceSchema,
+  status: DetectionStatusSchema.nullable().optional(),
 });
 export type OpeningInterpretation = z.infer<typeof OpeningInterpretationSchema>;
-
-export const DetectionStatusSchema = z.enum([
-  'auto',
-  'verified',
-  'corrected',
-  'rejected',
-]);
-export type DetectionStatus = z.infer<typeof DetectionStatusSchema>;
 
 export const DetectionInterpretationSchema = z.object({
   id: z.string(),
@@ -66,7 +73,9 @@ export const RoomInterpretationSchema = z.object({
   provenance: ProvenanceSchema,
   floor: FloorPlaneSchema,
   ceilingHeight: z.number().positive(),
+  ceilingConfidence: z.number().min(0).max(1).nullable().optional(),
   outline: z.array(Point2DSchema),
+  outlineStatus: DetectionStatusSchema.nullable().optional(),
   walls: z.array(WallInterpretationSchema),
   openings: z.array(OpeningInterpretationSchema),
   detections: z.array(DetectionInterpretationSchema),

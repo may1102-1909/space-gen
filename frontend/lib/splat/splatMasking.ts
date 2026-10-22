@@ -1,6 +1,7 @@
-import { useScene, AnyNodeId } from '@pascal-app/core';
+import { useScene } from '@pascal-app/core';
 import type { MaskRegion, OrientedBoundingBox } from '@/lib/contracts';
 import { ItemNode, ItemAssetInput, replaceItemAsset } from '@/lib/pascal/itemEditing';
+import { asNodeData, asNodeId, findScanNode, scanMetadata, type NodeData, type ScanNode } from '@/lib/pascal/nodes';
 
 /**
  * Computes the Oriented Bounding Box (OBB) in scene space (Y-up, meters, floor at y=0)
@@ -10,7 +11,7 @@ export function computeObbForItemNode(
   node: ItemNode,
   options: { padding?: number } = {}
 ): OrientedBoundingBox {
-  const dims = node.asset?.dimensions || (node as any).dimensions || [1, 1, 1];
+  const dims = node.asset?.dimensions || (node as unknown as { dimensions?: [number, number, number] }).dimensions || [1, 1, 1];
   const scale = node.scale || [1, 1, 1];
   const paddingMultiplier = options.padding ?? 1.0;
 
@@ -48,6 +49,7 @@ export function createMaskRegionForNode(
 ): MaskRegion {
   const maskId = options.id || `mask_${node.id}`;
   const obb = computeObbForItemNode(node, { padding: options.padding });
+  const detectionId = (node.metadata as { detectionId?: string } | undefined)?.detectionId ?? null;
 
   return {
     id: maskId,
@@ -55,10 +57,19 @@ export function createMaskRegionForNode(
     feather: options.feather ?? 0.05,
     enabled: true,
     itemId: node.id,
-    detectionId: (node.metadata as any)?.detectionId ?? null,
+    detectionId,
     ghost: options.ghost ?? false,
     opacity: options.opacity ?? (options.ghost ? 0.25 : 0.0),
   };
+}
+
+function scanNodeById(scanNodeId: string): ScanNode | undefined {
+  const node = useScene.getState().nodes[asNodeId(scanNodeId)];
+  return node?.type === 'scan' ? node : undefined;
+}
+
+function maskRegionsUpdate(scan: ScanNode, maskRegions: MaskRegion[]) {
+  return { id: asNodeId(scan.id), data: asNodeData({ metadata: { ...scanMetadata(scan), maskRegions } }) };
 }
 
 /**
@@ -79,7 +90,6 @@ export function replaceItemWithMask(
   } = {}
 ): { replacedNode: ItemNode; maskRegion: MaskRegion | null } {
   const scene = useScene.getState();
-  const nodes = scene.nodes as Record<string, any>;
 
   // 1. Create the mask region for the current object before replacement
   const maskRegion = createMaskRegionForNode(current, {
@@ -89,50 +99,30 @@ export function replaceItemWithMask(
 
   // 2. Compute replaced item node
   const replaced = replaceItemAsset(current, asset);
-  const updatedItemData: any = {
+  const updatedItemData = {
     ...replaced,
     metadata: {
       ...(current.metadata || {}),
       maskRegionId: maskRegion.id,
     },
-  };
+  } as ItemNode;
+  const itemUpdate = { id: asNodeId(current.id), data: asNodeData(updatedItemData as unknown as NodeData) };
 
   // 3. Find target scan node
-  const scanNode = options.scanNodeId
-    ? nodes[options.scanNodeId]
-    : Object.values(nodes).find((n) => n?.type === 'scan');
+  const scanNode = options.scanNodeId ? scanNodeById(options.scanNodeId) : findScanNode();
 
   if (scanNode) {
-    const existingMasks: MaskRegion[] = scanNode.metadata?.maskRegions || [];
+    const existingMasks: MaskRegion[] = scanMetadata(scanNode).maskRegions || [];
     const nextMasks = [
       ...existingMasks.filter((m) => m.id !== maskRegion.id && m.itemId !== current.id),
       maskRegion,
     ];
-
-    scene.applyNodeChanges({
-      update: [
-        {
-          id: current.id as AnyNodeId,
-          data: updatedItemData,
-        },
-        {
-          id: scanNode.id as AnyNodeId,
-          data: {
-            metadata: {
-              ...(scanNode.metadata || {}),
-              maskRegions: nextMasks,
-            },
-          } as any,
-        },
-      ],
-    });
+    scene.applyNodeChanges({ update: [itemUpdate, maskRegionsUpdate(scanNode, nextMasks)] });
     return { replacedNode: updatedItemData, maskRegion };
   }
 
   // Without a scan there are no splats to hide: replace the item only, with no mask.
-  scene.applyNodeChanges({
-    update: [{ id: current.id as AnyNodeId, data: replaced as any }],
-  });
+  scene.applyNodeChanges({ update: [{ id: asNodeId(current.id), data: asNodeData(replaced as unknown as NodeData) }] });
   return { replacedNode: replaced, maskRegion: null };
 }
 
@@ -145,11 +135,10 @@ export function updateMaskRegion(
   maskRegionId: string,
   patch: Partial<MaskRegion>
 ): void {
-  const scene = useScene.getState();
-  const scan = (scene.nodes as Record<string, any>)[scanNodeId];
-  if (!scan || scan.type !== 'scan') return;
+  const scan = scanNodeById(scanNodeId);
+  if (!scan) return;
 
-  const existing: MaskRegion[] = scan.metadata?.maskRegions || [];
+  const existing: MaskRegion[] = scanMetadata(scan).maskRegions || [];
   const nextMasks = existing.map((mask) => {
     if (mask.id !== maskRegionId) return mask;
     return {
@@ -159,19 +148,7 @@ export function updateMaskRegion(
     };
   });
 
-  scene.applyNodeChanges({
-    update: [
-      {
-        id: scanNodeId as AnyNodeId,
-        data: {
-          metadata: {
-            ...(scan.metadata || {}),
-            maskRegions: nextMasks,
-          },
-        } as any,
-      },
-    ],
-  });
+  useScene.getState().applyNodeChanges({ update: [maskRegionsUpdate(scan, nextMasks)] });
 }
 
 /**
@@ -181,12 +158,10 @@ export function toggleMaskGhostMode(
   scanNodeId: string,
   maskRegionId: string
 ): boolean {
-  const scene = useScene.getState();
-  const scan = (scene.nodes as Record<string, any>)[scanNodeId];
-  if (!scan || scan.type !== 'scan') return false;
+  const scan = scanNodeById(scanNodeId);
+  if (!scan) return false;
 
-  const existing: MaskRegion[] = scan.metadata?.maskRegions || [];
-  const target = existing.find((m) => m.id === maskRegionId);
+  const target = (scanMetadata(scan).maskRegions || []).find((m) => m.id === maskRegionId);
   if (!target) return false;
 
   const nextGhost = !target.ghost;
@@ -206,12 +181,10 @@ export function resizeMaskRegion(
   maskRegionId: string,
   newSize: [number, number, number]
 ): void {
-  const scene = useScene.getState();
-  const scan = (scene.nodes as Record<string, any>)[scanNodeId];
-  if (!scan || scan.type !== 'scan') return;
+  const scan = scanNodeById(scanNodeId);
+  if (!scan) return;
 
-  const existing: MaskRegion[] = scan.metadata?.maskRegions || [];
-  const target = existing.find((m) => m.id === maskRegionId);
+  const target = (scanMetadata(scan).maskRegions || []).find((m) => m.id === maskRegionId);
   if (!target) return;
 
   updateMaskRegion(scanNodeId, maskRegionId, {
@@ -233,24 +206,9 @@ export function removeMaskRegion(
   scanNodeId: string,
   maskRegionId: string
 ): void {
-  const scene = useScene.getState();
-  const scan = (scene.nodes as Record<string, any>)[scanNodeId];
-  if (!scan || scan.type !== 'scan') return;
+  const scan = scanNodeById(scanNodeId);
+  if (!scan) return;
 
-  const existing: MaskRegion[] = scan.metadata?.maskRegions || [];
-  const nextMasks = existing.filter((m) => m.id !== maskRegionId);
-
-  scene.applyNodeChanges({
-    update: [
-      {
-        id: scanNodeId as AnyNodeId,
-        data: {
-          metadata: {
-            ...(scan.metadata || {}),
-            maskRegions: nextMasks,
-          },
-        } as any,
-      },
-    ],
-  });
+  const nextMasks = (scanMetadata(scan).maskRegions || []).filter((m) => m.id !== maskRegionId);
+  useScene.getState().applyNodeChanges({ update: [maskRegionsUpdate(scan, nextMasks)] });
 }

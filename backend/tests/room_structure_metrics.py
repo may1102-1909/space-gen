@@ -91,17 +91,14 @@ def evaluate(scene: Scene, result) -> Accuracy:
         length_gt = np.linalg.norm(b - a)
         # Project GT opening edges onto the recovered wall's along-axis.
         rd = (rb - ra) / np.linalg.norm(rb - ra)
-        g0, g1 = (a + (b - a) / length_gt * s for s in (op.offset, op.offset + op.width))
+        g0, g1 = (a + (b - a) / length_gt * s for s in (op.offset - op.width / 2, op.offset + op.width / 2))
         s0, s1 = sorted(((g0 - ra) @ rd, (g1 - ra) @ rd))
         for k, o in enumerate(interp.openings):
-            if (
-                o.wallId == wall.id
-                and k not in used
-                and min(o.offset + o.width, s1) - max(o.offset, s0) > 0.5 * op.width
-            ):
+            lo, hi = o.offset - o.width / 2, o.offset + o.width / 2
+            if o.wallId == wall.id and k not in used and min(hi, s1) - max(lo, s0) > 0.5 * op.width:
                 used.add(k)
                 found += 1
-                errors.append(max(abs(o.offset - s0), abs(o.offset + o.width - s1)))
+                errors.append(max(abs(lo - s0), abs(hi - s1)))
                 break
 
     return Accuracy(

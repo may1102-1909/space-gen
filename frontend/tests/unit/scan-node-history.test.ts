@@ -15,12 +15,12 @@ const aligned: Matrix4 = [
 describe('Pascal scan alignment history', () => {
   afterEach(() => {
     useScene.getState().clearScene();
-    (useScene as any).temporal.getState().clear();
+    useScene.temporal.getState().clear();
   });
 
   it('stores the transform in ScanNode metadata and Ctrl+Z undo restores it', () => {
     const scanId = upsertScanNode('/Hurstville_Museum_Gallery.sog', { id: 'scan_alignment_test' });
-    (useScene as any).temporal.getState().clear();
+    useScene.temporal.getState().clear();
 
     setScanAlignment(scanId, aligned);
     expect((useScene.getState().nodes as Record<string, any>)[scanId].metadata.scanToScene).toEqual(aligned);
@@ -28,5 +28,16 @@ describe('Pascal scan alignment history', () => {
     undoSceneAction();
     expect((useScene.getState().nodes as Record<string, any>)[scanId].metadata.scanToScene)
       .toEqual(IDENTITY_SCAN_TO_SCENE);
+  });
+
+  it('records a scale calibration as scaleSource=user_measurement, undoable with the transform', () => {
+    const scanId = upsertScanNode('/Hurstville_Museum_Gallery.sog', { id: 'scan_scale_test' });
+    (useScene as any).temporal.getState().clear();
+
+    setScanAlignment(scanId, aligned, 'user_measurement');
+    expect((useScene.getState().nodes as Record<string, any>)[scanId].metadata.scaleSource).toBe('user_measurement');
+
+    undoSceneAction();
+    expect((useScene.getState().nodes as Record<string, any>)[scanId].metadata.scaleSource).toBeUndefined();
   });
 });

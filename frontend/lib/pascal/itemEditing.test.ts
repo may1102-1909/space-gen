@@ -11,7 +11,7 @@ import { undoSceneAction, redoSceneAction } from './sceneBridge';
 describe('Pascal item editing and schema compliance', () => {
   beforeEach(() => {
     useScene.getState().clearScene();
-    const temporal = (useScene as any).temporal;
+    const temporal = useScene.temporal;
     if (temporal?.getState?.()?.clear) {
       temporal.getState().clear();
     }
@@ -143,7 +143,7 @@ describe('Pascal item editing and schema compliance', () => {
   describe('Placement, Compound Actions, and Undo/Redo Steps', () => {
     it('records 1 undo step on item placement, and reverts cleanly on undo', () => {
       const scene = useScene.getState();
-      const getTemporal = () => (useScene as any).temporal.getState();
+      const getTemporal = () => useScene.temporal.getState();
 
       const item = createItemNode({
         id: 'chair_nordic',
@@ -173,7 +173,7 @@ describe('Pascal item editing and schema compliance', () => {
 
     it('records 1 undo step on item replacement, reverting to previous model on undo', () => {
       const scene = useScene.getState();
-      const getTemporal = () => (useScene as any).temporal.getState();
+      const getTemporal = () => useScene.temporal.getState();
 
       const initialItem = createItemNode(
         {
@@ -220,7 +220,7 @@ describe('Pascal item editing and schema compliance', () => {
 
     it('groups compound multi-node edits into a single atomic undo step', () => {
       const scene = useScene.getState();
-      const getTemporal = () => (useScene as any).temporal.getState();
+      const getTemporal = () => useScene.temporal.getState();
 
       const item1 = createItemNode({
         name: 'Desk',

@@ -2,7 +2,8 @@ import { create } from 'zustand'
 import { useScene } from '@pascal-app/core'
 import { SceneGraph, ChatMessage, ObjectTransform, FurnitureItem, MeshManifest } from './types'
 import { SplatExclusionBox, applySceneActions } from './pascal/sceneBridge'
-import { CandidatePlacement } from './ai/spatialLayoutSolver'
+import { asNode, asNodeId, nodeRecord, updateNodeData } from './pascal/nodes'
+import type { CandidatePlacement } from './placement'
 
 export interface AppState {
   scene: SceneGraph | null
@@ -12,7 +13,7 @@ export interface AppState {
   heroImage: string | null
   variants: Array<{ style: string; image: string; description: string }>
   referenceImage: string | null
-  referenceAnalysis: any | null
+  referenceAnalysis: Record<string, unknown> | null
   presentationMode: boolean
   beforeImage: string | null
   afterImage: string | null
@@ -62,7 +63,7 @@ export interface AppState {
   setHeroImage: (image: string | null) => void
   setVariants: (variants: Array<{ style: string; image: string; description: string }>) => void
   setReferenceImage: (img: string | null) => void
-  setReferenceAnalysis: (analysis: any) => void
+  setReferenceAnalysis: (analysis: Record<string, unknown> | null) => void
   setPresentationMode: (mode: boolean) => void
   setBeforeImage: (img: string | null) => void
   setAfterImage: (img: string | null) => void
@@ -147,7 +148,7 @@ export const useSpaceGenStore = create<AppState>((set, get) => ({
       applySceneActions([
         {
           action: 'create_node',
-          node: {
+          node: asNode({
             type: 'item',
             id: `item_${candidate.category}_${Date.now()}`,
             name: candidate.name,
@@ -169,7 +170,7 @@ export const useSpaceGenStore = create<AppState>((set, get) => ({
               rotation: [0, 0, 0],
               scale: [1, 1, 1],
             },
-          } as any,
+          }),
           parentId: activeLevelId,
         },
       ]);
@@ -192,7 +193,7 @@ export const useSpaceGenStore = create<AppState>((set, get) => ({
 
     const actions = candidates.map((candidate, idx) => ({
       action: 'create_node' as const,
-      node: {
+      node: asNode({
         type: 'item' as const,
         id: `item_${candidate.category}_${Date.now()}_${idx}`,
         name: candidate.name,
@@ -214,7 +215,7 @@ export const useSpaceGenStore = create<AppState>((set, get) => ({
           rotation: [0, 0, 0],
           scale: [1, 1, 1],
         },
-      } as any,
+      }),
       parentId: activeLevelId,
     }));
 
@@ -270,13 +271,12 @@ export const useSpaceGenStore = create<AppState>((set, get) => ({
   updateObjectTransform: (id, trans) => {
     if (typeof window !== 'undefined') {
       try {
-        const pascalNodes = useScene.getState().nodes as Record<string, any>;
-        if (pascalNodes[id]) {
-          const updateData: Record<string, any> = {};
+        if (nodeRecord()[id]) {
+          const updateData: Record<string, unknown> = {};
           if (trans.position) updateData.position = trans.position;
           if (trans.rotation) updateData.rotation = trans.rotation;
           if (trans.scale) updateData.scale = trans.scale;
-          (useScene.getState().updateNode as any)(id, updateData);
+          updateNodeData(id, updateData);
         }
       } catch (e) {
         console.warn('[store] Could not sync transform to Pascal node:', e);
@@ -306,9 +306,8 @@ export const useSpaceGenStore = create<AppState>((set, get) => ({
   replaceObject: (id, modelUrl, name) => {
     if (typeof window !== 'undefined') {
       try {
-        const pascalNodes = useScene.getState().nodes as Record<string, any>;
-        if (pascalNodes[id]) {
-          (useScene.getState().updateNode as any)(id, {
+        if (nodeRecord()[id]) {
+          updateNodeData(id, {
             modelUrl,
             name,
           });
@@ -329,9 +328,8 @@ export const useSpaceGenStore = create<AppState>((set, get) => ({
   deleteObject: (id) => {
     if (typeof window !== 'undefined') {
       try {
-        const pascalNodes = useScene.getState().nodes as Record<string, any>;
-        if (pascalNodes[id]) {
-          (useScene.getState().deleteNode as any)(id);
+        if (nodeRecord()[id]) {
+          useScene.getState().deleteNode(asNodeId(id));
         }
       } catch (e) {
         console.warn('[store] Could not delete Pascal node:', e);
