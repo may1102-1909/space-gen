@@ -17,10 +17,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 20
           cache: 'npm'
@@ -31,7 +31,7 @@ jobs:
 
       # Playwright starts the real FastAPI backend (uvicorn, temp DATA_DIR) for the e2e specs.
       - name: Set up Python 3.11 (e2e backend)
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.11'
           cache: 'pip'
@@ -41,7 +41,7 @@ jobs:
         working-directory: backend
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgl1 libglib2.0-0 libgomp1
+          sudo apt-get install -y libgl1 libegl1 libglib2.0-0 libgomp1
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
@@ -73,7 +73,7 @@ jobs:
 
       - name: Upload Playwright Artifacts, Screenshots & Video
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-report
           path: |
@@ -91,10 +91,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.11'
           cache: 'pip'
@@ -103,7 +103,7 @@ jobs:
       - name: Install system dependencies for Open3D & OpenCV
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgl1 libglib2.0-0 libgomp1
+          sudo apt-get install -y libgl1 libegl1 libglib2.0-0 libgomp1
 
       - name: Install dependencies
         run: |
@@ -125,10 +125,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.11'
           cache: 'pip'
@@ -140,7 +140,7 @@ jobs:
           pip install -r backend/requirements.txt
 
       - name: Setup Node.js 20
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 20
           cache: 'npm'
