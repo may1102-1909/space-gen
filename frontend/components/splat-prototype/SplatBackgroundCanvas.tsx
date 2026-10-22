@@ -2,7 +2,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
-import { SparkRenderer, SplatEdit, SplatMesh } from '@sparkjsdev/spark';
+import { SparkRenderer, SplatEdit, SplatEditSdf, SplatMesh } from '@sparkjsdev/spark';
 import type { MaskRegion } from '@/lib/contracts';
 import { applyMaskEdits } from '@/lib/splat/maskEdits';
 
@@ -341,8 +341,8 @@ export const SplatBackgroundCanvas: React.FC<SplatBackgroundCanvasProps> = ({
         return count;
       },
       edits: () =>
-        (splatMeshRef.current?.edits ?? []).flatMap((edit) =>
-          (edit.sdfs ?? []).map((sdf) => ({ opacity: sdf.opacity, halfExtents: sdf.scale.toArray() })),
+        (splatMeshRef.current?.edits ?? []).flatMap((edit: InstanceType<typeof SplatEdit>) =>
+          (edit.sdfs ?? []).map((sdf: InstanceType<typeof SplatEditSdf>) => ({ opacity: sdf.opacity, halfExtents: sdf.scale.toArray() })),
         ),
       bounds() {
         const box = new THREE.Box3();
