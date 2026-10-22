@@ -19,6 +19,11 @@ import { editHistoryHost, readEditHistory } from '@/lib/pascal/sceneBridge';
 import { clearProposalPreviews, withoutProposalGhosts } from '@/lib/pascal/proposalPreview';
 import { replaceScanNode, setScanAlignment } from '@/lib/pascal/scanNodes';
 import type { ImportedScan } from '@/lib/scan/splatImport';
+import { VariantBar } from '@/components/variants/VariantBar';
+import { VariantCompare } from '@/components/variants/VariantCompare';
+import { activeVariant, createVariant, deleteVariant, duplicateVariant, normalizeVariants, renameVariant, switchVariant, type Snapshot, type VariantSet } from '@/lib/variants/variants';
+
+const liveScene = () => getSceneDocument() as unknown as Snapshot;
 
 const SceneViewer = dynamic(() => import('@/components/viewer/SceneViewer'), { ssr: false });
 
@@ -67,6 +72,7 @@ export default function ProjectEditorPage() {
   const [error, setError] = useState('');
   const [reviewMode, setReviewMode] = useState(false);
   const [drawingsOpen, setDrawingsOpen] = useState(false);
+  const [compare, setCompare] = useState<VariantSet | null>(null);
   const loaded = useRef(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const documentRef = useRef<ProjectDocument | null>(null);
@@ -117,14 +123,18 @@ export default function ProjectEditorPage() {
             const nodes = withoutProposalGhosts(useScene.getState().nodes);
             const maskRegions = findScanNode()?.metadata?.maskRegions || base.manifest.maskRegions || [];
             const interpretation = deriveInterpretationFromScene(nodeViews(nodes), base.manifest.interpretation) || base.manifest.interpretation;
+            const scene = getSceneDocument() as unknown as Snapshot;
+            const variants = normalizeVariants(base.manifest, scene);
             const next = await saveProject({
               ...base,
               manifest: {
                 ...base.manifest,
+                variants: variants.variants,
+                activeVariantId: variants.activeVariantId,
                 maskRegions,
                 interpretation,
                 history: readEditHistory(nodes) ?? base.manifest.history,
-                sceneSnapshot: getSceneDocument() as unknown as Record<string, unknown>,
+                sceneSnapshot: scene,
               },
             });
             documentRef.current = next;
@@ -186,6 +196,35 @@ export default function ProjectEditorPage() {
     await saveNowRef.current?.();
   };
 
+  /** Applies a variant operation: persists the set in the manifest and, when the active variant changed, loads its scene. */
+  const applyVariantSet = useCallback((set: VariantSet, previousActive: string) => {
+    const base = documentRef.current;
+    if (!base) return;
+    const snapshot = activeVariant(set).sceneSnapshot;
+    const manifest = { ...base.manifest, variants: set.variants, activeVariantId: set.activeVariantId };
+    if (set.activeVariantId === previousActive) {
+      documentRef.current = { ...base, manifest };
+      setDocument(documentRef.current);
+    } else {
+      const nodes = (snapshot.nodes ?? {}) as Record<string, { type?: string; metadata?: { maskRegions?: MaskRegion[] } }>;
+      const maskRegions = Object.values(nodes).find((n) => n?.type === 'scan')?.metadata?.maskRegions ?? [];
+      // Switching reuses the load path: undo history is cleared (see clearSceneHistory in applyProjectDocument).
+      adoptDocument({ ...base, manifest: { ...manifest, sceneSnapshot: snapshot, maskRegions, history: readEditHistory(nodes) ?? [] } });
+    }
+    dirty.current = true;
+    generation.current += 1;
+    setStatus('unsaved');
+    void saveNowRef.current?.();
+  }, [adoptDocument]);
+
+  const variantOp = (op: (set: VariantSet, scene: Snapshot) => VariantSet) => {
+    const base = documentRef.current;
+    if (!base || status === 'conflict') return;
+    const scene = liveScene();
+    const current = normalizeVariants(base.manifest, scene);
+    try { applyVariantSet(op(current, scene), current.activeVariantId); } catch (e) { setError((e as Error).message); }
+  };
+
   const handleAssetUploaded = useCallback((asset: AssetRef) => {
     const base = documentRef.current;
     if (!base) return;
@@ -229,9 +268,22 @@ export default function ProjectEditorPage() {
         </div>
       </div>
     )}
+    {compare && (() => {
+      const other = compare.variants.find((v) => v.id !== compare.activeVariantId) ?? compare.variants[0];
+      return <VariantCompare variants={compare.variants} initialA={other.id} initialB={compare.activeVariantId} scan={document.manifest.scan} onClose={() => setCompare(null)} />;
+    })()}
     {drawingsOpen && <DrawingsPanel projectName={document.manifest.name} onClose={() => setDrawingsOpen(false)} />}
     <div className="w-[280px] border-r border-border bg-surface flex flex-col shrink-0 h-full overflow-hidden"><ScenePanel projectId={params.projectId} onAssetUploaded={handleAssetUploaded} /></div>
-    <div className="flex-1 bg-background relative overflow-hidden h-full"><SceneViewer selectedId={selectedObjectId} onSelectObject={setSelectedObjectId} reviewMode={reviewMode} projectId={params.projectId} onScanImported={handleScanImported} /></div>
+    <div className="flex-1 bg-background relative overflow-hidden h-full"><div className="absolute right-3 top-3 z-40"><VariantBar
+      variants={document.manifest.variants.length ? document.manifest.variants : normalizeVariants(document.manifest, {}).variants}
+      activeId={document.manifest.activeVariantId}
+      onSwitch={(id) => variantOp((set, scene) => switchVariant(set, scene, id))}
+      onCreate={(from) => variantOp((set, scene) => createVariant(set, scene, { from, name: `Variant ${set.variants.length + 1}` }))}
+      onDuplicate={() => variantOp((set, scene) => duplicateVariant(set, scene, set.activeVariantId))}
+      onRename={(name) => variantOp((set, scene) => renameVariant(set, scene, set.activeVariantId, name))}
+      onDelete={() => { if (window.confirm('Delete this variant? This cannot be undone.')) variantOp((set, scene) => deleteVariant(set, scene, set.activeVariantId)); }}
+      onCompare={() => { const base = documentRef.current; if (base) setCompare(normalizeVariants(base.manifest, liveScene())); }}
+    /></div><SceneViewer selectedId={selectedObjectId} onSelectObject={setSelectedObjectId} reviewMode={reviewMode} projectId={params.projectId} onScanImported={handleScanImported} /></div>
     <div className="w-[380px] border-l border-border bg-surface flex flex-col shrink-0 h-full overflow-hidden">{reviewMode ? <InterpretationReviewPanel interpretation={document.manifest.interpretation} scan={document.manifest.scan} maskRegions={document.manifest.maskRegions} /> : <ChatPanel projectId={params.projectId} onAssetUploaded={handleAssetUploaded} onOpenReview={() => setReviewMode(true)} />}</div>
   </EditorLayout>;
 }
