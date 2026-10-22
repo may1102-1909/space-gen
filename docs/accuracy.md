@@ -65,7 +65,7 @@ Outputs `accuracy_report.json` and `accuracy_report.md` in `data/accuracy/report
 
 ## Method
 
-1. Run `extract_room_structure` on each scan.
+1. Run `analyze_room` (services/room_structure) on each scan.
 2. Match walls: with equal counts, take the cyclic shift and direction that minimise total length error, with a penalty when a reference opening has no recovered opening of the same kind on the mapped wall (this breaks rectangle symmetry). With unequal counts, match greedily by length within 25%.
 3. Match openings one-to-one on the mapped wall by kind, then by width + height (+ offset when given).
 4. Report mean/max absolute error in cm and in % of the true value, per metric (wall_length, ceiling_height, opening_width, opening_height, opening_sill) and per `scaleSource`, plus wall/opening match counts.
