@@ -8,6 +8,7 @@ import { applySceneSnapshot, clearSceneHistory, getSceneDocument, useScene, type
 import { ScenePanel } from '@/components/panels/ScenePanel';
 import { ChatPanel } from '@/components/panels/ChatPanel';
 import { InterpretationReviewPanel } from '@/components/panels/InterpretationReviewPanel';
+import { DrawingsPanel } from '@/components/panels/DrawingsPanel';
 import { EditorLayout } from '@/components/layout/EditorLayout';
 import { useSpaceGenStore } from '@/lib/store';
 import type { AssetRef, MaskRegion } from '@/lib/contracts';
@@ -52,6 +53,7 @@ export default function ProjectEditorPage() {
   const [status, setStatus] = useState<SaveStatus>('loading');
   const [error, setError] = useState('');
   const [reviewMode, setReviewMode] = useState(false);
+  const [drawingsOpen, setDrawingsOpen] = useState(false);
   const loaded = useRef(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const documentRef = useRef<ProjectDocument | null>(null);
@@ -180,7 +182,7 @@ export default function ProjectEditorPage() {
   if (!document) return <main className="flex min-h-screen items-center justify-center bg-background text-text-muted">{status === 'error' ? error : 'Loading project…'}</main>;
   const label = status === 'saving' ? 'Saving…' : status === 'unsaved' ? 'Unsaved changes' : status === 'error' ? 'Save failed' : status === 'conflict' ? 'Conflict' : 'Saved';
   return <EditorLayout>
-    <div className="absolute left-3 top-3 z-50 flex items-center gap-3 rounded-lg border border-border bg-surface px-3 py-2 text-sm shadow"><Link href="/projects" className="text-accent">Projects</Link><span className="font-medium">{document.manifest.name}</span><span aria-live="polite" className={status === 'error' || status === 'conflict' ? 'text-red-500' : 'text-text-muted'}>{label}</span><button onClick={() => void saveNowRef.current?.()} disabled={status === 'conflict'} className="rounded bg-accent px-3 py-1 text-white disabled:opacity-50">Save</button><button aria-pressed={reviewMode} onClick={() => setReviewMode(v => !v)} className={`rounded border px-3 py-1 ${reviewMode ? 'border-accent text-accent' : 'border-border'}`}>Review scan</button>{error && status !== 'conflict' && <span role="alert" className="text-red-500">{error}</span>}</div>
+    <div className="absolute left-3 top-3 z-50 flex items-center gap-3 rounded-lg border border-border bg-surface px-3 py-2 text-sm shadow"><Link href="/projects" className="text-accent">Projects</Link><span className="font-medium">{document.manifest.name}</span><span aria-live="polite" className={status === 'error' || status === 'conflict' ? 'text-red-500' : 'text-text-muted'}>{label}</span><button onClick={() => void saveNowRef.current?.()} disabled={status === 'conflict'} className="rounded bg-accent px-3 py-1 text-white disabled:opacity-50">Save</button><button aria-pressed={reviewMode} onClick={() => setReviewMode(v => !v)} className={`rounded border px-3 py-1 ${reviewMode ? 'border-accent text-accent' : 'border-border'}`}>Review scan</button><button onClick={() => setDrawingsOpen(true)} className="rounded border border-border px-3 py-1">Drawings</button>{error && status !== 'conflict' && <span role="alert" className="text-red-500">{error}</span>}</div>
     {status === 'conflict' && (
       <div role="alertdialog" aria-label="Save conflict" className="absolute left-1/2 top-16 z-50 w-[420px] -translate-x-1/2 rounded-lg border border-red-500/50 bg-surface p-4 text-sm shadow-xl">
         <p className="font-medium text-red-400">This project was saved elsewhere.</p>
@@ -191,6 +193,7 @@ export default function ProjectEditorPage() {
         </div>
       </div>
     )}
+    {drawingsOpen && <DrawingsPanel projectName={document.manifest.name} onClose={() => setDrawingsOpen(false)} />}
     <div className="w-[280px] border-r border-border bg-surface flex flex-col shrink-0 h-full overflow-hidden"><ScenePanel projectId={params.projectId} onAssetUploaded={handleAssetUploaded} /></div>
     <div className="flex-1 bg-background relative overflow-hidden h-full"><SceneViewer selectedId={selectedObjectId} onSelectObject={setSelectedObjectId} reviewMode={reviewMode} /></div>
     <div className="w-[380px] border-l border-border bg-surface flex flex-col shrink-0 h-full overflow-hidden">{reviewMode ? <InterpretationReviewPanel interpretation={document.manifest.interpretation} scan={document.manifest.scan} maskRegions={document.manifest.maskRegions} /> : <ChatPanel projectId={params.projectId} onAssetUploaded={handleAssetUploaded} />}</div>

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ERROR_TABLE,
   errorCm,
+  formatArea,
   formatDimensions,
   formatMeasurement,
   scaleSourceOf,
@@ -36,6 +37,11 @@ describe('measurement accuracy formatting', () => {
 
   it('formats dimensions with the bound of the largest side', () => {
     expect(formatDimensions([1.2, 0.8, 0.45], 'sensor', table)).toBe('≈ 1.20 × 0.80 × 0.45 m (±2 cm est.)');
+  });
+
+  it('formats areas with twice the relative length error', () => {
+    expect(formatArea(48, 'sensor', table)).toBe('≈ 48.0 m² (±1.5 m² est.)'); // 3% of 48 = 1.44 -> 1.5
+    expect(formatArea(1, 'sensor', table)).toBe('≈ 1.0 m² (±0.1 m² est.)');
   });
 
   it('treats a missing or unknown scale source as unscaled', () => {
