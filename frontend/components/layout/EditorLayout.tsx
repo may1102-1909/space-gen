@@ -10,7 +10,7 @@ import { useScene } from '@pascal-app/core'
 import { useStore } from 'zustand'
 import { undoSceneAction, redoSceneAction } from '@/lib/pascal/sceneBridge'
 
-export function EditorLayout({ children }: { children: React.ReactNode }) {
+export function EditorLayout({ children, onShare }: { children: React.ReactNode; onShare?: () => void }) {
   const { scene } = useAppStore()
   // Subscribe to the zundo temporal store itself so the buttons track history, not node changes.
   const canUndo = useStore(useScene.temporal, (state) => state.pastStates.length > 0);
@@ -87,14 +87,22 @@ export function EditorLayout({ children }: { children: React.ReactNode }) {
           </div>
 
           {/* Actions */}
-          <Link href="/present">
-            <button className="btn-ghost text-xs py-1.5">
+          {/* Client presentations are share links; /present only redirects to the project list. */}
+          {onShare ? (
+            <button onClick={onShare} className="btn-ghost text-xs py-1.5">
               <Play size={14} />
               Present
             </button>
-          </Link>
-          
-          <button className="btn-ghost text-xs py-1.5">
+          ) : (
+            <Link href="/present">
+              <button className="btn-ghost text-xs py-1.5">
+                <Play size={14} />
+                Present
+              </button>
+            </Link>
+          )}
+
+          <button onClick={onShare} disabled={!onShare} className="btn-ghost text-xs py-1.5 disabled:opacity-40">
             <Share2 size={14} />
             Share
           </button>

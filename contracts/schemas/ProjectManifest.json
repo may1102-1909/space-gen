@@ -52,6 +52,18 @@
           ],
           "default": null,
           "title": "Thumbnail"
+        },
+        "productUrl": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Producturl"
         }
       },
       "required": [
@@ -298,6 +310,49 @@
         "provenance"
       ],
       "title": "FloorPlane",
+      "type": "object"
+    },
+    "HeroImage": {
+      "description": "An AI-generated render shown in the client presentation, labelled as such.",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "url": {
+          "title": "Url",
+          "type": "string"
+        },
+        "caption": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Caption"
+        },
+        "variantId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Variantid"
+        }
+      },
+      "required": [
+        "id",
+        "url"
+      ],
+      "title": "HeroImage",
       "type": "object"
     },
     "MaskRegion": {
@@ -789,6 +844,73 @@
       "title": "Variant",
       "type": "object"
     },
+    "Viewpoint": {
+      "description": "A named camera pose a designer saved for the client presentation tour (scene frame, metres).",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "position": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Position",
+          "type": "array"
+        },
+        "target": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Target",
+          "type": "array"
+        },
+        "fov": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fov"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "position",
+        "target"
+      ],
+      "title": "Viewpoint",
+      "type": "object"
+    },
     "WallInterpretation": {
       "properties": {
         "id": {
@@ -940,6 +1062,20 @@
     "activeVariantId": {
       "title": "Activevariantid",
       "type": "string"
+    },
+    "viewpoints": {
+      "items": {
+        "$ref": "#/$defs/Viewpoint"
+      },
+      "title": "Viewpoints",
+      "type": "array"
+    },
+    "heroImages": {
+      "items": {
+        "$ref": "#/$defs/HeroImage"
+      },
+      "title": "Heroimages",
+      "type": "array"
     }
   },
   "required": [

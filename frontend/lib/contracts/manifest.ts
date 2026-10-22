@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { Vector3Schema } from './primitives';
 import { MaskRegionSchema, ScanAssetSchema } from './scan';
 import { RoomInterpretationSchema } from './interpretation';
 import {
@@ -19,6 +20,7 @@ export const AssetRefSchema = z.object({
   dimensions: ProposalAssetDimensionsSchema,
   categories: z.array(z.string()),
   thumbnail: z.string().nullable().optional(),
+  productUrl: z.string().nullable().optional(),
 });
 export type AssetRef = z.infer<typeof AssetRefSchema>;
 
@@ -32,6 +34,25 @@ export const VariantSchema = z.object({
 });
 export type Variant = z.infer<typeof VariantSchema>;
 
+/** A named camera pose saved for the client presentation tour (scene frame, metres). */
+export const ViewpointSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  position: Vector3Schema,
+  target: Vector3Schema,
+  fov: z.number().nullable().optional(),
+});
+export type Viewpoint = z.infer<typeof ViewpointSchema>;
+
+/** An AI-generated render shown in the client presentation, labelled as such. */
+export const HeroImageSchema = z.object({
+  id: z.string(),
+  url: z.string(),
+  caption: z.string().nullable().optional(),
+  variantId: z.string().nullable().optional(),
+});
+export type HeroImage = z.infer<typeof HeroImageSchema>;
+
 export const ProjectManifestSchema = z.object({
   schemaVersion: z.string(),
   id: z.string(),
@@ -44,5 +65,7 @@ export const ProjectManifestSchema = z.object({
   history: z.array(EditRecordSchema),
   variants: z.array(VariantSchema),
   activeVariantId: z.string(),
+  viewpoints: z.array(ViewpointSchema).optional(),
+  heroImages: z.array(HeroImageSchema).optional(),
 });
 export type ProjectManifest = z.infer<typeof ProjectManifestSchema>;
