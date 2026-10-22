@@ -147,6 +147,7 @@ MAX_CONVERSIONS = 100
 _STAGE_STATE = {"queued": "pending", "running": "running", "succeeded": "completed", "failed": "failed"}
 _STAGE_DETAIL = {
     "queued": "Queued",
+    "filtering": "Filtering points",
     "loading": "Loading scan",
     "gravity": "Finding gravity",
     "floor": "Fitting floor and ceiling",
