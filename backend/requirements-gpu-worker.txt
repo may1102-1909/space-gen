@@ -1,0 +1,19 @@
+# GPU worker (Colab / any CUDA box) for backend/gpu_worker. torch with CUDA is preinstalled on Colab.
+# Licenses: gsplat Apache-2.0, transformers Apache-2.0 (OWLv2 / Grounding DINO weights Apache-2.0),
+# SAM 2 Apache-2.0, open3d MIT, trimesh MIT, opencv Apache-2.0.
+gsplat>=1.4.0
+transformers>=4.44.0
+sam2 @ git+https://github.com/facebookresearch/sam2.git
+open3d>=0.18.0
+trimesh>=4.0.0
+plyfile>=1.0.0
+opencv-python-headless>=4.10.0
+Pillow>=10.0.0
+numpy>=1.26.0
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+python-multipart>=0.0.9
+httpx>=0.27.0
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+python-dotenv>=1.0.0
