@@ -1,205 +1,131 @@
 'use client';
 
-import React, { useState } from 'react';
-import {
-  SAMPLE_ROOM_SCAN_MANIFEST,
-  convertScanToEditableNodes,
-  RawScanManifest,
-} from '@/lib/pascal/scanConverter';
-import {
-  Sparkles,
-  Box,
-  Layers,
-  Crop,
-  CheckCircle2,
-  X,
-  UploadCloud,
-  FileCheck,
-} from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import React, { useEffect, useRef, useState } from 'react';
+import { CheckCircle2, Circle, Loader2, Sparkles, UploadCloud, X, XCircle } from 'lucide-react';
+import type { ConversionStage } from '@/lib/contracts';
+import { IMPORT_ACCEPT, importSplat, type ImportedScan, type ImportProgress } from '@/lib/scan/splatImport';
 
 interface ScanToEditableModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onConverted?: (result: unknown) => void;
+  projectId: string;
+  /** Called once the room structure is ready; the caller loads it into the project. */
+  onImported: (imported: ImportedScan) => void;
 }
 
-export function ScanToEditableModal({
-  isOpen,
-  onClose,
-  onConverted,
-}: ScanToEditableModalProps) {
-  const [eraseSplats, setEraseSplats] = useState(true);
-  const [selectedPreset, setSelectedPreset] = useState<'studio' | 'loft'>('studio');
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [successInfo, setSuccessInfo] = useState<string | null>(null);
+const STAGE_LABELS: Record<ConversionStage['name'], string> = {
+  uploaded: 'Scan uploaded',
+  structure: 'Walls, floor & openings',
+  objects: 'Separate objects',
+  ready: 'Ready to review',
+};
 
+function StageIcon({ status }: { status: ConversionStage['status'] }) {
+  if (status === 'completed') return <CheckCircle2 size={14} className="text-emerald-400" />;
+  if (status === 'running') return <Loader2 size={14} className="animate-spin text-accent" />;
+  if (status === 'failed') return <XCircle size={14} className="text-red-400" />;
+  return <Circle size={14} className="text-text-muted" />;
+}
+
+/** Upload a Gaussian splat and convert it into a reviewable RoomInterpretation. */
+export function ScanToEditableModal({ isOpen, onClose, projectId, onImported }: ScanToEditableModalProps) {
+  const [file, setFile] = useState<File | null>(null);
+  const [progress, setProgress] = useState<ImportProgress | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const busy = progress !== null && progress.phase !== 'failed' && progress.phase !== 'ready';
+
+  useEffect(() => () => abortRef.current?.abort(), []);
   if (!isOpen) return null;
 
-  const handleRunConversion = () => {
-    setIsProcessing(true);
-    setSuccessInfo(null);
-
-    setTimeout(() => {
-      try {
-        const result = convertScanToEditableNodes(SAMPLE_ROOM_SCAN_MANIFEST, {
-          eraseUnderlyingSplats: eraseSplats,
-        });
-
-        setIsProcessing(false);
-        setSuccessInfo(
-          `Extracted ${result.wallCount} walls, 1 floor slab, and ${result.itemCount} detections to review with ${result.exclusionBoxCount} splat masks.`
-        );
-
-        if (onConverted) onConverted(result);
-
-        setTimeout(() => {
-          onClose();
-        }, 1400);
-      } catch (err) {
-        setIsProcessing(false);
-        console.error('Scan conversion failed:', err);
-      }
-    }, 400);
+  const close = () => {
+    abortRef.current?.abort();
+    setProgress(null);
+    onClose();
   };
 
+  const run = async () => {
+    if (!file) return;
+    const controller = new AbortController();
+    abortRef.current = controller;
+    try {
+      const imported = await importSplat(projectId, file, file.name, setProgress, { signal: controller.signal });
+      if (controller.signal.aborted) return;
+      onImported(imported);
+      setProgress(null);
+      setFile(null);
+      onClose();
+    } catch {
+      // importSplat already reported the failure through setProgress.
+    }
+  };
+
+  const stages = progress?.job?.stages;
   return (
-    <AnimatePresence>
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-        <motion.div
-          initial={{ scale: 0.95, opacity: 0, y: 10 }}
-          animate={{ scale: 1, opacity: 1, y: 0 }}
-          exit={{ scale: 0.95, opacity: 0, y: 10 }}
-          className="w-full max-w-lg rounded-2xl bg-surface border border-border shadow-2xl p-6 text-text-primary flex flex-col gap-5 select-none"
-        >
-          {/* Header */}
-          <div className="flex items-center justify-between pb-3 border-b border-border">
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-xl bg-accent/15 border border-accent/25 flex items-center justify-center text-accent">
-                <Sparkles size={16} />
-              </div>
-              <div>
-                <h3 className="font-semibold text-sm">Convert Scan to Editable Space</h3>
-                <p className="text-xs text-text-muted">
-                  Transform static 3D Gaussians into parametric BIM & movable 3D meshes
-                </p>
-              </div>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+      <div role="dialog" aria-label="Import scan" className="flex w-full max-w-lg flex-col gap-4 rounded-2xl border border-border bg-surface p-6 text-text-primary shadow-2xl">
+        <div className="flex items-center justify-between border-b border-border pb-3">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-8 w-8 items-center justify-center rounded-xl border border-accent/25 bg-accent/15 text-accent">
+              <Sparkles size={16} />
             </div>
-            <button
-              onClick={onClose}
-              className="p-1 rounded-lg text-text-muted hover:text-text-primary hover:bg-surface-elevated transition-colors"
-            >
-              <X size={16} />
-            </button>
-          </div>
-
-          {/* Preset Selector */}
-          <div className="space-y-2">
-            <label className="text-xs font-medium text-text-secondary">Scan Source</label>
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                onClick={() => setSelectedPreset('studio')}
-                className={`flex flex-col text-left p-3 rounded-xl border transition-all ${
-                  selectedPreset === 'studio'
-                    ? 'bg-accent/10 border-accent text-accent-light shadow-sm'
-                    : 'bg-surface-elevated/40 border-border hover:bg-surface-elevated'
-                }`}
-              >
-                <span className="font-medium text-xs">Studio Room Scan</span>
-                <span className="text-[10px] text-text-muted mt-1">
-                  8m × 6m · 5 detected items · 1 door & window
-                </span>
-              </button>
-
-              <button
-                onClick={() => setSelectedPreset('loft')}
-                className={`flex flex-col text-left p-3 rounded-xl border transition-all ${
-                  selectedPreset === 'loft'
-                    ? 'bg-accent/10 border-accent text-accent-light shadow-sm'
-                    : 'bg-surface-elevated/40 border-border hover:bg-surface-elevated'
-                }`}
-              >
-                <span className="font-medium text-xs">Custom Upload (.splat / .ply)</span>
-                <span className="text-[10px] text-text-muted mt-1">
-                  Upload walkthrough scan for automatic segmentation
-                </span>
-              </button>
+            <div>
+              <h3 className="text-sm font-semibold">Convert Scan to Editable Space</h3>
+              <p className="text-xs text-text-muted">Upload a Gaussian splat; walls, floor and openings become editable Pascal nodes.</p>
             </div>
           </div>
+          <button onClick={close} aria-label="Close" className="rounded-lg p-1 text-text-muted hover:bg-surface-elevated hover:text-text-primary">
+            <X size={16} />
+          </button>
+        </div>
 
-          {/* Extraction Manifest Preview */}
-          <div className="p-3.5 rounded-xl bg-surface-elevated/40 border border-border/60 space-y-2 text-xs">
-            <div className="flex items-center gap-2 font-medium text-text-secondary">
-              <FileCheck size={14} className="text-emerald-400" />
-              <span>Detected Architectural Elements:</span>
-            </div>
-            <ul className="grid grid-cols-2 gap-1.5 text-[11px] text-text-muted pl-5 list-disc">
-              <li>4 Connected Wall nodes</li>
-              <li>1 Hardwood Floor Slab</li>
-              <li>1 Entrance Door (South)</li>
-              <li>1 Panorama Window (North)</li>
-              <li>1 Boucle Sofa (3-Seater)</li>
-              <li>1 Walnut Coffee Table</li>
-              <li>1 Oak Dining Table</li>
-              <li>2 Velvet Dining Chairs</li>
-            </ul>
+        <label className="flex cursor-pointer flex-col items-center gap-2 rounded-xl border border-dashed border-border bg-surface-elevated/30 p-5 text-xs hover:bg-surface-elevated/50">
+          <UploadCloud size={20} className="text-accent" />
+          <span className="font-medium">{file ? file.name : 'Choose a .ply, .sog or .spz splat'}</span>
+          {file && <span className="text-text-muted">{(file.size / 1e6).toFixed(1)} MB · replaces this project&apos;s scan</span>}
+          <input
+            type="file"
+            accept={IMPORT_ACCEPT}
+            aria-label="Splat file"
+            className="sr-only"
+            disabled={busy}
+            onChange={(e) => { setFile(e.target.files?.[0] || null); setProgress(null); }}
+          />
+        </label>
+
+        {progress && (
+          <div className="space-y-2 rounded-xl border border-border/60 bg-surface-elevated/40 p-3 text-xs" aria-live="polite">
+            <p data-testid="import-message" className={progress.phase === 'failed' ? 'text-red-400' : 'text-text-secondary'} role={progress.phase === 'failed' ? 'alert' : undefined}>
+              {progress.message}
+            </p>
+            {stages && (
+              <ol aria-label="Conversion stages" className="space-y-1">
+                {stages.map((stage) => (
+                  <li key={stage.name} data-testid={`stage-${stage.name}`} data-status={stage.status} className="flex items-center gap-2">
+                    <StageIcon status={stage.status} />
+                    <span>{STAGE_LABELS[stage.name]}</span>
+                    {stage.name === 'objects' && stage.status === 'pending' && <span className="text-text-muted">· {stage.detail}</span>}
+                  </li>
+                ))}
+              </ol>
+            )}
           </div>
+        )}
 
-          {/* SuperSplat Erasure Option */}
-          <label className="flex items-start gap-3 p-3 rounded-xl bg-surface-elevated/30 border border-border/50 cursor-pointer hover:bg-surface-elevated/50 transition-colors">
-            <input
-              type="checkbox"
-              checked={eraseSplats}
-              onChange={(e) => setEraseSplats(e.target.checked)}
-              className="mt-0.5 rounded border-border text-accent focus:ring-accent"
-            />
-            <div className="text-xs">
-              <div className="font-medium flex items-center gap-1.5">
-                <Crop size={13} className="text-amber-400" />
-                <span>Mask Underlying Scan Gaussians (SuperSplat Erasure)</span>
-              </div>
-              <p className="text-[11px] text-text-muted mt-0.5">
-                Automatically masks out the raw Gaussian splats inside each furniture bounding box so replacing or moving items doesn&apos;t double-render over the original scan.
-              </p>
-            </div>
-          </label>
-
-          {/* Status Alert */}
-          {successInfo && (
-            <div className="p-3 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-xs flex items-center gap-2">
-              <CheckCircle2 size={16} />
-              <span>{successInfo}</span>
-            </div>
-          )}
-
-          {/* Action Buttons */}
-          <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-border">
-            <button
-              onClick={onClose}
-              disabled={isProcessing}
-              className="px-4 py-2 rounded-xl text-xs font-medium text-text-secondary hover:text-text-primary hover:bg-surface-elevated transition-colors"
-            >
-              Cancel
-            </button>
-
-            <button
-              onClick={handleRunConversion}
-              disabled={isProcessing}
-              className="px-5 py-2 rounded-xl text-xs font-medium bg-accent hover:bg-accent-light text-white shadow-lg shadow-accent/25 transition-all flex items-center gap-1.5 disabled:opacity-50"
-            >
-              {isProcessing ? (
-                <span>Extracting Geometry...</span>
-              ) : (
-                <>
-                  <Sparkles size={14} />
-                  <span>Extract Editable Walls & Furniture</span>
-                </>
-              )}
-            </button>
-          </div>
-        </motion.div>
+        <div className="flex items-center justify-end gap-2.5 border-t border-border pt-2">
+          <button onClick={close} className="rounded-xl px-4 py-2 text-xs font-medium text-text-secondary hover:bg-surface-elevated hover:text-text-primary">
+            Cancel
+          </button>
+          <button
+            onClick={() => void run()}
+            disabled={!file || busy}
+            className="flex items-center gap-1.5 rounded-xl bg-accent px-5 py-2 text-xs font-medium text-white shadow-lg shadow-accent/25 hover:bg-accent-light disabled:opacity-50"
+          >
+            {busy ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+            <span>{busy ? 'Converting…' : 'Upload & convert'}</span>
+          </button>
+        </div>
       </div>
-    </AnimatePresence>
+    </div>
   );
 }
 

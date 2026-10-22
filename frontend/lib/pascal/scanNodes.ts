@@ -3,6 +3,7 @@ import type { MaskRegion } from '@/lib/contracts';
 import type { Matrix4 } from '@/lib/contracts/primitives';
 import type { ScaleSource } from '@/lib/contracts/scan';
 import { IDENTITY_SCAN_TO_SCENE } from './scanAlignment';
+import { getInterpretationMeta } from './scanConverter';
 import { asNode, asNodeData, asNodeId, findScanNode, scanMetadata, type ScanNode } from './nodes';
 
 /** Creates or updates the canonical Pascal ScanNode. Matrix metadata is the alignment source of truth. */
@@ -66,6 +67,41 @@ export function setScanAlignment(scanId: string, scanToScene: Matrix4, scaleSour
       data: asNodeData({ metadata: { ...scanMetadata(scan), scanToScene: [...scanToScene], ...(scaleSource ? { scaleSource } : {}) } }),
     }],
   });
+}
+
+/**
+ * Replaces the scene's scan with a newly imported one, as one undo step: the old ScanNode and every
+ * node built from its interpretation (outline slab, zone, walls with their openings) go, so the new
+ * interpretation can be built. Alignment starts at identity; auto-level is a separate step.
+ */
+export function replaceScanNode(url: string, format: string): string {
+  const scene = useScene.getState();
+  const stale = Object.values(scene.nodes).filter((node) => {
+    if (!node) return false;
+    if (node.type === 'scan') return true;
+    const kind = getInterpretationMeta(node as { metadata?: object })?.kind;
+    return kind === 'outline' || kind === 'zone' || kind === 'wall';
+  });
+  const id = `scan_${crypto.randomUUID()}`;
+  // Parent the scan under a level: once a site exists, Pascal drops non-site roots when a snapshot loads.
+  const levelId = Object.values(scene.nodes).find((node) => node?.type === 'level')?.id || 'level_scan';
+  const scaffold = scene.nodes[asNodeId(levelId)] ? [] : [
+    { node: asNode({ id: 'site_scan', type: 'site', name: 'Site' }) },
+    { node: asNode({ id: 'building_scan', type: 'building', name: 'Building' }), parentId: asNodeId('site_scan') },
+    { node: asNode({ id: levelId, type: 'level', name: 'Scanned level', elevation: 0 }), parentId: asNodeId('building_scan') },
+  ];
+  scene.applyNodeChanges({
+    create: [...scaffold, {
+      node: asNode({
+        id, type: 'scan', name: 'Room scan', url, visible: true, opacity: 100,
+        position: [0, 0, 0], rotation: [0, 0, 0], scale: 1, layers: { model: false },
+        metadata: { format, scanToScene: [...IDENTITY_SCAN_TO_SCENE], maskRegions: [] },
+      }),
+      parentId: asNodeId(levelId),
+    }],
+    delete: stale.length ? stale.map((node) => node.id) : undefined,
+  });
+  return id;
 }
 
 function formatFromUrl(url: string): string {
