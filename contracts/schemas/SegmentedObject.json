@@ -1,0 +1,239 @@
+{
+  "$defs": {
+    "AssetRef": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "source": {
+          "enum": [
+            "catalog",
+            "upload",
+            "generated",
+            "segmented"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "url": {
+          "title": "Url",
+          "type": "string"
+        },
+        "format": {
+          "enum": [
+            "glb",
+            "gltf"
+          ],
+          "title": "Format",
+          "type": "string"
+        },
+        "dimensions": {
+          "$ref": "#/$defs/ProposalAssetDimensions"
+        },
+        "categories": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Categories",
+          "type": "array"
+        },
+        "thumbnail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Thumbnail"
+        },
+        "productUrl": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Producturl"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "source",
+        "url",
+        "format",
+        "dimensions",
+        "categories"
+      ],
+      "title": "AssetRef",
+      "type": "object"
+    },
+    "ObjectPlacement": {
+      "description": "World pose of a segmented object's mesh: bottom-centre position and yaw (scene frame).",
+      "properties": {
+        "position": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Position",
+          "type": "array"
+        },
+        "rotationY": {
+          "title": "Rotationy",
+          "type": "number"
+        }
+      },
+      "required": [
+        "position",
+        "rotationY"
+      ],
+      "title": "ObjectPlacement",
+      "type": "object"
+    },
+    "OrientedBoundingBox": {
+      "properties": {
+        "center": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Center",
+          "type": "array"
+        },
+        "size": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Size",
+          "type": "array"
+        },
+        "yaw": {
+          "title": "Yaw",
+          "type": "number"
+        }
+      },
+      "required": [
+        "center",
+        "size",
+        "yaw"
+      ],
+      "title": "OrientedBoundingBox",
+      "type": "object"
+    },
+    "ProposalAssetDimensions": {
+      "properties": {
+        "width": {
+          "exclusiveMinimum": 0.0,
+          "title": "Width",
+          "type": "number"
+        },
+        "height": {
+          "exclusiveMinimum": 0.0,
+          "title": "Height",
+          "type": "number"
+        },
+        "depth": {
+          "exclusiveMinimum": 0.0,
+          "title": "Depth",
+          "type": "number"
+        }
+      },
+      "required": [
+        "width",
+        "height",
+        "depth"
+      ],
+      "title": "ProposalAssetDimensions",
+      "type": "object"
+    }
+  },
+  "description": "One object separated from the splat by the GPU worker (ADR 002), with its own GLB.",
+  "properties": {
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "label": {
+      "title": "Label",
+      "type": "string"
+    },
+    "confidence": {
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Confidence",
+      "type": "number"
+    },
+    "meshAsset": {
+      "$ref": "#/$defs/AssetRef"
+    },
+    "placement": {
+      "$ref": "#/$defs/ObjectPlacement"
+    },
+    "obb": {
+      "$ref": "#/$defs/OrientedBoundingBox"
+    },
+    "maskRegionId": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Maskregionid"
+    }
+  },
+  "required": [
+    "id",
+    "label",
+    "confidence",
+    "meshAsset",
+    "placement",
+    "obb"
+  ],
+  "title": "SegmentedObject",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

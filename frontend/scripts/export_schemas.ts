@@ -9,6 +9,7 @@ import {
   AssetRefSchema,
   VariantSchema,
   ConversionJobStatusSchema,
+  SegmentedObjectSchema,
 } from '../lib/contracts';
 
 const schemas = {
@@ -21,6 +22,7 @@ const schemas = {
   AssetRef: toJSONSchema(AssetRefSchema),
   Variant: toJSONSchema(VariantSchema),
   ConversionJobStatus: toJSONSchema(ConversionJobStatusSchema),
+  SegmentedObject: toJSONSchema(SegmentedObjectSchema),
 };
 
 console.log(JSON.stringify(schemas, null, 2));

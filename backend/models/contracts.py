@@ -158,7 +158,7 @@ class RoomInterpretation(BaseModel):
 # ---------------------------------------------------------------------------
 
 EditOp = Literal["replace", "add", "move", "remove"]
-AssetSource = Literal["catalog", "upload", "generated"]
+AssetSource = Literal["catalog", "upload", "generated", "segmented"]
 AssetFormat = Literal["glb", "gltf"]
 ViolationSeverity = Literal["error", "warning", "info"]
 ProposalStatus = Literal["pending", "accepted", "rejected"]
@@ -336,10 +336,40 @@ class ConversionStage(BaseModel):
     name: ConversionStageName
     status: ConversionStageState
     detail: str = ""
+    error: Optional[str] = None
+
+
+class ObjectPlacement(BaseModel):
+    """World pose of a segmented object's mesh: bottom-centre position and yaw (scene frame)."""
+
+    position: Vector3
+    rotationY: float
+
+
+class SegmentedObject(BaseModel):
+    """One object separated from the splat by the GPU worker (ADR 002), with its own GLB."""
+
+    id: str
+    label: str
+    confidence: float = Field(ge=0.0, le=1.0)
+    meshAsset: AssetRef
+    placement: ObjectPlacement
+    obb: OrientedBoundingBox
+    maskRegionId: Optional[str] = None
+
+
+class ShellSurfaceTexture(BaseModel):
+    """Baked floor/wall appearance in Pascal's world-planar UV frame (material.texture.url + repeat)."""
+
+    target: Literal["slab", "wall", "ceiling"]
+    wallId: Optional[str] = None
+    textureAsset: str
+    repeat: Tuple[float, float]
+    coverage: float = Field(ge=0.0, le=1.0)
 
 
 class ConversionJobStatus(BaseModel):
-    """Splat import -> editable room. `stage` is the furthest stage reached; `objects` waits on the GPU worker."""
+    """Splat import -> editable room. `stage` is the furthest stage reached; `objects` runs on the GPU worker."""
 
     jobId: str
     projectId: str
@@ -351,6 +381,9 @@ class ConversionJobStatus(BaseModel):
     progress: int = 0
     error: Optional[str] = None
     result: Optional[RoomStructureResult] = None
+    objectsCount: Optional[int] = None
+    objects: List[SegmentedObject] = Field(default_factory=list)
+    surfaces: List[ShellSurfaceTexture] = Field(default_factory=list)
 
 
 __all__ = [
@@ -370,6 +403,9 @@ __all__ = [
     "RoomStructureResult",
     "ConversionStage",
     "ConversionJobStatus",
+    "ObjectPlacement",
+    "SegmentedObject",
+    "ShellSurfaceTexture",
     # Geometry & Primitives
     "Provenance",
     "Vector3",

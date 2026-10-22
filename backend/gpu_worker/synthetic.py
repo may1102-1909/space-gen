@@ -174,3 +174,49 @@ class FakeMaskDetector:
 def precision_recall(pred_idx: np.ndarray, gt: np.ndarray, k: int) -> tuple:
     hit = int((gt[pred_idx] == k).sum())
     return hit / max(len(pred_idx), 1), hit / max(int((gt == k).sum()), 1)
+
+
+def geometric_instances(splat: Splat, band: float = 0.06, cell: float = 0.1, min_gaussians: int = 150):
+    """Pseudo ground truth for a scene-frame splat without a detector: (labels, names).
+
+    Shell = floor/ceiling bands plus XZ cells whose Gaussians span most of the room height (walls);
+    the rest is clustered with DBSCAN and each cluster gets a label guessed from its size.
+    shortcut: only for GPU_WORKER_MODE=fake on synthetic/small scans; real runs use OWLv2/GDINO + SAM 2.
+    """
+    import open3d as o3d
+
+    m = splat.means
+    ceiling = float(np.percentile(m[:, 1], 99.5))
+    labels = np.zeros(len(m), int)
+    idx = np.nonzero((m[:, 1] > band) & (m[:, 1] < ceiling - band))[0]
+    _, inv = np.unique(np.floor(m[idx][:, [0, 2]] / cell).astype(np.int64), axis=0, return_inverse=True)
+    inv = inv.ravel()
+    lo = np.full(inv.max() + 1 if len(idx) else 0, np.inf)
+    hi = np.full(len(lo), -np.inf)
+    np.minimum.at(lo, inv, m[idx, 1])
+    np.maximum.at(hi, inv, m[idx, 1])
+    idx = idx[(hi - lo)[inv] < 0.7 * ceiling]  # columns spanning the room height are walls
+    names: List[str] = []
+    if not len(idx):
+        return labels, names
+    cloud = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(m[idx]))
+    clusters = np.asarray(cloud.cluster_dbscan(eps=cell, min_points=8))
+    for c in range(int(clusters.max()) + 1 if len(clusters) else 0):
+        members = idx[clusters == c]
+        if len(members) < min_gaussians:
+            continue
+        size = m[members].max(axis=0) - m[members].min(axis=0)
+        footprint = max(size[0], size[2])
+        names.append("lamp" if size[1] > 1.2 and footprint < 0.6 else "sofa" if footprint > 1.6 else "table")
+        labels[members] = len(names)
+    return labels, names
+
+
+class GeometricMaskDetector(FakeMaskDetector):
+    """FakeMaskDetector over `geometric_instances`: clean masks, no misses or false positives."""
+
+    name = "geometric_masks"
+
+    def __init__(self, splat: Splat, renderer: Renderer):
+        gt, names = geometric_instances(splat)
+        super().__init__(splat, gt, renderer, names=names, dilate_px=0, miss_rate=0.0, false_positive_rate=0.0)

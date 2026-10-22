@@ -20,7 +20,7 @@ from fastapi import UploadFile
 from models.contracts import ProjectManifest
 
 PROJECT_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
-ASSET_SUFFIXES = {".sog", ".spz", ".ply", ".splat", ".glb", ".gltf"}
+ASSET_SUFFIXES = {".sog", ".spz", ".ply", ".splat", ".glb", ".gltf", ".png"}  # png: baked shell textures
 
 
 class ProjectNotFoundError(Exception):
@@ -273,7 +273,7 @@ class FilesystemProjectRepository:
 
     def asset_path(self, project_id: str, filename: str) -> Path:
         if Path(filename).name != filename or not re.fullmatch(
-            r"[0-9a-f]{64}(?:\.(?:sog|spz|ply|splat|glb|gltf))?", filename
+            r"[0-9a-f]{64}(?:\.(?:sog|spz|ply|splat|glb|gltf|png))?", filename
         ):
             raise ValueError("Invalid asset filename.")
         directory = self._project_dir(project_id)

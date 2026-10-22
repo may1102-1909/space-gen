@@ -24,6 +24,7 @@ from models.contracts import (
     ProjectManifest,
     RoomInterpretation,
     ScanAsset,
+    SegmentedObject,
     Variant,
 )
 
@@ -39,6 +40,7 @@ TARGET_MODELS = {
     "AssetRef": AssetRef,
     "Variant": Variant,
     "ConversionJobStatus": ConversionJobStatus,
+    "SegmentedObject": SegmentedObject,
 }
 
 

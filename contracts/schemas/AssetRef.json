@@ -40,7 +40,8 @@
       "enum": [
         "catalog",
         "upload",
-        "generated"
+        "generated",
+        "segmented"
       ],
       "title": "Source",
       "type": "string"

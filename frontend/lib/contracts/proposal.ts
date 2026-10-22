@@ -4,7 +4,7 @@ import { Vector3Schema } from './primitives';
 export const EditOpSchema = z.enum(['replace', 'add', 'move', 'remove']);
 export type EditOp = z.infer<typeof EditOpSchema>;
 
-export const AssetSourceSchema = z.enum(['catalog', 'upload', 'generated']);
+export const AssetSourceSchema = z.enum(['catalog', 'upload', 'generated', 'segmented']);
 export type AssetSource = z.infer<typeof AssetSourceSchema>;
 
 export const ProposalAssetDimensionsSchema = z.object({

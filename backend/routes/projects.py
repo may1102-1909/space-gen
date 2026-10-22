@@ -191,6 +191,8 @@ def get_asset(project_id: str, asset_id: str, repository: Repository):
         if path.suffix == ".glb"
         else "model/gltf+json"
         if path.suffix == ".gltf"
+        else "image/png"
+        if path.suffix == ".png"
         else "application/octet-stream"
     )
     return FileResponse(path, media_type=media_type, filename=path.name)

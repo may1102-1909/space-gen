@@ -1,5 +1,84 @@
 {
   "$defs": {
+    "AssetRef": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "source": {
+          "enum": [
+            "catalog",
+            "upload",
+            "generated",
+            "segmented"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "url": {
+          "title": "Url",
+          "type": "string"
+        },
+        "format": {
+          "enum": [
+            "glb",
+            "gltf"
+          ],
+          "title": "Format",
+          "type": "string"
+        },
+        "dimensions": {
+          "$ref": "#/$defs/ProposalAssetDimensions"
+        },
+        "categories": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Categories",
+          "type": "array"
+        },
+        "thumbnail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Thumbnail"
+        },
+        "productUrl": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Producturl"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "source",
+        "url",
+        "format",
+        "dimensions",
+        "categories"
+      ],
+      "title": "AssetRef",
+      "type": "object"
+    },
     "ConversionStage": {
       "properties": {
         "name": {
@@ -26,6 +105,18 @@
           "default": "",
           "title": "Detail",
           "type": "string"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error"
         }
       },
       "required": [
@@ -153,6 +244,38 @@
         "provenance"
       ],
       "title": "FloorPlane",
+      "type": "object"
+    },
+    "ObjectPlacement": {
+      "description": "World pose of a segmented object's mesh: bottom-centre position and yaw (scene frame).",
+      "properties": {
+        "position": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Position",
+          "type": "array"
+        },
+        "rotationY": {
+          "title": "Rotationy",
+          "type": "number"
+        }
+      },
+      "required": [
+        "position",
+        "rotationY"
+      ],
+      "title": "ObjectPlacement",
       "type": "object"
     },
     "OpeningInterpretation": {
@@ -289,6 +412,32 @@
         "yaw"
       ],
       "title": "OrientedBoundingBox",
+      "type": "object"
+    },
+    "ProposalAssetDimensions": {
+      "properties": {
+        "width": {
+          "exclusiveMinimum": 0.0,
+          "title": "Width",
+          "type": "number"
+        },
+        "height": {
+          "exclusiveMinimum": 0.0,
+          "title": "Height",
+          "type": "number"
+        },
+        "depth": {
+          "exclusiveMinimum": 0.0,
+          "title": "Depth",
+          "type": "number"
+        }
+      },
+      "required": [
+        "width",
+        "height",
+        "depth"
+      ],
+      "title": "ProposalAssetDimensions",
       "type": "object"
     },
     "RoomInterpretation": {
@@ -479,6 +628,114 @@
       "title": "RoomStructureResult",
       "type": "object"
     },
+    "SegmentedObject": {
+      "description": "One object separated from the splat by the GPU worker (ADR 002), with its own GLB.",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "confidence": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "meshAsset": {
+          "$ref": "#/$defs/AssetRef"
+        },
+        "placement": {
+          "$ref": "#/$defs/ObjectPlacement"
+        },
+        "obb": {
+          "$ref": "#/$defs/OrientedBoundingBox"
+        },
+        "maskRegionId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Maskregionid"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "confidence",
+        "meshAsset",
+        "placement",
+        "obb"
+      ],
+      "title": "SegmentedObject",
+      "type": "object"
+    },
+    "ShellSurfaceTexture": {
+      "description": "Baked floor/wall appearance in Pascal's world-planar UV frame (material.texture.url + repeat).",
+      "properties": {
+        "target": {
+          "enum": [
+            "slab",
+            "wall",
+            "ceiling"
+          ],
+          "title": "Target",
+          "type": "string"
+        },
+        "wallId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Wallid"
+        },
+        "textureAsset": {
+          "title": "Textureasset",
+          "type": "string"
+        },
+        "repeat": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Repeat",
+          "type": "array"
+        },
+        "coverage": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Coverage",
+          "type": "number"
+        }
+      },
+      "required": [
+        "target",
+        "textureAsset",
+        "repeat",
+        "coverage"
+      ],
+      "title": "ShellSurfaceTexture",
+      "type": "object"
+    },
     "WallInterpretation": {
       "properties": {
         "id": {
@@ -575,7 +832,7 @@
       "type": "object"
     }
   },
-  "description": "Splat import -> editable room. `stage` is the furthest stage reached; `objects` waits on the GPU worker.",
+  "description": "Splat import -> editable room. `stage` is the furthest stage reached; `objects` runs on the GPU worker.",
   "properties": {
     "jobId": {
       "title": "Jobid",
@@ -647,6 +904,32 @@
         }
       ],
       "default": null
+    },
+    "objectsCount": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Objectscount"
+    },
+    "objects": {
+      "items": {
+        "$ref": "#/$defs/SegmentedObject"
+      },
+      "title": "Objects",
+      "type": "array"
+    },
+    "surfaces": {
+      "items": {
+        "$ref": "#/$defs/ShellSurfaceTexture"
+      },
+      "title": "Surfaces",
+      "type": "array"
     }
   },
   "required": [

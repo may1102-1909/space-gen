@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -26,6 +26,12 @@ class Settings(BaseSettings):
     ffmpeg_path: Optional[str] = None
     nerfstudio_path: Optional[str] = None
     extra_tool_paths: str = ""
+
+    # GPU segmentation worker (docs/gpu-worker-setup.md). colab = remote worker behind a tunnel,
+    # fake = CPU pipeline in-process (dev/CI), off = the objects stage is skipped.
+    gpu_worker_mode: Literal["colab", "fake", "off"] = "off"
+    gpu_worker_url: str = ""
+    gpu_worker_token: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env",

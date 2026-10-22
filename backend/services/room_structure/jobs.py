@@ -35,6 +35,8 @@ class JobSpec:
     project_dir: Path
     colmap_path: Path | None = None
     options: RoomStructureOptions = field(default_factory=RoomStructureOptions)
+    # Runs in the job thread before the job reports success (e.g. to start the conversion's objects stage).
+    on_success: Callable[[dict[str, Any]], None] | None = None
 
 
 @dataclass
@@ -140,6 +142,13 @@ class RoomStructureJobs:
                 job, status="failed", error="Room structure analysis failed unexpectedly.", finished_at=time.time()
             )
         else:
+            if spec.on_success:
+                try:
+                    spec.on_success(payload)
+                except Exception:  # noqa: BLE001 - the structure result stays valid; follow-up stages log their own errors
+                    import logging
+
+                    logging.getLogger(__name__).exception("on_success hook of job %s failed", job.id)
             self._update(job, status="succeeded", stage="done", progress=1.0, result=payload, finished_at=time.time())
 
 
