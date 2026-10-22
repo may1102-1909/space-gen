@@ -326,3 +326,39 @@ def test_drop_wall_points_removes_only_points_near_wall_faces():
     )
     kept = drop_wall_points(points, [wall])
     np.testing.assert_allclose(kept, points[[2, 3]])
+
+
+# Ported from main's dropped T11 suite.
+
+
+def test_single_view_false_positive_is_rejected():
+    points, frames = build_scene(0)
+
+    class OneViewLamp(FakeDetector):
+        def detect(self, frame, labels):
+            out = super().detect(frame, labels)
+            if frame.name == frames[2].name:  # a lamp "seen" in one keyframe only
+                out.append(detectors.Detection2D("lamp", 0.7, (300.0, 200.0, 340.0, 300.0)))
+            return out
+
+    others = [o for o in OBJECTS if o.label != "lamp"]
+    results = run_detection(OneViewLamp(others), frames, LABELS, points)
+    assert {r.label for r in results} == {o.label for o in others}
+
+
+def test_no_detections_gives_empty_result():
+    points, frames = build_scene(0)
+    out = to_contracts(run_detection(FakeDetector([]), frames, LABELS, points))
+    assert out == {"detections": [], "maskRegions": []}
+
+
+def test_low_opacity_splats_are_not_loaded(tmp_path):
+    from plyfile import PlyData, PlyElement
+
+    from services.object_detection.pipeline import load_splat_points
+
+    vertex = np.zeros(4, dtype=[("x", "f4"), ("y", "f4"), ("z", "f4"), ("opacity", "f4")])
+    vertex["x"] = [0, 1, 2, 3]
+    vertex["opacity"] = [4.0, -4.0, 4.0, -4.0]  # logits: opaque, floater, opaque, floater
+    PlyData([PlyElement.describe(vertex, "vertex")]).write(str(tmp_path / "s.ply"))
+    np.testing.assert_allclose(load_splat_points(tmp_path / "s.ply")[:, 0], [0, 2])
