@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest';
 import type { ConversionJobStatus, RoomStructureResult } from '@/lib/contracts';
-import { importFormat, importSplat, pointsToPly, pollConversion, type ImportProgress } from '@/lib/scan/splatImport';
+import { conversionMessage, importFormat, importSplat, ObjectsStageError, pointsToPly, pollConversion, type ImportProgress } from '@/lib/scan/splatImport';
 
 const RESULT: RoomStructureResult = {
   interpretation: {
@@ -51,6 +51,17 @@ describe('pollConversion', () => {
   it('rejects with the job error on failure', async () => {
     const fetchStatus = vi.fn().mockResolvedValue(job('failed', { error: 'Too few points' }));
     await expect(pollConversion(job('running'), { fetchStatus, wait: noWait })).rejects.toThrow('Too few points');
+  });
+
+  it('keeps the room structure when only the GPU objects stage failed', async () => {
+    const failed = job('failed', { result: RESULT, stage: 'objects', error: 'Cannot reach the GPU worker' });
+    failed.stages[1].status = 'completed';
+    failed.stages[2] = { name: 'objects', status: 'failed', detail: 'GPU worker unreachable.' };
+    const error = await pollConversion(job('running'), { fetchStatus: vi.fn().mockResolvedValue(failed), wait: noWait }).catch((e) => e);
+    expect(error).toBeInstanceOf(ObjectsStageError);
+    expect(error.message).toBe('Cannot reach the GPU worker');
+    expect(error.job.result).toEqual(RESULT);
+    expect(conversionMessage({ ...failed, status: 'running' })).toBe('GPU worker unreachable.');
   });
 
   it('rejects a completed job without a result', async () => {

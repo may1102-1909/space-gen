@@ -220,3 +220,18 @@ class GeometricMaskDetector(FakeMaskDetector):
     def __init__(self, splat: Splat, renderer: Renderer):
         gt, names = geometric_instances(splat)
         super().__init__(splat, gt, renderer, names=names, dilate_px=0, miss_rate=0.0, false_positive_rate=0.0)
+
+
+def write_room_ply(path) -> None:
+    """The synthetic room with a sofa, table and lamp, dense enough for the room-structure fit."""
+    from gpu_worker.splat import save_ply
+
+    save_ply(build_scene(shell_step=0.035)[0], path)
+
+
+if __name__ == "__main__":
+    # E2E fixture: `python -m gpu_worker.synthetic <out.ply>`
+    import sys
+
+    write_room_ply(sys.argv[1])
+    print(sys.argv[1])

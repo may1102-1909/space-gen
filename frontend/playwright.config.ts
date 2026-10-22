@@ -51,6 +51,10 @@ export default defineConfig({
         DATA_DIR: process.env.SPACEGEN_E2E_DATA_DIR,
         CORS_ORIGINS: `http://127.0.0.1:${port},http://localhost:${port}`,
         GEMINI_API_KEY: '',
+        // The objects stage runs the CPU worker pipeline in-process: no Colab, no tunnel.
+        GPU_WORKER_MODE: 'fake',
+        GPU_WORKER_URL: '',
+        GPU_WORKER_TOKEN: '',
       },
     },
     {

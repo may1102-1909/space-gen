@@ -13,7 +13,8 @@ import { ShareDialog } from '@/components/share/ShareDialog';
 import { EditorLayout } from '@/components/layout/EditorLayout';
 import { useSpaceGenStore } from '@/lib/store';
 import type { AssetRef, MaskRegion, Viewpoint } from '@/lib/contracts';
-import { loadProject, ProjectConflictError, saveProject, type ProjectDocument } from '@/lib/projects/api';
+import { API_BASE, loadProject, ProjectConflictError, saveProject, type ProjectDocument } from '@/lib/projects/api';
+import { applySegmentedObjects, segmentedAssetRefs } from '@/lib/scan/segmentedObjects';
 import { deriveInterpretationFromScene } from '@/lib/pascal/scanConverter';
 import { nodeViews } from '@/lib/pascal/nodes';
 import { editHistoryHost, readEditHistory } from '@/lib/pascal/sceneBridge';
@@ -249,6 +250,8 @@ export default function ProjectEditorPage() {
     const base = documentRef.current;
     if (!base || !job.result) return;
     const { interpretation, scanToScene } = job.result;
+    const objects = job.objects ?? [];
+    const meshAssets = segmentedAssetRefs(objects, API_BASE);
     // The manifest carries the new interpretation until "Build editable room" turns it into Pascal nodes.
     const next: ProjectDocument = {
       ...base,
@@ -257,6 +260,7 @@ export default function ProjectEditorPage() {
         scan: { ...base.manifest.scan, url: scan.url, format, scanToScene, scaleSource: 'none' },
         interpretation,
         maskRegions: [],
+        assets: [...base.manifest.assets.filter((a) => !meshAssets.some((m) => m.url === a.url)), ...meshAssets],
       },
     };
     documentRef.current = next;
@@ -264,6 +268,8 @@ export default function ProjectEditorPage() {
     const scanId = replaceScanNode(scan.url, format);
     // Auto-level: the suggested placement is its own undo step; the alignment tool fine-tunes it.
     setScanAlignment(scanId, scanToScene);
+    // GPU-separated objects become Pascal items with masks hiding their splats: one more undo step.
+    if (objects.length || job.surfaces?.length) applySegmentedObjects(objects, API_BASE, job.surfaces ?? []);
     setReviewMode(true);
   }, []);
 

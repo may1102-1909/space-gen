@@ -79,6 +79,8 @@ export function replaceScanNode(url: string, format: string): string {
   const stale = Object.values(scene.nodes).filter((node) => {
     if (!node) return false;
     if (node.type === 'scan') return true;
+    // Objects separated from the old scan (lib/scan/segmentedObjects) go with it.
+    if ((node as { metadata?: Record<string, unknown> }).metadata?.segmentedObject) return true;
     const kind = getInterpretationMeta(node as { metadata?: object })?.kind;
     return kind === 'outline' || kind === 'zone' || kind === 'wall';
   });

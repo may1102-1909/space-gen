@@ -91,6 +91,31 @@ export async function startConversion(projectId: string, scanAssetId: string, po
   }));
 }
 
+/** Re-runs a failed objects stage (worker offline, tunnel expired, timeout); the scan upload resumes. */
+export async function retryObjects(jobId: string): Promise<ConversionJobStatus> {
+  return requestJson(await fetch(`${API_BASE}/api/room-structure/conversions/${encodeURIComponent(jobId)}/objects/retry`, { method: 'POST' }));
+}
+
+/** The room structure is ready but separating objects failed: the user can retry or keep the room without them. */
+export class ObjectsStageError extends Error {
+  imported?: ImportedScan;
+  constructor(readonly job: ConversionJobStatus) {
+    super(job.error || 'Separating objects failed.');
+    this.name = 'ObjectsStageError';
+  }
+}
+
+export function objectsStage(job: ConversionJobStatus | undefined) {
+  return job?.stages.find((s) => s.name === 'objects');
+}
+
+/** The human-readable line for the stage currently running. */
+export function conversionMessage(job: ConversionJobStatus): string {
+  const objects = objectsStage(job);
+  if (job.stage === 'objects' && objects?.detail) return objects.detail;
+  return job.stages.find((s) => s.name === 'structure')?.detail || 'Converting…';
+}
+
 export async function fetchConversion(jobId: string): Promise<ConversionJobStatus> {
   return requestJson(await fetch(`${API_BASE}/api/room-structure/conversions/${encodeURIComponent(jobId)}`, { cache: 'no-store' }));
 }
@@ -108,7 +133,8 @@ export interface PollOptions {
 
 /** Polls until the job is completed (resolves) or failed (rejects with the job's error). */
 export async function pollConversion(initial: ConversionJobStatus, options: PollOptions = {}): Promise<ConversionJobStatus> {
-  const { intervalMs = 750, timeoutMs = 10 * 60_000, signal, onUpdate, fetchStatus = fetchConversion, wait = sleep } = options;
+  // The backend bounds every stage itself (GPU job timeout, offline detection); this only guards a dead backend.
+  const { intervalMs = 750, timeoutMs = 4 * 60 * 60_000, signal, onUpdate, fetchStatus = fetchConversion, wait = sleep } = options;
   const deadline = Date.now() + timeoutMs;
   let job = initial;
   for (;;) {
@@ -117,7 +143,10 @@ export async function pollConversion(initial: ConversionJobStatus, options: Poll
       if (!job.result) throw new Error('Conversion finished without a room structure.');
       return job;
     }
-    if (job.status === 'failed') throw new Error(job.error || 'Conversion failed.');
+    if (job.status === 'failed') {
+      if (job.result && objectsStage(job)?.status === 'failed') throw new ObjectsStageError(job);
+      throw new Error(job.error || 'Conversion failed.');
+    }
     if (Date.now() > deadline) throw new Error('Conversion timed out.');
     await wait(intervalMs);
     if (signal?.aborted) throw new DOMException('Import cancelled.', 'AbortError');
@@ -142,9 +171,10 @@ export async function importSplat(
 ): Promise<ImportedScan> {
   const { upload = uploadProjectAsset, decode = decodeSplatPoints, start = startConversion, poll = pollConversion } = deps;
   const format = importFormat(filename);
+  let scan: UploadedAsset | undefined;
   try {
     onProgress({ phase: 'uploading', message: `Uploading ${filename}…` });
-    const scan = await upload(projectId, file, filename);
+    scan = await upload(projectId, file, filename);
     let pointsAssetId: string | undefined;
     if (format !== 'ply') {
       // The structure service reads PLY; decode .sog/.spz centers here and store them beside the scan.
@@ -155,12 +185,13 @@ export async function importSplat(
     onProgress({ phase: 'converting', message: 'Fitting walls, floor and openings…' });
     const job = await poll(await start(projectId, scan.filename, pointsAssetId), {
       signal,
-      onUpdate: (update) => onProgress({ phase: 'converting', message: update.stages.find((s) => s.name === 'structure')?.detail || 'Converting…', job: update }),
+      onUpdate: (update) => onProgress({ phase: 'converting', message: conversionMessage(update), job: update }),
     });
     onProgress({ phase: 'ready', message: 'Room ready to review.', job });
     return { scan, format, job };
   } catch (error) {
-    onProgress({ phase: 'failed', message: (error as Error).message });
+    if (error instanceof ObjectsStageError && scan) error.imported = { scan, format, job: error.job };
+    onProgress({ phase: 'failed', message: (error as Error).message, job: (error as ObjectsStageError).job });
     throw error;
   }
 }

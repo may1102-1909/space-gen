@@ -19,12 +19,12 @@ from pydantic import BaseModel, Field
 from models.contracts import ConversionJobStatus, ConversionStage, RoomStructureResult
 from routes.projects import get_project_repository
 from routes.reconstruction import _safe_resolve_child, _validate_path_component
+from services.gpu_dispatch import ObjectsDispatcher, ObjectsSpec, ObjectsState, get_dispatcher
 from services.project_repository import (
     InvalidProjectIdError,
     ProjectNotFoundError,
     ProjectRepository,
 )
-from services.gpu_dispatch import ObjectsDispatcher, ObjectsSpec, ObjectsState, get_dispatcher
 from services.room_structure import RoomStructureOptions
 from services.room_structure.jobs import LATEST_RELATIVE, JobSpec, RoomStructureJobs, get_jobs
 
@@ -223,7 +223,9 @@ def conversion_status(
         objects_stage = ConversionStage(name="objects", status="pending", detail=objects_note)
         done, objects_failed = structure_done, False
     else:
-        objects_stage = ConversionStage(name="objects", status=objects.status, detail=objects.detail, error=objects.error)
+        objects_stage = ConversionStage(
+            name="objects", status=objects.status, detail=objects.detail, error=objects.error
+        )
         done, objects_failed = structure_done and objects.status == "completed", objects.status == "failed"
     stages = [
         ConversionStage(name="uploaded", status="completed", detail="Scan stored in the project asset store."),

@@ -3,7 +3,16 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { CheckCircle2, Circle, Loader2, Sparkles, UploadCloud, X, XCircle } from 'lucide-react';
 import type { ConversionStage } from '@/lib/contracts';
-import { IMPORT_ACCEPT, importSplat, type ImportedScan, type ImportProgress } from '@/lib/scan/splatImport';
+import {
+  conversionMessage,
+  IMPORT_ACCEPT,
+  importSplat,
+  ObjectsStageError,
+  pollConversion,
+  retryObjects,
+  type ImportedScan,
+  type ImportProgress,
+} from '@/lib/scan/splatImport';
 
 interface ScanToEditableModalProps {
   isOpen: boolean;
@@ -31,6 +40,8 @@ function StageIcon({ status }: { status: ConversionStage['status'] }) {
 export function ScanToEditableModal({ isOpen, onClose, projectId, onImported }: ScanToEditableModalProps) {
   const [file, setFile] = useState<File | null>(null);
   const [progress, setProgress] = useState<ImportProgress | null>(null);
+  // Room structure is ready but the GPU objects stage failed: retry it or keep the room without objects.
+  const [objectsFailed, setObjectsFailed] = useState<ImportedScan | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const busy = progress !== null && progress.phase !== 'failed' && progress.phase !== 'ready';
 
@@ -40,24 +51,45 @@ export function ScanToEditableModal({ isOpen, onClose, projectId, onImported }: 
   const close = () => {
     abortRef.current?.abort();
     setProgress(null);
+    setObjectsFailed(null);
     onClose();
   };
 
-  const run = async () => {
-    if (!file) return;
+  const finish = (imported: ImportedScan) => {
+    onImported(imported);
+    setProgress(null);
+    setObjectsFailed(null);
+    setFile(null);
+    onClose();
+  };
+
+  const track = async (work: (signal: AbortSignal) => Promise<ImportedScan>) => {
     const controller = new AbortController();
     abortRef.current = controller;
+    setObjectsFailed(null);
     try {
-      const imported = await importSplat(projectId, file, file.name, setProgress, { signal: controller.signal });
-      if (controller.signal.aborted) return;
-      onImported(imported);
-      setProgress(null);
-      setFile(null);
-      onClose();
-    } catch {
-      // importSplat already reported the failure through setProgress.
+      const imported = await work(controller.signal);
+      if (!controller.signal.aborted) finish(imported);
+    } catch (error) {
+      // Progress already shows the failure; an objects-stage failure also offers retry / continue.
+      if (error instanceof ObjectsStageError && error.imported) setObjectsFailed(error.imported);
     }
   };
+
+  const run = async () => file && track((signal) => importSplat(projectId, file, file.name, setProgress, { signal }));
+
+  const retry = (failed: ImportedScan) => track(async (signal) => {
+    const restarted = await retryObjects(failed.job.jobId);
+    const job = await pollConversion(restarted, {
+      signal,
+      onUpdate: (update) => setProgress({ phase: 'converting', message: conversionMessage(update), job: update }),
+    }).catch((error) => {
+      if (error instanceof ObjectsStageError) error.imported = { ...failed, job: error.job };
+      setProgress({ phase: 'failed', message: (error as Error).message, job: (error as ObjectsStageError).job });
+      throw error;
+    });
+    return { ...failed, job };
+  });
 
   const stages = progress?.job?.stages;
   return (
@@ -70,7 +102,7 @@ export function ScanToEditableModal({ isOpen, onClose, projectId, onImported }: 
             </div>
             <div>
               <h3 className="text-sm font-semibold">Convert Scan to Editable Space</h3>
-              <p className="text-xs text-text-muted">Upload a Gaussian splat; walls, floor and openings become editable Pascal nodes.</p>
+              <p className="text-xs text-text-muted">Upload a Gaussian splat; walls, floor and openings become editable Pascal nodes; with the GPU worker on, furniture becomes movable items.</p>
             </div>
           </div>
           <button onClick={close} aria-label="Close" className="rounded-lg p-1 text-text-muted hover:bg-surface-elevated hover:text-text-primary">
@@ -103,11 +135,22 @@ export function ScanToEditableModal({ isOpen, onClose, projectId, onImported }: 
                   <li key={stage.name} data-testid={`stage-${stage.name}`} data-status={stage.status} className="flex items-center gap-2">
                     <StageIcon status={stage.status} />
                     <span>{STAGE_LABELS[stage.name]}</span>
-                    {stage.name === 'objects' && stage.status === 'pending' && <span className="text-text-muted">· {stage.detail}</span>}
+                    {stage.name === 'objects' && stage.detail && <span data-testid="objects-detail" className="text-text-muted">· {stage.detail}</span>}
                   </li>
                 ))}
               </ol>
             )}
+          </div>
+        )}
+
+        {objectsFailed && (
+          <div className="flex items-center justify-end gap-2.5 text-xs">
+            <button onClick={() => finish({ ...objectsFailed, job: { ...objectsFailed.job, objects: [], surfaces: [] } })} className="rounded-xl border border-border px-4 py-2 font-medium text-text-secondary hover:bg-surface-elevated">
+              Continue without objects
+            </button>
+            <button onClick={() => void retry(objectsFailed)} className="rounded-xl bg-accent px-4 py-2 font-medium text-white hover:bg-accent-light">
+              Retry objects
+            </button>
           </div>
         )}
 

@@ -240,7 +240,11 @@ class ObjectsDispatcher:
         try:
             objects = []
             for i, raw in enumerate(raw_objects):
-                self._set(cid, detail=f"Downloading {i + 1}/{len(raw_objects)} meshes", progress=85 + 10 * i // max(len(raw_objects), 1))
+                self._set(
+                    cid,
+                    detail=f"Downloading {i + 1}/{len(raw_objects)} meshes",
+                    progress=85 + 10 * i // max(len(raw_objects), 1),
+                )
                 filename = self._fetch_and_save(client, spec, job_id, raw["mesh"], ".glb", temp)
                 objects.append(self._segmented(cid, i, raw, url + filename))
             surfaces = []
@@ -312,5 +316,7 @@ def get_dispatcher() -> ObjectsDispatcher:
     global _dispatcher
     with _dispatcher_lock:
         if _dispatcher is None:
-            _dispatcher = ObjectsDispatcher(settings.gpu_worker_mode, settings.gpu_worker_url, settings.gpu_worker_token)
+            _dispatcher = ObjectsDispatcher(
+                settings.gpu_worker_mode, settings.gpu_worker_url, settings.gpu_worker_token
+            )
         return _dispatcher

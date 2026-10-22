@@ -10,6 +10,7 @@ import type {
   Provenance,
   RoomInterpretation,
   ScanAsset,
+  ShellSurfaceTexture,
   WallInterpretation,
 } from '@/lib/contracts';
 import { IDENTITY_SCAN_TO_SCENE } from './scanAlignment';
@@ -143,12 +144,18 @@ export function planInterpretationNodes(
     ? Math.min(...interpretation.walls.map((w) => w.confidence))
     : 0;
   const slabId = 'slab_scan_outline';
+  const existingScan = options.scanNodeId
+    ? nodes[options.scanNodeId]
+    : Object.values(nodes).find((n) => n?.type === 'scan');
+  // GPU-baked floor texture in Pascal's world-planar slab UVs (ADR 002 §4); walls are a follow-up.
+  const floorTexture = (existingScan?.metadata?.shellTextures as ShellSurfaceTexture[] | undefined)?.find((s) => s.target === 'slab');
   creates.push({
     node: asNode({
       id: slabId,
       type: 'slab',
       name: 'Scanned floor',
       thickness: 0.05,
+      ...(floorTexture ? { material: { texture: { url: floorTexture.textureAsset, repeat: floorTexture.repeat } } } : {}),
       polygon: interpretation.outline.map((p) => [p[0], p[1]]),
       metadata: {
         [INTERPRETATION_META_KEY]: {
@@ -237,9 +244,6 @@ export function planInterpretationNodes(
     creates.push({ node, parentId: wallNodeId as AnyNodeId });
   }
 
-  const existingScan = options.scanNodeId
-    ? nodes[options.scanNodeId]
-    : Object.values(nodes).find((n) => n?.type === 'scan');
   const scanNodeId = existingScan?.id || 'scan_room';
   const detections = interpretation.detections.map((d) => ({ ...d }));
   if (existingScan) {
